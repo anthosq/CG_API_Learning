@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="F:\CG_API_learning\vulkan_learning\build\CMakeFiles\91b8b3637842b0144690041466736d98\update_mappings.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="F:\CG_API_learning\vulkan_learning\3rdparty\glfw\src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="F:\CG_API_learning\vulkan_learning\3rdparty\glfw\src\mappings.h.in">
+      <Filter>Header Files</Filter>
+    </None>
+    <None Include="F:\CG_API_learning\vulkan_learning\3rdparty\glfw\CMake\GenerateMappings.cmake" />
+    <None Include="F:\CG_API_learning\vulkan_learning\build\3rdparty\glfw\src\CMakeFiles\update_mappings" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{397AF62B-F221-376D-9536-6FBCE1EF8E31}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{91E9D2F5-FF91-3396-B137-899EA6B51419}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
