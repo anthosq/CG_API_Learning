@@ -1,9 +1,0 @@
-F:/CG_API_learning/OpenGL_learning/build/CMakeFiles/Test.dir
-F:/CG_API_learning/OpenGL_learning/build/CMakeFiles/ALL_BUILD.dir
-F:/CG_API_learning/OpenGL_learning/build/CMakeFiles/ZERO_CHECK.dir
-F:/CG_API_learning/OpenGL_learning/build/3rdparty/CMakeFiles/glad.dir
-F:/CG_API_learning/OpenGL_learning/build/3rdparty/glm/CMakeFiles/ALL_BUILD.dir
-F:/CG_API_learning/OpenGL_learning/build/3rdparty/glm/glm/CMakeFiles/glm.dir
-F:/CG_API_learning/OpenGL_learning/build/3rdparty/glfw/CMakeFiles/ALL_BUILD.dir
-F:/CG_API_learning/OpenGL_learning/build/3rdparty/glfw/src/CMakeFiles/glfw.dir
-F:/CG_API_learning/OpenGL_learning/build/3rdparty/glfw/src/CMakeFiles/update_mappings.dir

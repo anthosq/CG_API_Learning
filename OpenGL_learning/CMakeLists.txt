@@ -25,18 +25,19 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJ_ROOT_DIR}/bin")
 # add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 
 
-# file(GLOB_RECURSE sources CONFIGURE_DEPENDS
-#     "${SOURCE_DIR}/ *.h"
-#     "${SOURCE_DIR}/ *.cpp"
-# )
+file(GLOB_RECURSE sources CONFIGURE_DEPENDS
+    "${SOURCE_DIR}/*.h"
+    "${SOURCE_DIR}/*.cpp"
+)
 
 add_subdirectory(${THIRD_PARTY_DIR})
+
 
 add_executable(Test "${SOURCE_DIR}/main.cpp")
 
 
 # 添加源文件到可执行文件
-# target_sources(Test PUBLIC ${sources})
+target_sources(Test PUBLIC ${sources})
 
 target_include_directories(Test 
     PUBLIC 
