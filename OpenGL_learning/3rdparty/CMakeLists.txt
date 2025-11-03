@@ -21,3 +21,11 @@ if(NOT TARGET glad)
     include(glad.cmake)
     set_target_properties(glad PROPERTIES FOLDER ${third_party_dir}/glad)
 endif()
+
+if(NOT TARGET stb_image)
+    add_library(stb_image STATIC ${CMAKE_CURRENT_SOURCE_DIR}/stb_image/stb_image.cpp)
+    target_include_directories(stb_image PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/stb_image
+    )
+    set_target_properties(stb_image PROPERTIES FOLDER ${third_party_dir}/stb_image)
+endif()

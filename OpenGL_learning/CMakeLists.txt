@@ -50,4 +50,5 @@ target_link_libraries(Test
         glad
         glfw
         glm
+        stb_image
 )
