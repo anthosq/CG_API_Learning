@@ -20,8 +20,9 @@ class Shader {
         void setBool(const std::string &name, bool value) const;
         void setInt(const std::string &name, int value) const;
         void setFloat(const std::string &name, float value) const;
-        void setFloat2(const std::string &name, const glm::vec2 &value) const;
-        void setFloat3(const std::string &name, const glm::vec3 &value) const;
+        void setFloat2(const std::string &name, float value1, float value2) const;
+        void setFloat3(const std::string &name, float value1, float value2, float value3) const;
+        void setMat3(const std::string &name, const glm::mat3 &mat) const;
         void setMat4(const std::string &name, const glm::mat4 &mat) const;
 
         unsigned int shader_id;

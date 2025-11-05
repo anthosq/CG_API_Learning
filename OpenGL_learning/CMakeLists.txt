@@ -51,4 +51,5 @@ target_link_libraries(Test
         glfw
         glm
         stb_image
+        imgui
 )
