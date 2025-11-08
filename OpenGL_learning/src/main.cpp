@@ -8,6 +8,8 @@
 #include "Camera.h"
 #include "imgui_layer.h"
 #include "stb_image.h"
+#include "Mesh.h"
+#include "Grid.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -21,13 +23,16 @@ static float g_lastY = 300.0f;
 
 class OpenGLApp {
 public:
-    OpenGLApp() : window(nullptr), VAO(0), VBO(0), EBO(0), 
-                  camera(glm::vec3(0.0f, 0.0f, 3.0f)),
+    OpenGLApp() : window(nullptr), VAO(0), VBO(0), EBO(0),
+                  camera(glm::vec3(5.0f, 5.0f, 5.0f)),
                   lastFrameTime(0.0f), deltaTime(0.0f),
                   imguiLayer(nullptr),
-                  cameraControlEnabled(false) {  // 默认关闭相机控制
+                  cameraControlEnabled(false)
+    { // 默认关闭相机控制
         g_camera = &camera;
-        
+        camera.Yaw = -135.0f;
+        camera.Pitch = -30.0f;
+
         // 初始化光照和材质参数
         lightPos = glm::vec3(1.2f, 0.0f, 2.0f);
         lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
@@ -45,7 +50,7 @@ public:
         lightRotationSpeed = 1.0f;
         lightRotationRadius = 2.0f;
     }
-    
+
     ~OpenGLApp() { cleanup(); }
 
     void run() {
@@ -64,9 +69,19 @@ private:
     unsigned int VAO, VBO, EBO;
     unsigned int diffuseMap, specularMap;
     Shader shader, light_shader, lamp_shader;
-    unsigned int lightVAO;
+    
+    Shader model_shader;
+    Model ourModel;
+    unsigned int lightVAO, lightVBO;
     Camera camera;
     ImguiLayer* imguiLayer;
+
+    Grid *grid = nullptr;
+    Shader grid_shader;
+    bool showGrid = true;
+    float gridSize = 100.0f;
+    float gridCellSize = 1.0f;
+
 
     // 光照参数
     glm::vec3 lightPos;
@@ -145,7 +160,6 @@ private:
     }
 
     void setupBuffers() {
-        glEnable(GL_DEPTH_TEST);
 
         float vertices[] = {
             // positions          // normals           // texture coords
@@ -193,24 +207,25 @@ private:
         };
 
         // 加载着色器
-        shader = Shader(
-            std::filesystem::path("assets/shaders/test_vertex.glsl"),
-            std::filesystem::path("assets/shaders/test_fragment.glsl")
-        );
+        // shader = Shader(
+        //     std::filesystem::path("assets/shaders/test_vertex.glsl"),
+        //     std::filesystem::path("assets/shaders/test_fragment.glsl")
+        // );
 
         // 设置 VAO & VBO
-        glGenVertexArrays(1, &VAO);
-        glGenBuffers(1, &VBO);
+        // glGenVertexArrays(1, &VAO);
+        // glGenBuffers(1, &VBO);
 
-        glBindVertexArray(VAO);
-        glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        // glBindVertexArray(VAO);
+        // glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        // glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
         // 配置顶点属性
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-        glEnableVertexAttribArray(1);
+
+        // glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+        // glEnableVertexAttribArray(0);
+        // glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+        // glEnableVertexAttribArray(1);
 
         // 加载纹理
         // loadTexture(texture1, "assets/pic/container.jpg", GL_RGB);
@@ -222,8 +237,9 @@ private:
         // shader.setInt("texture2", 1);
 
         // 解绑
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glBindVertexArray(0);
+
+        // glBindBuffer(GL_ARRAY_BUFFER, 0);
+        // glBindVertexArray(0);
 
         // 光源着色器和缓冲区设置
         light_shader = Shader(
@@ -232,8 +248,11 @@ private:
         );
 
         glGenVertexArrays(1, &lightVAO);
+        glGenBuffers(1, &lightVBO);
+        glBindBuffer(GL_ARRAY_BUFFER, lightVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
         glBindVertexArray(lightVAO);
-        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBindBuffer(GL_ARRAY_BUFFER, lightVBO);
 
         loadTexture(diffuseMap, "assets/pic/container2.png", GL_RGBA);
         loadTexture(specularMap, "assets/pic/container2_specular.png", GL_RGBA);
@@ -256,6 +275,21 @@ private:
         );
         lamp_shader.use();
 
+        model_shader = Shader(
+            std::filesystem::path("assets/shaders/model_loading_vertex.glsl"),
+            std::filesystem::path("assets/shaders/model_loading_frag.glsl")
+        );
+
+        // model_shader.use();
+        // ourModel = Model("assets/model/backpack/backpack.obj");
+        // ourModel = Model("assets/model/Hana/Hana.fbx");
+
+        grid_shader = Shader(
+            std::filesystem::path("assets/shaders/grid_vertex.glsl"),
+            std::filesystem::path("assets/shaders/grid_fragment.glsl")
+        );
+
+        grid = new Grid(gridSize, gridCellSize);
     }
 
     void loadTexture(unsigned int& textureID, const char* path, GLenum format) {
@@ -336,6 +370,8 @@ private:
     void render() {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LESS);
 
         glm::vec3 cubePositions[] = {
             glm::vec3(0.0f, 0.0f, 0.0f),
@@ -365,18 +401,26 @@ private:
             100.0f
         );
 
+        if (showGrid) {
+            grid->Draw(grid_shader, view, projection);
+        }
+
         // 更新光源位置
         // if (autoRotateLight) {
         //     lightPos.x = cos(glfwGetTime() * lightRotationSpeed) * lightRotationRadius;
         //     lightPos.z = sin(glfwGetTime() * lightRotationSpeed) * lightRotationRadius;
         // }
 
-        lightPos = {1.0f, 2.0f, 2.0f};
+        // lightPos = {0.0f, 0.0f, 0.0f};
 
         // 绘制光源立方体
+
         lamp_shader.use();
         lamp_shader.setMat4("view", view);
         lamp_shader.setMat4("projection", projection);
+        
+        glBindVertexArray(lightVAO);  // 先绑定 VAO
+        
         for (int i = 0; i < 4; i++) {
             glm::mat4 model = glm::mat4(1.0f);
             model = glm::translate(model, pointLightPositions[i]);
@@ -384,30 +428,25 @@ private:
             lamp_shader.setMat4("model", model);
             lamp_shader.setFloat3("lightColor", lightColor.x, lightColor.y, lightColor.z);
             
-            glBindVertexArray(lightVAO);
             glDrawArrays(GL_TRIANGLES, 0, 36);
         }
         
+        glBindVertexArray(0);  // 解绑
+        
         // 绘制被照亮的物体
+
         light_shader.use();
-        light_shader.setMat4("view", view);
-        light_shader.setMat4("projection", projection);
         
-        // glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(model)));
-        // light_shader.setMat3("normalMatrix", normalMatrix);
-        // light_shader.setMat4("model", model);
-        
-        // 设置光源属性
-        
-        
-        // 设置材质属性
-        light_shader.setInt("material.diffuse", 0);
+        // 先激活并绑定纹理
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, diffuseMap);
-        light_shader.setInt("material.specular", 1);
+        light_shader.setInt("material.diffuse", 0);
+        
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, specularMap);
-        light_shader.setFloat3("material.specular", materialSpecular.x, materialSpecular.y, materialSpecular.z);
+        light_shader.setInt("material.specular", 1);
+        
+        // 设置材质属性
         light_shader.setFloat("material.shininess", materialShininess);
         
         light_shader.setFloat3("dirLight.direction", -0.2f, -1.0f, -0.3f);
@@ -415,15 +454,15 @@ private:
         light_shader.setFloat3("dirLight.diffuse", lightDiffuse.x, lightDiffuse.y, lightDiffuse.z);
         light_shader.setFloat3("dirLight.specular", lightSpecular.x, lightSpecular.y, lightSpecular.z);
 
-        // point lights
-        for (unsigned int i = 0; i < 4; i++)
-        {
+        // 设置点光源
+        for (unsigned int i = 0; i < 4; i++) {
             std::string number = std::to_string(i);
-            light_shader.setFloat3("pointLight[" + number + "].position", pointLightPositions[i].x, pointLightPositions[i].y, pointLightPositions[i].z);
-            light_shader.setFloat3("pointLight[" + number + "].ambient", lightAmbient.x, lightAmbient.y, lightAmbient.z);
+            light_shader.setFloat3("pointLight[" + number + "].position", 
+                pointLightPositions[i].x, pointLightPositions[i].y, pointLightPositions[i].z);
+            light_shader.setFloat3("pointLight[" + number + "].ambient", 
+                lightAmbient.x, lightAmbient.y, lightAmbient.z);
             light_shader.setFloat3("pointLight[" + number + "].diffuse", 0.8f, 0.8f, 0.8f);
             light_shader.setFloat3("pointLight[" + number + "].specular", 1.0f, 1.0f, 1.0f);
-
             light_shader.setFloat("pointLight[" + number + "].constant", 1.0f);
             light_shader.setFloat("pointLight[" + number + "].linear", 0.09f);
             light_shader.setFloat("pointLight[" + number + "].quadratic", 0.032f);
@@ -442,24 +481,52 @@ private:
 
         // 设置观察位置
         light_shader.setFloat3("viewPos", camera.Position.x, camera.Position.y, camera.Position.z);
+        
+        // 设置视图和投影矩阵
+        light_shader.setMat4("view", view);
+        light_shader.setMat4("projection", projection);
 
+        // 绑定 VAO 并绘制
         glBindVertexArray(lightVAO);
-        // glDrawArrays(GL_TRIANGLES, 0, 36);
+        
+        // 绘制第一个立方体
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
+        glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(model)));
+        light_shader.setMat3("normalMatrix", normalMatrix);
+        light_shader.setMat4("model", model);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
 
-        for (unsigned int i = 0; i < 10; i++)
-        {
+        // 绘制其他立方体
+        for (unsigned int i = 0; i < 10; i++) {
             glm::mat4 model = glm::mat4(1.0f);
             model = glm::translate(model, cubePositions[i]);
             float angle = 20.0f * i;
             model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
-            light_shader.setMat4("model", model);
+            
             glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(model)));
             light_shader.setMat3("normalMatrix", normalMatrix);
+            light_shader.setMat4("model", model);
 
             glDrawArrays(GL_TRIANGLES, 0, 36);
         }
 
+        // model_shader.use();
+
+        // model = glm::mat4(1.0f);
+        // model = glm::translate(model, glm::vec3(0.0f, 10.0f, 0.0f));
+        // model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
+        // model_shader.setMat4("model", model);
+        // model_shader.setMat4("view", view);
+        // model_shader.setMat4("projection", projection);
+        // ourModel.Draw(model_shader);
+
         glBindVertexArray(0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
     }
 
     void OnImGuiRender() {
@@ -501,6 +568,21 @@ private:
             ImGui::ColorEdit3("Ambient", &lightAmbient.x);
             ImGui::ColorEdit3("Diffuse", &lightDiffuse.x);
             ImGui::ColorEdit3("Specular", &lightSpecular.x);
+        }
+
+        ImGui::Separator();
+
+        // 添加网格控制
+        if (ImGui::CollapsingHeader("Grid Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Show Grid", &showGrid);
+            
+            if (ImGui::SliderFloat("Grid Size", &gridSize, 10.0f, 200.0f)) {
+                grid->SetGridSize(gridSize);
+            }
+            
+            if (ImGui::SliderFloat("Cell Size", &gridCellSize, 0.1f, 10.0f)) {
+                grid->SetGridCellSize(gridCellSize);
+            }
         }
 
 
@@ -586,6 +668,7 @@ private:
         if (light_shader) glDeleteProgram(light_shader.shader_id);
         if (lamp_shader) glDeleteProgram(lamp_shader.shader_id);
         if (window) glfwDestroyWindow(window);
+        if (grid) delete grid;
         glfwTerminate();
     }
 };

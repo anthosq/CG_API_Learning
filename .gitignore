@@ -3,5 +3,7 @@ bin
 build
 OpenGL_learning/build
 OpenGL_learning/bin
+OpenGL_learning/assets/model
+OpenGL_learning/3rdparty/assimp/
 vulkan_learning/build
 vulkan_learning/bin

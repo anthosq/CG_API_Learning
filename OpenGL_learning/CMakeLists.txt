@@ -52,4 +52,5 @@ target_link_libraries(Test
         glm
         stb_image
         imgui
+        assimp
 )
