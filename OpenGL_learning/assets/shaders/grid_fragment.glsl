@@ -21,7 +21,6 @@ vec4 grid(vec3 fragPos, float scale) {
     
     vec4 color = vec4(gridColorThin, 1.0 - min(line, 1.0));
     
-    // 修正：使用固定的世界空间距离而不是 scale
     float axisWidth = 0.05; // 固定宽度 5cm
     
     // Z轴（蓝色）- 沿着 x=0 延伸

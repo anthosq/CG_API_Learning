@@ -69,6 +69,7 @@ private:
     unsigned int VAO, VBO, EBO;
     unsigned int diffuseMap, specularMap;
     Shader shader, light_shader, lamp_shader;
+    Shader single_color_shader;
     
     Shader model_shader;
     Model ourModel;
@@ -81,6 +82,15 @@ private:
     bool showGrid = true;
     float gridSize = 100.0f;
     float gridCellSize = 1.0f;
+
+    bool debugDepth = false;
+    Shader debugDepthShader;
+    unsigned int screenQuadVAO = 0;
+    unsigned int screenQuadVBO = 0;
+    
+    // 帧缓冲和深度纹理
+    unsigned int depthMapFBO = 0;
+    unsigned int depthTexture = 0;
 
 
     // 光照参数
@@ -280,16 +290,81 @@ private:
             std::filesystem::path("assets/shaders/model_loading_frag.glsl")
         );
 
-        // model_shader.use();
+        model_shader.use();
         // ourModel = Model("assets/model/backpack/backpack.obj");
-        // ourModel = Model("assets/model/Hana/Hana.fbx");
+        ourModel = Model("assets/model/Hana/Hana.fbx");
 
         grid_shader = Shader(
             std::filesystem::path("assets/shaders/grid_vertex.glsl"),
             std::filesystem::path("assets/shaders/grid_fragment.glsl")
         );
 
+        single_color_shader = Shader(
+            std::filesystem::path("assets/shaders/light_vertex.glsl"),
+            std::filesystem::path("assets/shaders/shader_single_color.glsl")
+        );
+
         grid = new Grid(gridSize, gridCellSize);
+
+        debugDepthShader = Shader(
+            std::filesystem::path("assets/shaders/screen_vertex.glsl"),
+            std::filesystem::path("assets/shaders/depth_debug_fragment.glsl")
+        );
+
+        float quadVertices[] = {
+            // positions
+            -1.0f, 1.0f, 0.0f,
+            -1.0f, -1.0f, 0.0f,
+            1.0f, -1.0f, 0.0f,
+
+            -1.0f, 1.0f, 0.0f,
+            1.0f, -1.0f, 0.0f,
+            1.0f, 1.0f, 0.0f};
+
+        glGenVertexArrays(1, &screenQuadVAO);
+        glGenBuffers(1, &screenQuadVBO);
+
+        glBindVertexArray(screenQuadVAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, screenQuadVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+
+        glBindVertexArray(0);
+        
+        // 创建深度纹理用于调试
+        setupDepthTexture();
+    }
+    
+    void setupDepthTexture() {
+        // 创建深度纹理
+        glGenTextures(1, &depthTexture);
+        glBindTexture(GL_TEXTURE_2D, depthTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 
+                     WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        
+        // 创建帧缓冲
+        glGenFramebuffers(1, &depthMapFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
+        
+        // 不需要颜色附件
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "Depth framebuffer is not complete!" << std::endl;
+        }
+        
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        
+        std::cout << "Depth texture created: " << depthTexture << std::endl;
     }
 
     void loadTexture(unsigned int& textureID, const char* path, GLenum format) {
@@ -368,10 +443,16 @@ private:
     }
 
     void render() {
+        // 先正常渲染场景（不显示深度调试时也需要渲染）
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
+        // glEnable(GL_STENCIL_TEST);
+        // glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+        // glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        // glStencilMask(0x00);
 
         glm::vec3 cubePositions[] = {
             glm::vec3(0.0f, 0.0f, 0.0f),
@@ -490,16 +571,9 @@ private:
         glBindVertexArray(lightVAO);
         
         // 绘制第一个立方体
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
-        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
-        glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(model)));
-        light_shader.setMat3("normalMatrix", normalMatrix);
-        light_shader.setMat4("model", model);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
 
         // 绘制其他立方体
-        for (unsigned int i = 0; i < 10; i++) {
+        for (unsigned int i = 1; i < 10; i++) {
             glm::mat4 model = glm::mat4(1.0f);
             model = glm::translate(model, cubePositions[i]);
             float angle = 20.0f * i;
@@ -513,7 +587,6 @@ private:
         }
 
         // model_shader.use();
-
         // model = glm::mat4(1.0f);
         // model = glm::translate(model, glm::vec3(0.0f, 10.0f, 0.0f));
         // model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
@@ -522,11 +595,99 @@ private:
         // model_shader.setMat4("projection", projection);
         // ourModel.Draw(model_shader);
 
+        // 绘制带轮廓的模型
+
+        // 注意, 模型的基准点问题, 这里scaling会导致模型轮廓位置不正确
+        // 想要实现正确的结果, 需要通过法线膨胀
+        // 单纯地法线缩放也不行, 对正方体需要合并顶点后再进行法线膨胀
+        // 1. 启用模板测试并清除模板值
+        glEnable(GL_STENCIL_TEST);
+        // glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+        // glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        // glStencilMask(0x00);
+        
+        glStencilMask(0xFF);
+        // 2. 第一遍：绘制模型，向模板缓冲写入1
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        glStencilMask(0xFF);
+        light_shader.use();
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
+        glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(model)));
+        light_shader.setMat3("normalMatrix", normalMatrix);
+        light_shader.setMat4("model", model);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        // 3. 第二遍：绘制放大的轮廓，只在模板值不等于1的地方绘制
+        glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+        glStencilMask(0x00);  // 禁止写入模板缓冲
+        glDisable(GL_DEPTH_TEST);  // 禁用深度测试以确保轮廓可见
+        
+        // single_color_shader.use();
+        // model = glm::mat4(1.0f);
+        // model = glm::translate(model, glm::vec3(0.0f, 10.0f, 0.0f));
+        // model = glm::scale(model, glm::vec3(1.05f, 1.05f, 1.05f));
+        // single_color_shader.setMat4("model", model);
+        // single_color_shader.setMat4("view", view);
+        // single_color_shader.setMat4("projection", projection);
+        // ourModel.Draw(single_color_shader);
+
+        single_color_shader.use();
+        single_color_shader.setMat4("view", view);
+        single_color_shader.setMat4("projection", projection);
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(1.02f, 1.02f, 1.02f));
+        normalMatrix = glm::mat3(glm::transpose(glm::inverse(model)));
+        single_color_shader.setMat3("normalMatrix", normalMatrix);
+        single_color_shader.setMat4("model", model);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        // 4. 恢复OpenGL状态
+        glStencilMask(0xFF);
+        glStencilFunc(GL_ALWAYS, 0, 0xFF);
+        glEnable(GL_DEPTH_TEST);
+
+
+        if (debugDepth)
+        {
+            visualizeDepthBuffer();
+        }
+
         glBindVertexArray(0);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, 0);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    
+    void visualizeDepthBuffer() {
+        // 将当前深度缓冲复制到深度纹理
+        glBindTexture(GL_TEXTURE_2D, depthTexture);
+        glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+        
+        // 禁用深度测试和深度写入
+        glDisable(GL_DEPTH_TEST);
+        
+        debugDepthShader.use();
+        debugDepthShader.setFloat("near", 0.1f);
+        debugDepthShader.setFloat("far", 100.0f);
+        debugDepthShader.setInt("visualizationMode", 0);
+        debugDepthShader.setInt("depthMap", 0);
+        
+        // 绑定深度纹理
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, depthTexture);
+        
+        // 绘制全屏四边形
+        glBindVertexArray(screenQuadVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
+        
+        // 恢复状态
+        glEnable(GL_DEPTH_TEST);
     }
 
     void OnImGuiRender() {
@@ -583,6 +744,12 @@ private:
             if (ImGui::SliderFloat("Cell Size", &gridCellSize, 0.1f, 10.0f)) {
                 grid->SetGridCellSize(gridCellSize);
             }
+        }
+
+        // depth检测
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Depth Debug", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Visualize Depth Buffer", &debugDepth);
         }
 
 
@@ -658,17 +825,28 @@ private:
 
     void cleanup() {
         delete imguiLayer;
+        if (grid) delete grid;
+        
         if (VBO) glDeleteBuffers(1, &VBO);
         if (EBO) glDeleteBuffers(1, &EBO);
         if (VAO) glDeleteVertexArrays(1, &VAO);
         if (lightVAO) glDeleteVertexArrays(1, &lightVAO);
+        if (lightVBO) glDeleteBuffers(1, &lightVBO);
+        if (screenQuadVAO) glDeleteVertexArrays(1, &screenQuadVAO);
+        if (screenQuadVBO) glDeleteBuffers(1, &screenQuadVBO);
         if (diffuseMap) glDeleteTextures(1, &diffuseMap);
         if (specularMap) glDeleteTextures(1, &specularMap);
+        if (depthTexture) glDeleteTextures(1, &depthTexture);
+        if (depthMapFBO) glDeleteFramebuffers(1, &depthMapFBO);
         if (shader) glDeleteProgram(shader.shader_id);
         if (light_shader) glDeleteProgram(light_shader.shader_id);
         if (lamp_shader) glDeleteProgram(lamp_shader.shader_id);
+        if (model_shader) glDeleteProgram(model_shader.shader_id);
+        if (grid_shader) glDeleteProgram(grid_shader.shader_id);
+        if (single_color_shader) glDeleteProgram(single_color_shader.shader_id);
+        if (debugDepthShader) glDeleteProgram(debugDepthShader.shader_id);
+        
         if (window) glfwDestroyWindow(window);
-        if (grid) delete grid;
         glfwTerminate();
     }
 };
