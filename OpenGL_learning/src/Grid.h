@@ -34,7 +34,6 @@ public:
 
         glBindVertexArray(VAO);
         
-        glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         
         glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -44,7 +43,6 @@ public:
             std::cerr << "OpenGL Error after DrawArrays: 0x" << std::hex << err << std::dec << std::endl;
         }
 
-        glDisable(GL_BLEND);
         glBindVertexArray(0);
     }
 

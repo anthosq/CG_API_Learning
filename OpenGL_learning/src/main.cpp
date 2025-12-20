@@ -3,6 +3,8 @@
 #include <stdexcept>
 #include <string>
 #include <cmath>
+#include <algorithm>
+#include <map>
 
 #include "Shader.h"
 #include "Camera.h"
@@ -91,6 +93,10 @@ private:
     // 帧缓冲和深度纹理
     unsigned int depthMapFBO = 0;
     unsigned int depthTexture = 0;
+
+    unsigned int TransparentVAO, TransparentVBO;
+    Shader TransparentShader;
+    unsigned int TransparentTexture;
 
 
     // 光照参数
@@ -334,6 +340,35 @@ private:
 
         glBindVertexArray(0);
         
+        TransparentShader = Shader(
+            std::filesystem::path("assets/shaders/grass_vertex.glsl"),
+            std::filesystem::path("assets/shaders/grass_fragment.glsl")
+        );
+        
+        float grassVertices[] = {
+            // positions        // texture Coords
+            0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+            0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+            1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+            
+            0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+            1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+            1.0f, 1.0f, 0.0f, 1.0f, 1.0f
+        };
+
+        glGenVertexArrays(1, &TransparentVAO);
+        glGenBuffers(1, &TransparentVBO);
+        glBindVertexArray(TransparentVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, TransparentVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(grassVertices), grassVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+
+        loadTransparentTexture(TransparentTexture, "assets/pic/blending_transparent_window.png", GL_RGBA);
+        glBindVertexArray(0);
+        
         // 创建深度纹理用于调试
         setupDepthTexture();
     }
@@ -389,6 +424,30 @@ private:
 
         stbi_image_free(data);
     }
+
+    void loadTransparentTexture(unsigned int& textureID, const char* path, GLenum format) {
+        glGenTextures(1, &textureID);
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        int width, height, nrChannels;
+        stbi_set_flip_vertically_on_load(true);
+        unsigned char* data = stbi_load(path, &width, &height, &nrChannels, STBI_rgb_alpha);
+
+        if (data) {
+            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+            glGenerateMipmap(GL_TEXTURE_2D);
+        } else {
+            std::cerr << "Failed to load texture: " << path << std::endl;
+        }
+
+        stbi_image_free(data);
+    }
+
 
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
@@ -453,6 +512,8 @@ private:
         // glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
         // glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
         // glStencilMask(0x00);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         glm::vec3 cubePositions[] = {
             glm::vec3(0.0f, 0.0f, 0.0f),
@@ -472,6 +533,14 @@ private:
             glm::vec3(2.3f, -3.3f, -4.0f),
             glm::vec3(-4.0f, 2.0f, -12.0f),
             glm::vec3(0.0f, 0.0f, -3.0f)
+        };
+
+        std::vector<glm::vec3> windowsPosition = {
+            glm::vec3(-1.5f, 0.0f, -0.48f),
+            glm::vec3(1.5f, 0.0f, 0.51f),
+            glm::vec3(0.0f, 0.0f, 0.7f),
+            glm::vec3(-0.3f, 0.0f, -2.3f),
+            glm::vec3(0.5f, 0.0f, -0.6f)
         };
 
         glm::mat4 view = camera.GetViewMatrix();
@@ -595,12 +664,14 @@ private:
         // model_shader.setMat4("projection", projection);
         // ourModel.Draw(model_shader);
 
+
         // 绘制带轮廓的模型
 
         // 注意, 模型的基准点问题, 这里scaling会导致模型轮廓位置不正确
         // 想要实现正确的结果, 需要通过法线膨胀
         // 单纯地法线缩放也不行, 对正方体需要合并顶点后再进行法线膨胀
         // 1. 启用模板测试并清除模板值
+        glBindVertexArray(lightVAO);
         glEnable(GL_STENCIL_TEST);
         // glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
         // glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
@@ -649,6 +720,30 @@ private:
         glStencilMask(0xFF);
         glStencilFunc(GL_ALWAYS, 0, 0xFF);
         glEnable(GL_DEPTH_TEST);
+
+
+        TransparentShader.use();
+        model = glm::mat4(1.0f);
+        TransparentShader.setMat4("projection", projection);
+        TransparentShader.setMat4("view", view);
+        glBindVertexArray(TransparentVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, TransparentTexture);
+        TransparentShader.setInt("texture1", 0);
+        std::map<float, glm::vec3> sorted;
+
+        for (unsigned int i = 0; i < windowsPosition.size(); i++) {
+            float distance = glm::length(camera.Position - windowsPosition[i]);
+            sorted[distance] = windowsPosition[i];
+        }
+
+        for (std::map<float, glm::vec3>::reverse_iterator it = sorted.rbegin(); it != sorted.rend(); ++it) {
+            model = glm::mat4(1.0f);
+            model = glm::translate(model, it->second);
+            TransparentShader.setMat4("model", model);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+        glBindVertexArray(0);
 
 
         if (debugDepth)
