@@ -101,6 +101,10 @@ private:
     // 帧缓冲
     unsigned int FBO = 0;
     unsigned int FBOTexture = 0;
+    unsigned int RBO = 0;
+    Shader screen_shader;
+    unsigned int screenQuadVAO2 = 0;
+    unsigned int screenQuadVBO2 = 0;
 
 
     // 光照参数
@@ -329,7 +333,19 @@ private:
 
             -1.0f, 1.0f, 0.0f,
             1.0f, -1.0f, 0.0f,
-            1.0f, 1.0f, 0.0f};
+            1.0f, 1.0f, 0.0f
+        };
+
+        float ScreenQuadVertices[] = { // vertex attributes for a quad that fills the entire screen in Normalized Device Coordinates.
+        // positions   // texCoords
+        -1.0f,  1.0f,  0.0f, 1.0f,
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+
+        -1.0f,  1.0f,  0.0f, 1.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f
+        };
 
         glGenVertexArrays(1, &screenQuadVAO);
         glGenBuffers(1, &screenQuadVBO);
@@ -343,6 +359,22 @@ private:
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
 
         glBindVertexArray(0);
+
+        glGenVertexArrays(1, &screenQuadVAO2);
+        glGenBuffers(1, &screenQuadVBO2);
+
+        glBindVertexArray(screenQuadVAO2);
+
+        glBindBuffer(GL_ARRAY_BUFFER, screenQuadVBO2);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(ScreenQuadVertices), &ScreenQuadVertices, GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
+
+        glBindVertexArray(0);
+
         
         TransparentShader = Shader(
             std::filesystem::path("assets/shaders/grass_vertex.glsl"),
@@ -375,30 +407,43 @@ private:
         
 
         setupFrameBuffer(FBO, FBOTexture);
+        screen_shader = Shader(
+            std::filesystem::path("assets/shaders/framebuffer_vertex.glsl"),
+            std::filesystem::path("assets/shaders/framebuffer_frag.glsl")
+        );
 
         // 创建深度纹理用于调试
         setupDepthTexture();
     }
 
-    void setupFrameBuffer(unsigned int FBO, unsigned int texture) {
+    void setupFrameBuffer(unsigned int &FBO, unsigned int &texture) {
+        // 创建帧缓冲
+        glGenFramebuffers(1, &FBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+
         // texture
         glGenTextures(1, &texture);
         glBindTexture(GL_TEXTURE_2D, texture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_2D, 0);
 
-        // 创建帧缓冲
-        glGenFramebuffers(1, &FBO);
-        glBindFramebuffer(GL_FRAMEBUFFER, FBO);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+        // rbo
+        glGenRenderbuffers(1, &RBO);
+        glBindRenderbuffer(GL_RENDERBUFFER, RBO);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, WINDOW_WIDTH, WINDOW_HEIGHT);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, RBO);
 
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             std::cerr << "Framebuffer is not complete!" << std::endl;
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
     }
     
     void setupDepthTexture() {
@@ -542,7 +587,18 @@ private:
         // glStencilMask(0x00);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glEnable(GL_CULL_FACE);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LESS);
+        // glEnable(GL_STENCIL_TEST);
+        // glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+        // glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        // glStencilMask(0x00);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        // glEnable(GL_CULL_FACE);
 
         glm::vec3 cubePositions[] = {
             glm::vec3(0.0f, 0.0f, 0.0f),
@@ -780,11 +836,22 @@ private:
             visualizeDepthBuffer();
         }
 
-        glBindVertexArray(0);
+        // framebuffer
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        screen_shader.use();
+        glBindVertexArray(screenQuadVAO2);
+        glDisable(GL_DEPTH_TEST);
+
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, 0);
+        glBindTexture(GL_TEXTURE_2D, FBOTexture);
+        screen_shader.setInt("screenTexture", 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        glEnable(GL_DEPTH_TEST);
+
     }
     
     void visualizeDepthBuffer() {
@@ -971,6 +1038,11 @@ private:
         if (debugDepthShader) glDeleteProgram(debugDepthShader.shader_id);
 
         if (FBO) glDeleteFramebuffers(1, &FBO);
+        if (FBOTexture) glDeleteTextures(1, &FBOTexture);
+        if (RBO) glDeleteRenderbuffers(1, &RBO);
+        if (screen_shader) glDeleteProgram(screen_shader);
+        if (screenQuadVAO2) glDeleteVertexArrays(1, &screenQuadVAO2);
+        if (screenQuadVBO2) glDeleteBuffers(1, &screenQuadVBO2);
 
         if (window) glfwDestroyWindow(window);
         glfwTerminate();
