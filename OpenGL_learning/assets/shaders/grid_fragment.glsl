@@ -9,7 +9,6 @@ in mat4 fragProjection;
 uniform float gridSize;
 uniform float gridCellSize;
 uniform vec3 gridColorThin;
-uniform vec3 gridColorThick;
 uniform float near;
 uniform float far;
 

@@ -1,9 +1,15 @@
 # Directories
 bin
 build
+CLAUDE.md
+docs
+./claude
 OpenGL_learning/build
 OpenGL_learning/bin
 OpenGL_learning/assets/model
+assimp
 OpenGL_learning/3rdparty/assimp/
+3rdparty/assimp/
+OpenGL_learning/.claude
 vulkan_learning/build
 vulkan_learning/bin

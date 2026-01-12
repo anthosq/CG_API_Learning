@@ -1,6 +1,6 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include "Mesh.h"
-#include "Loader.h"
+#include "utils/DDSLoader.h"
 #include <stddef.h>
 #include <stb_image.h>
 #include <iostream>
@@ -10,7 +10,7 @@
 // TODO: Need to modify SetupMesh() to match the bone, tangent, bitangent attributes
 
 
-Mesh::Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture> textures)
+Mesh::Mesh(std::vector<MeshVertex> vertices, std::vector<unsigned int> indices, std::vector<MeshTexture> textures)
     : vertices(vertices), indices(indices), textures(textures)
 {
     SetupMesh();
@@ -24,32 +24,32 @@ void Mesh::SetupMesh() {
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), &vertices[0], GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(MeshVertex), &vertices[0], GL_STATIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), &indices[0], GL_STATIC_DRAW);
 
     // Position
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void *)0);
     // Normal
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, Normal));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void *)offsetof(MeshVertex, Normal));
     // TexCoords
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, TexCoords));
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void *)offsetof(MeshVertex, TexCoords));
     // Tangent
     glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, Tangent));
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void *)offsetof(MeshVertex, Tangent));
     // Bitangent
     glEnableVertexAttribArray(4);
-    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, Bitangent));
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void *)offsetof(MeshVertex, Bitangent));
     // BoneIDs
     glEnableVertexAttribArray(5);
-    glVertexAttribIPointer(5, 4, GL_INT, sizeof(Vertex), (void *)offsetof(Vertex, BoneIDs));
+    glVertexAttribIPointer(5, 4, GL_INT, sizeof(MeshVertex), (void *)offsetof(MeshVertex, BoneIDs));
     // Weights
     glEnableVertexAttribArray(6);
-    glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void *)offsetof(Vertex, Weights));
+    glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void *)offsetof(MeshVertex, Weights));
 
     glBindVertexArray(0);
 }
@@ -73,7 +73,7 @@ void Mesh::Draw(const Shader &shader) {
         else if (name == "texture_height")
             number = std::to_string(heightNr++);
 
-        shader.setInt((name + number).c_str(), i);
+        shader.SetInt((name + number).c_str(), i);
         glBindTexture(GL_TEXTURE_2D, textures[i].id);
     }
 
@@ -118,12 +118,12 @@ void Model::ProcessNode(const aiNode *node, const aiScene *scene) {
 }
 
 Mesh Model::ProcessMesh(const aiMesh *mesh, const aiScene *scene) {
-    std::vector<Vertex> vertices;
+    std::vector<MeshVertex> vertices;
     std::vector<unsigned int> indices;
-    std::vector<Texture> textures;
+    std::vector<MeshTexture> textures;
 
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-        Vertex vertex;
+        MeshVertex vertex;
         glm::vec3 vector;
         
         // Position
@@ -185,37 +185,37 @@ Mesh Model::ProcessMesh(const aiMesh *mesh, const aiScene *scene) {
     // Materials
     if (mesh->mMaterialIndex >= 0) {
         aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
-        
-        std::vector<Texture> diffuseMaps = LoadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
+
+        std::vector<MeshTexture> diffuseMaps = LoadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
         textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
-        
-        std::vector<Texture> specularMaps = LoadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular", scene);
+
+        std::vector<MeshTexture> specularMaps = LoadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular", scene);
         textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
-        
-        std::vector<Texture> normalMaps = LoadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
+
+        std::vector<MeshTexture> normalMaps = LoadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
         textures.insert(textures.end(), normalMaps.begin(), normalMaps.end());
-        
-        std::vector<Texture> heightMaps = LoadMaterialTextures(material, aiTextureType_HEIGHT, "texture_height", scene);
+
+        std::vector<MeshTexture> heightMaps = LoadMaterialTextures(material, aiTextureType_HEIGHT, "texture_height", scene);
         textures.insert(textures.end(), heightMaps.begin(), heightMaps.end());
     }
 
     return Mesh(vertices, indices, textures);
 }
 
-std::vector<Texture> Model::LoadMaterialTextures(aiMaterial *mat, aiTextureType type, const std::string &typeName, const aiScene* scene) {
-    std::vector<Texture> textures;
+std::vector<MeshTexture> Model::LoadMaterialTextures(aiMaterial *mat, aiTextureType type, const std::string &typeName, const aiScene* scene) {
+    std::vector<MeshTexture> textures;
 
     for (unsigned int i = 0; i < mat->GetTextureCount(type); i++) {
         aiString path;
         mat->GetTexture(type, i, &path);
-        
+
         std::string pathStr = path.C_Str();
         auto it = loaded_textures.find(pathStr);
 
         if (it != loaded_textures.end()) {
             textures.push_back(it->second);
         } else {
-            Texture texture;
+            MeshTexture texture;
             auto embedTex = scene->GetEmbeddedTexture(path.C_Str());
             
             if (embedTex) {
