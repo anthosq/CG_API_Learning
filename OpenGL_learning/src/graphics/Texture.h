@@ -3,6 +3,7 @@
 #include "utils/GLCommon.h"
 #include <string>
 #include <filesystem>
+#include <array>
 
 namespace GLRenderer {
 
@@ -16,6 +17,16 @@ struct TextureSpec {
     GLenum MagFilter = GL_LINEAR;
     bool GenerateMipmaps = true;
     bool FlipVertically = true;  // stb_image 默认需要翻转
+};
+
+struct TextureCubeSpec {
+    GLenum WrapS = GL_CLAMP_TO_EDGE;
+    GLenum WrapT = GL_CLAMP_TO_EDGE;
+    GLenum WrapR = GL_CLAMP_TO_EDGE;
+    GLenum MinFilter = GL_LINEAR;
+    GLenum MagFilter = GL_LINEAR;
+    bool GenerateMipmaps = true;
+    bool FlipVertically = false;  // stb_image 默认需要翻转
 };
 
 // ============================================================================
@@ -75,8 +86,51 @@ private:
     std::string m_Path;
 };
 
-} // namespace GLRenderer
+class TextureCube : public Texture {
+public:
+    TextureCube() = default;
 
-// 全局命名空间别名
-using GLRenderer::Texture;
+    // 从文件加载立方体纹理
+    explicit TextureCube(std::array<std::filesystem::path, 6> &paths,
+                         const TextureCubeSpec &spec = TextureCubeSpec());
+
+    // 从内存数据创建立方体纹理
+    TextureCube(const void *data, int width, int height,
+                GLenum format = GL_RGBA, GLenum internalFormat = GL_RGBA8,
+                const TextureCubeSpec &spec = TextureCubeSpec());
+
+    ~TextureCube();
+
+    // 移动语义
+    TextureCube(TextureCube &&other) noexcept;
+    TextureCube &operator=(TextureCube &&other) noexcept;
+
+    // 绑定到指定纹理单元
+    void Bind(uint32_t slot = 0) const;
+    void Unbind() const;
+
+    // 属性访问
+    GLuint GetID() const { return m_ID; }
+    int GetWidth() const { return m_Width; }
+    int GetHeight() const { return m_Height; }
+    const std::array<std::filesystem::path, 6> &GetPaths() const { return m_Paths; }
+
+    bool IsValid() const { return m_ID != 0; }
+    operator bool() const { return IsValid(); }
+
+
+private:
+    // 从普通图片文件加载（PNG, JPG 等）
+    bool LoadCubeMap(const std::array<std::filesystem::path, 6> &faces);
+
+    // 应用纹理参数
+    void ApplyParameters(const TextureCubeSpec &spec);
+
+    GLuint m_ID = 0;
+    int m_Width = 0;
+    int m_Height = 0;
+    std::array<std::filesystem::path, 6> m_Paths;
+};
+
+} // namespace GLRenderer
 using GLRenderer::TextureSpec;

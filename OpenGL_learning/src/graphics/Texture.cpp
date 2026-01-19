@@ -192,4 +192,96 @@ void Texture::ApplyParameters(const TextureSpec& spec) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, spec.MagFilter);
 }
 
+
+// TextureCube
+TextureCube::TextureCube(std::array<std::filesystem::path, 6> &paths,
+                         const TextureCubeSpec &spec) {
+    stbi_set_flip_vertically_on_load(spec.FlipVertically);
+    bool success = LoadCubeMap(paths);
+    if (!success) {
+        std::cerr << "[TextureCube] 加载立方体纹理失败" << std::endl;
+    } else {
+        ApplyParameters(spec);
+    }
+}
+
+void TextureCube::ApplyParameters(const TextureCubeSpec &spec) {
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, spec.WrapS);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, spec.WrapT);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, spec.WrapR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, spec.MinFilter);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, spec.MagFilter);
+}
+
+bool TextureCube::LoadCubeMap(const std::array<std::filesystem::path, 6> &faces) {
+    glGenTextures(1, &m_ID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_ID);
+
+    int nrChannels;
+    GLenum format;
+
+    for (unsigned int i = 0; i < faces.size(); i++) {
+        unsigned char *data = stbi_load(faces[i].string().c_str(),
+                                          &m_Width, &m_Height, &nrChannels, 0);
+        if (data) {
+            switch (nrChannels) {
+            case 1:     format = GL_RED;break;
+            case 3:     format = GL_RGB;break;
+            case 4:     format = GL_RGBA;break;
+            default:    format = GL_RGB;
+            }
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
+                         m_Width, m_Height, 0, format, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+        } else {
+            std::cerr << "[TextureCube] Failed to load texture: " << faces[i] << std::endl;
+            return false;
+        }
+        m_Paths[i] = faces[i];
+    }
+
+    return true;
+}
+
+void TextureCube::Bind(uint32_t slot) const {
+    glActiveTexture(GL_TEXTURE0 + slot);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_ID);
+}
+
+void TextureCube::Unbind() const {
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+}
+
+TextureCube::~TextureCube() {
+    if (m_ID != 0) {
+        glDeleteTextures(1, &m_ID);
+        m_ID = 0;
+    }
+}
+
+
+TextureCube &TextureCube::operator=(TextureCube &&other) noexcept {
+    if (this != &other) {
+        if (m_ID != 0) {
+            glDeleteTextures(1, &m_ID);
+        }
+        Unbind();
+        m_ID = other.m_ID;
+        m_Width = other.m_Width;
+        m_Height = other.m_Height;
+        m_Paths = std::move(other.m_Paths);
+
+        other.m_ID = 0;
+    }
+    return *this;
+}
+
+TextureCube::TextureCube(TextureCube &&other) noexcept
+    : m_ID(other.m_ID),
+      m_Width(other.m_Width),
+      m_Height(other.m_Height),
+      m_Paths(std::move(other.m_Paths)) {
+    other.m_ID = 0; 
+}
+
 } // namespace GLRenderer

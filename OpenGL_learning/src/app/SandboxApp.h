@@ -14,6 +14,8 @@
 #include "renderer/RenderCommand.h"
 
 #include <memory>
+#include <array>
+#include <filesystem>
 
 namespace GLRenderer {
 
@@ -46,6 +48,7 @@ private:
     // ========================================================================
     // 渲染辅助方法
     // ========================================================================
+    void RenderSkybox();
     void RenderScene();
     void RenderLamps();
     void RenderCubes();
@@ -78,12 +81,17 @@ private:
     Shader m_TransparentShader;   // 透明物体着色器
     Shader m_ScreenShader;        // 屏幕后处理着色器
 
+    Shader m_SkyboxShader;        // 天空盒着色器
+
+
     // ========================================================================
     // 纹理
     // ========================================================================
     Texture m_DiffuseMap;
     Texture m_SpecularMap;
     Texture m_TransparentTexture;
+
+    TextureCube m_SkyboxTexture;
 
     // ========================================================================
     // 缓冲区
@@ -148,6 +156,7 @@ private:
     glm::vec3 m_CubePositions[10];
     glm::vec3 m_PointLightPositions[4];
     std::vector<glm::vec3> m_WindowPositions;
+    std::array<std::filesystem::path, 6> m_SkyboxPaths;
 };
 
 } // namespace GLRenderer

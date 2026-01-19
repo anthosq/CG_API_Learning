@@ -145,21 +145,27 @@ void SandboxApp::OnInit() {
     // 初始化 ImGui
     m_ImGuiLayer = std::make_unique<ImGuiLayer>(GetWindow().GetNativeWindow());
 
+    std::cout << "[SandboxApp] 设置着色器..." << std::endl;
     // 设置着色器
     SetupShaders();
 
+    std::cout << "[SandboxApp] 设置缓冲区..." << std::endl;
     // 设置缓冲区
     SetupBuffers();
 
+    std::cout << "[SandboxApp] 设置纹理..." << std::endl;
     // 设置纹理
     SetupTextures();
 
+    std::cout << "[SandboxApp] 设置帧缓冲..." << std::endl;
     // 设置帧缓冲
     SetupFramebuffers();
 
+    std::cout << "[SandboxApp] 创建网格..." << std::endl;
     // 创建网格
     m_Grid = std::make_unique<Grid>(m_GridSize, m_GridCellSize);
 
+    std::cout << "[SandboxApp] 加载模型..." << std::endl;
     // 加载模型
     m_Model = Model("assets/model/Hana/Hana.fbx");
 
@@ -197,8 +203,12 @@ void SandboxApp::OnRender() {
     RenderCommand::EnableBlending();
     RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+
     // 渲染场景
     RenderScene();
+
+    // 绘制天空盒
+    RenderSkybox();
 
     // 深度可视化（如果启用）
     if (m_DebugDepth) {
@@ -334,6 +344,11 @@ void SandboxApp::SetupShaders() {
         std::filesystem::path("assets/shaders/framebuffer_vertex.glsl"),
         std::filesystem::path("assets/shaders/framebuffer_frag.glsl")
     );
+
+    m_SkyboxShader = Shader(
+        std::filesystem::path("assets/shaders/skybox_vertex.glsl"),
+        std::filesystem::path("assets/shaders/skybox_frag.glsl")
+    );
 }
 
 void SandboxApp::SetupBuffers() {
@@ -367,6 +382,7 @@ void SandboxApp::SetupBuffers() {
         VertexAttribute::Float(1, 2, 5 * sizeof(float), 3 * sizeof(float))      // 纹理坐标
     };
     m_TransparentVAO->AddVertexBuffer(std::move(transparentVBO), transparentLayout);
+
 }
 
 void SandboxApp::SetupTextures() {
@@ -378,6 +394,17 @@ void SandboxApp::SetupTextures() {
     transparentSpec.WrapS = GL_CLAMP_TO_EDGE;
     transparentSpec.WrapT = GL_CLAMP_TO_EDGE;
     m_TransparentTexture = Texture("assets/pic/blending_transparent_window.png", transparentSpec);
+    
+    // skyboxTextures
+    m_SkyboxPaths = {
+        "assets/pic/skybox/right.jpg",
+        "assets/pic/skybox/left.jpg",
+        "assets/pic/skybox/top.jpg",
+        "assets/pic/skybox/bottom.jpg",
+        "assets/pic/skybox/front.jpg",
+        "assets/pic/skybox/back.jpg"
+    };
+    m_SkyboxTexture = TextureCube(m_SkyboxPaths);
 }
 
 void SandboxApp::SetupFramebuffers() {
@@ -400,11 +427,36 @@ void SandboxApp::SetupFramebuffers() {
     depthSpec.HasDepthAttachment = true;
     depthSpec.DepthAsTexture = true;
     m_DepthFBO = std::make_unique<Framebuffer>(depthSpec);
+
 }
 
 // ============================================================================
 // 渲染辅助方法
 // ============================================================================
+
+void SandboxApp::RenderSkybox() {
+    glm::mat4 view = glm::mat4(glm::mat3(m_Camera.GetViewMatrix())); // 去除平移部分
+    float aspectRatio = GetWindow().GetAspectRatio();
+    glm::mat4 projection = m_Camera.GetProjectionMatrix(aspectRatio);
+
+    glDepthFunc(GL_LEQUAL);
+    glDisable(GL_CULL_FACE);
+    glDepthMask(GL_FALSE);
+
+    m_SkyboxShader.Bind();
+    m_SkyboxShader.SetInt("skybox", 0);
+    m_SkyboxShader.SetMat4("view", view);
+    m_SkyboxShader.SetMat4("projection", projection);
+
+    m_CubeVAO->Bind();
+    m_SkyboxTexture.Bind(0);
+    RenderCommand::DrawArrays(GL_TRIANGLES, 0, 36);
+    m_CubeVAO->Unbind();
+
+    glDepthMask(GL_TRUE);
+    glEnable(GL_CULL_FACE);
+    glDepthFunc(GL_LESS);
+}
 
 void SandboxApp::RenderScene() {
     glm::mat4 view = m_Camera.GetViewMatrix();
