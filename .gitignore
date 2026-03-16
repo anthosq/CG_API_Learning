@@ -6,6 +6,8 @@ docs
 ./claude
 OpenGL_learning/build
 OpenGL_learning/bin
+OpenGL_learning/.claude
+OpenGL_learning/.learn_example
 OpenGL_learning/assets/model
 assimp
 OpenGL_learning/3rdparty/assimp/

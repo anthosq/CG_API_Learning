@@ -43,3 +43,8 @@ if(NOT TARGET assimp)
     add_subdirectory(assimp)
     set_target_properties(assimp PROPERTIES FOLDER ${third_party_dir}/assimp)
 endif()
+
+# EnTT - Entity Component System
+if(NOT TARGET entt)
+    include(entt.cmake)
+endif()

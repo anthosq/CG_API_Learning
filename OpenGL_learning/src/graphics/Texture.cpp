@@ -284,4 +284,4 @@ TextureCube::TextureCube(TextureCube &&other) noexcept
     other.m_ID = 0; 
 }
 
-} // namespace GLRenderer
+}

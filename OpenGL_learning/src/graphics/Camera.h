@@ -4,9 +4,7 @@
 
 namespace GLRenderer {
 
-// ============================================================================
 // CameraMovement - 相机移动方向
-// ============================================================================
 enum class CameraMovement {
     Forward,
     Backward,
@@ -24,9 +22,7 @@ enum Camera_Movement {
     RIGHT = static_cast<int>(CameraMovement::Right)
 };
 
-// ============================================================================
 // CameraSettings - 相机配置
-// ============================================================================
 struct CameraSettings {
     float MovementSpeed = 5.0f;
     float MouseSensitivity = 0.1f;
@@ -39,9 +35,7 @@ struct CameraSettings {
     float MaxPitch = 89.0f;
 };
 
-// ============================================================================
 // Camera - 第一人称相机
-// ============================================================================
 class Camera {
 public:
     // 构造函数
@@ -55,27 +49,18 @@ public:
            float upX, float upY, float upZ,
            float yaw, float pitch);
 
-    // ========================================================================
     // 矩阵获取
-    // ========================================================================
-
     glm::mat4 GetViewMatrix() const;
     glm::mat4 GetProjectionMatrix(float aspectRatio) const;
     glm::mat4 GetViewProjectionMatrix(float aspectRatio) const;
 
-    // ========================================================================
     // 输入处理
-    // ========================================================================
-
     void ProcessKeyboard(CameraMovement direction, float deltaTime);
     void ProcessKeyboard(Camera_Movement direction, float deltaTime);  // 兼容旧API
     void ProcessMouseMovement(float xOffset, float yOffset, bool constrainPitch = true);
     void ProcessMouseScroll(float yOffset);
 
-    // ========================================================================
     // 属性访问（getter）
-    // ========================================================================
-
     const glm::vec3& GetPosition() const { return m_Position; }
     const glm::vec3& GetFront() const { return m_Front; }
     const glm::vec3& GetUp() const { return m_Up; }
@@ -89,9 +74,7 @@ public:
 
     const CameraSettings& GetSettings() const { return m_Settings; }
 
-    // ========================================================================
     // 属性设置（setter）
-    // ========================================================================
 
     void SetPosition(const glm::vec3& position);
     void SetYaw(float yaw);
@@ -105,11 +88,7 @@ public:
     void SetNearPlane(float nearPlane) { m_Settings.NearPlane = nearPlane; }
     void SetFarPlane(float farPlane) { m_Settings.FarPlane = farPlane; }
 
-    // ========================================================================
     // 兼容旧 API（public 成员变量）
-    // ========================================================================
-
-    // 这些成员保持 public 以兼容现有代码，但推荐使用 getter/setter
     glm::vec3 Position;
     glm::vec3 Front;
     glm::vec3 Up;

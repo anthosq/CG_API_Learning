@@ -7,9 +7,7 @@
 
 namespace GLRenderer {
 
-// ============================================================================
 // TextureSpec - 纹理配置
-// ============================================================================
 struct TextureSpec {
     GLenum WrapS = GL_REPEAT;
     GLenum WrapT = GL_REPEAT;
@@ -29,9 +27,7 @@ struct TextureCubeSpec {
     bool FlipVertically = false;  // stb_image 默认需要翻转
 };
 
-// ============================================================================
 // Texture - 2D 纹理封装
-// ============================================================================
 class Texture : public NonCopyable {
 public:
     Texture() = default;

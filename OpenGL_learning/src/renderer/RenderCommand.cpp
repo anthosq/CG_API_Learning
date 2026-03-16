@@ -4,10 +4,6 @@ namespace GLRenderer {
 
 glm::vec4 RenderCommand::s_ClearColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
 
-// ============================================================================
-// 初始化
-// ============================================================================
-
 void RenderCommand::Init() {
     // 启用深度测试
     glEnable(GL_DEPTH_TEST);
@@ -17,9 +13,10 @@ void RenderCommand::Init() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // 启用面剔除（默认剔除背面）
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
+    // 面剔除（默认关闭，避免影响双面渲染如四边形）
+    // 需要时可手动调用 RenderCommand::EnableFaceCulling()
+    glDisable(GL_CULL_FACE);
+    // glCullFace(GL_BACK);
     glFrontFace(GL_CCW);
 
     // 设置默认清除颜色
@@ -28,9 +25,7 @@ void RenderCommand::Init() {
     GL_CHECK_ERROR();
 }
 
-// ============================================================================
 // 清除操作
-// ============================================================================
 
 void RenderCommand::SetClearColor(const glm::vec4& color) {
     s_ClearColor = color;
@@ -57,18 +52,12 @@ void RenderCommand::ClearStencilBuffer() {
     glClear(GL_STENCIL_BUFFER_BIT);
 }
 
-// ============================================================================
 // 视口设置
-// ============================================================================
-
 void RenderCommand::SetViewport(int x, int y, int width, int height) {
     glViewport(x, y, width, height);
 }
 
-// ============================================================================
 // 深度测试
-// ============================================================================
-
 void RenderCommand::EnableDepthTest() {
     glEnable(GL_DEPTH_TEST);
 }
@@ -85,10 +74,7 @@ void RenderCommand::SetDepthMask(bool enabled) {
     glDepthMask(enabled ? GL_TRUE : GL_FALSE);
 }
 
-// ============================================================================
 // 混合
-// ============================================================================
-
 void RenderCommand::EnableBlending() {
     glEnable(GL_BLEND);
 }
@@ -106,10 +92,7 @@ void RenderCommand::SetBlendFuncSeparate(GLenum srcRGB, GLenum dstRGB,
     glBlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
 }
 
-// ============================================================================
 // 模板测试
-// ============================================================================
-
 void RenderCommand::EnableStencilTest() {
     glEnable(GL_STENCIL_TEST);
 }
@@ -130,10 +113,7 @@ void RenderCommand::SetStencilMask(unsigned int mask) {
     glStencilMask(mask);
 }
 
-// ============================================================================
 // 面剔除
-// ============================================================================
-
 void RenderCommand::EnableFaceCulling() {
     glEnable(GL_CULL_FACE);
 }
@@ -150,18 +130,12 @@ void RenderCommand::SetFrontFace(GLenum mode) {
     glFrontFace(mode);
 }
 
-// ============================================================================
 // 多边形模式
-// ============================================================================
-
 void RenderCommand::SetPolygonMode(GLenum face, GLenum mode) {
     glPolygonMode(face, mode);
 }
 
-// ============================================================================
 // 绘制命令
-// ============================================================================
-
 void RenderCommand::DrawArrays(GLenum mode, int first, int count) {
     glDrawArrays(mode, first, count);
 }
@@ -179,13 +153,10 @@ void RenderCommand::DrawIndexed(GLenum mode, uint32_t indexCount, GLenum type, c
     glDrawElements(mode, indexCount, type, indices);
 }
 
-// ============================================================================
 // 纹理操作
-// ============================================================================
-
 void RenderCommand::BindTextureUnit(uint32_t slot, GLuint textureID) {
     glActiveTexture(GL_TEXTURE0 + slot);
     glBindTexture(GL_TEXTURE_2D, textureID);
 }
 
-} // namespace GLRenderer
+}

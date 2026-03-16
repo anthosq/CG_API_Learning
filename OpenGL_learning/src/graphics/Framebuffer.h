@@ -4,9 +4,6 @@
 
 namespace GLRenderer {
 
-// ============================================================================
-// FramebufferSpec - 帧缓冲配置
-// ============================================================================
 struct FramebufferSpec {
     uint32_t Width = 1280;
     uint32_t Height = 720;
@@ -26,9 +23,6 @@ struct FramebufferSpec {
     bool SwapChainTarget = false;
 };
 
-// ============================================================================
-// Framebuffer - 帧缓冲封装
-// ============================================================================
 class Framebuffer : public NonCopyable {
 public:
     Framebuffer() = default;

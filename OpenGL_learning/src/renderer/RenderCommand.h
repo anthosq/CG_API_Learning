@@ -5,21 +5,12 @@
 
 namespace GLRenderer {
 
-// ============================================================================
-// RenderCommand - OpenGL 渲染命令封装（静态类）
-// ============================================================================
+// RenderCommand 渲染命令封装（静态类）
 class RenderCommand {
 public:
-    // ========================================================================
-    // 初始化
-    // ========================================================================
-
     static void Init();
 
-    // ========================================================================
     // 清除操作
-    // ========================================================================
-
     static void SetClearColor(const glm::vec4& color);
     static void SetClearColor(float r, float g, float b, float a = 1.0f);
     static void Clear();
@@ -27,15 +18,9 @@ public:
     static void ClearDepthBuffer();
     static void ClearStencilBuffer();
 
-    // ========================================================================
     // 视口设置
-    // ========================================================================
 
     static void SetViewport(int x, int y, int width, int height);
-
-    // ========================================================================
-    // 渲染状态
-    // ========================================================================
 
     // 深度测试
     static void EnableDepthTest();
@@ -66,18 +51,12 @@ public:
     // 多边形模式
     static void SetPolygonMode(GLenum face, GLenum mode);  // GL_FILL, GL_LINE, GL_POINT
 
-    // ========================================================================
     // 绘制命令
-    // ========================================================================
-
     static void DrawArrays(GLenum mode, int first, int count);
     static void DrawIndexed(const VertexArray& vao, uint32_t indexCount = 0);
     static void DrawIndexed(GLenum mode, uint32_t indexCount, GLenum type, const void* indices);
 
-    // ========================================================================
     // 纹理操作
-    // ========================================================================
-
     static void BindTextureUnit(uint32_t slot, GLuint textureID);
 
 private:

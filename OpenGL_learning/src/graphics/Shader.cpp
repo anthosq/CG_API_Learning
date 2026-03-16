@@ -46,8 +46,6 @@ Shader::Shader(const std::filesystem::path& vertexPath,
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // 兼容旧代码
-    shader_id = m_ID;
 
     GL_CHECK_ERROR();
 }
@@ -56,16 +54,13 @@ Shader::~Shader() {
     if (m_ID != 0) {
         glDeleteProgram(m_ID);
         m_ID = 0;
-        shader_id = 0;
     }
 }
 
 Shader::Shader(Shader&& other) noexcept
     : m_ID(other.m_ID),
       m_UniformCache(std::move(other.m_UniformCache)) {
-    shader_id = m_ID;
     other.m_ID = 0;
-    other.shader_id = 0;
 }
 
 Shader& Shader::operator=(Shader&& other) noexcept {
@@ -76,10 +71,8 @@ Shader& Shader::operator=(Shader&& other) noexcept {
         }
         // 转移所有权
         m_ID = other.m_ID;
-        shader_id = m_ID;
         m_UniformCache = std::move(other.m_UniformCache);
         other.m_ID = 0;
-        other.shader_id = 0;
     }
     return *this;
 }
@@ -92,10 +85,7 @@ void Shader::Unbind() const {
     glUseProgram(0);
 }
 
-// ============================================================================
 // Uniform 设置方法
-// ============================================================================
-
 GLint Shader::GetUniformLocation(const std::string& name) const {
     // 先查缓存
     auto it = m_UniformCache.find(name);

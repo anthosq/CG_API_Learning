@@ -10,10 +10,7 @@
 
 namespace GLRenderer {
 
-// ============================================================================
 // RenderPass - 渲染通道抽象基类
-// ============================================================================
-
 class RenderPass : public NonCopyable {
 public:
     virtual ~RenderPass() = default;
@@ -32,10 +29,7 @@ protected:
     bool m_Enabled = true;
 };
 
-// ============================================================================
 // ClearPass - 清除缓冲区通道
-// ============================================================================
-
 class ClearPass : public RenderPass {
 public:
     enum ClearFlags {
@@ -74,10 +68,7 @@ private:
     glm::vec4 m_ClearColor;
 };
 
-// ============================================================================
 // FramebufferPass - 帧缓冲通道基类
-// ============================================================================
-
 class FramebufferPass : public RenderPass {
 public:
     explicit FramebufferPass(Framebuffer* framebuffer = nullptr)
@@ -105,10 +96,7 @@ protected:
     Framebuffer* m_Framebuffer = nullptr;  // nullptr 表示默认帧缓冲
 };
 
-// ============================================================================
 // GeometryPass - 几何渲染通道（使用回调）
-// ============================================================================
-
 class GeometryPass : public FramebufferPass {
 public:
     using RenderCallback = std::function<void()>;
@@ -137,10 +125,7 @@ private:
     RenderCallback m_RenderCallback;
 };
 
-// ============================================================================
 // FullscreenPass - 全屏后处理通道
-// ============================================================================
-
 class FullscreenPass : public FramebufferPass {
 public:
     FullscreenPass(Shader* shader = nullptr, const char* name = "FullscreenPass")
@@ -151,7 +136,7 @@ public:
 
         BindFramebuffer();
 
-        m_Shader->Use();
+        m_Shader->Bind();
 
         // 绑定输入纹理
         for (size_t i = 0; i < m_InputTextures.size(); ++i) {
@@ -198,10 +183,7 @@ private:
     SetupCallback m_SetupCallback;
 };
 
-// ============================================================================
 // StencilPass - 模板测试通道
-// ============================================================================
-
 class StencilPass : public RenderPass {
 public:
     struct StencilConfig {
@@ -246,10 +228,7 @@ private:
     RenderCallback m_RenderCallback;
 };
 
-// ============================================================================
 // RenderPipeline - 渲染管线（组合多个通道）
-// ============================================================================
-
 class RenderPipeline : public NonCopyable {
 public:
     RenderPipeline() = default;
@@ -290,10 +269,7 @@ private:
     std::vector<std::unique_ptr<RenderPass>> m_Passes;
 };
 
-// ============================================================================
 // 渲染状态辅助结构
-// ============================================================================
-
 struct RenderState {
     // 深度测试
     bool depthTestEnabled = true;

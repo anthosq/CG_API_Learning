@@ -7,9 +7,7 @@
 
 namespace GLRenderer {
 
-// ============================================================================
 // Application - 应用程序基类
-// ============================================================================
 class Application : public NonCopyable {
 public:
     Application(const WindowProps& props = WindowProps());

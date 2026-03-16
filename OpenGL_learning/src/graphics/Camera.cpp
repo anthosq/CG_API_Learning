@@ -20,10 +20,7 @@ Camera::Camera(float posX, float posY, float posZ,
              yaw, pitch) {
 }
 
-// ============================================================================
 // 矩阵获取
-// ============================================================================
-
 glm::mat4 Camera::GetViewMatrix() const {
     return glm::lookAt(m_Position, m_Position + m_Front, m_Up);
 }
@@ -129,10 +126,7 @@ void Camera::SetZoom(float zoom) {
     SyncPublicMembers();
 }
 
-// ============================================================================
 // 私有方法
-// ============================================================================
-
 void Camera::UpdateCameraVectors() {
     // 计算前向向量
     glm::vec3 front;

@@ -9,9 +9,7 @@
 
 namespace GLRenderer {
 
-// ============================================================================
 // RendererStats - 渲染统计信息
-// ============================================================================
 struct RendererStats {
     uint32_t DrawCalls = 0;
     uint32_t Triangles = 0;
@@ -24,9 +22,7 @@ struct RendererStats {
     }
 };
 
-// ============================================================================
 // SceneData - 场景渲染数据
-// ============================================================================
 struct SceneData {
     glm::mat4 ViewMatrix;
     glm::mat4 ProjectionMatrix;
@@ -36,38 +32,28 @@ struct SceneData {
     float FarPlane;
 };
 
-// ============================================================================
 // Renderer - 渲染器核心类
-// ============================================================================
 class Renderer {
 public:
-    // ========================================================================
     // 生命周期
-    // ========================================================================
 
     static void Init();
     static void Shutdown();
 
-    // ========================================================================
     // 帧管理
-    // ========================================================================
 
     // 开始新的一帧渲染
     static void BeginFrame(const Camera& camera, float aspectRatio);
     static void EndFrame();
 
-    // ========================================================================
     // 场景数据访问
-    // ========================================================================
 
     static const SceneData& GetSceneData() { return s_SceneData; }
     static const glm::mat4& GetViewMatrix() { return s_SceneData.ViewMatrix; }
     static const glm::mat4& GetProjectionMatrix() { return s_SceneData.ProjectionMatrix; }
     static const glm::mat4& GetViewProjectionMatrix() { return s_SceneData.ViewProjectionMatrix; }
 
-    // ========================================================================
     // 渲染辅助方法
-    // ========================================================================
 
     // 设置着色器的通用 uniform（view, projection, viewPos）
     static void SetupShaderMatrices(Shader& shader);
@@ -78,16 +64,12 @@ public:
     static void SetupPointLights(Shader& shader, const PointLight* lights, int count);
     static void SetupSpotLight(Shader& shader, const SpotLight& light);
 
-    // ========================================================================
     // 绘制方法
-    // ========================================================================
 
     // 绘制全屏四边形（用于后处理）
     static void DrawFullscreenQuad();
 
-    // ========================================================================
     // 统计信息
-    // ========================================================================
 
     static const RendererStats& GetStats() { return s_Stats; }
     static void ResetStats() { s_Stats.Reset(); }
@@ -106,7 +88,7 @@ private:
     static bool s_Initialized;
 };
 
-} // namespace GLRenderer
+}
 
 using GLRenderer::Renderer;
 using GLRenderer::RendererStats;

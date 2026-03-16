@@ -8,9 +8,7 @@ RendererStats Renderer::s_Stats;
 std::unique_ptr<VertexArray> Renderer::s_FullscreenQuadVAO;
 bool Renderer::s_Initialized = false;
 
-// ============================================================================
 // 生命周期
-// ============================================================================
 
 void Renderer::Init() {
     if (s_Initialized) return;
@@ -28,9 +26,7 @@ void Renderer::Shutdown() {
     std::cout << "[Renderer] 已关闭" << std::endl;
 }
 
-// ============================================================================
 // 帧管理
-// ============================================================================
 
 void Renderer::BeginFrame(const Camera& camera, float aspectRatio) {
     // 重置统计
@@ -49,9 +45,7 @@ void Renderer::EndFrame() {
     // 可以在这里做一些帧结束的清理工作
 }
 
-// ============================================================================
 // 渲染辅助方法
-// ============================================================================
 
 void Renderer::SetupShaderMatrices(Shader& shader) {
     shader.SetMat4("view", s_SceneData.ViewMatrix);
@@ -127,9 +121,7 @@ void Renderer::RecordDrawCall(uint32_t vertexCount, uint32_t indexCount) {
     }
 }
 
-// ============================================================================
 // 私有方法
-// ============================================================================
 
 void Renderer::CreateFullscreenQuad() {
     // 全屏四边形顶点（位置 + 纹理坐标）
@@ -155,4 +147,4 @@ void Renderer::CreateFullscreenQuad() {
     s_FullscreenQuadVAO->AddVertexBuffer(std::move(vbo), layout);
 }
 
-} // namespace GLRenderer
+}

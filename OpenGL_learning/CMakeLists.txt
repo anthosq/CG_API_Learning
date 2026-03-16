@@ -48,6 +48,24 @@ file(GLOB SCENE_SOURCES CONFIGURE_DEPENDS
     "${SOURCE_DIR}/scene/*.cpp"
 )
 
+# ECS 模块 (EnTT) - 位于 scene/ecs/ 下
+file(GLOB ECS_SOURCES CONFIGURE_DEPENDS
+    "${SOURCE_DIR}/scene/ecs/*.h"
+    "${SOURCE_DIR}/scene/ecs/*.cpp"
+)
+
+# 资产模块
+file(GLOB ASSET_SOURCES CONFIGURE_DEPENDS
+    "${SOURCE_DIR}/asset/*.h"
+    "${SOURCE_DIR}/asset/*.cpp"
+)
+
+# 编辑器模块
+file(GLOB_RECURSE EDITOR_SOURCES CONFIGURE_DEPENDS
+    "${SOURCE_DIR}/editor/*.h"
+    "${SOURCE_DIR}/editor/*.cpp"
+)
+
 # 渲染器模块
 file(GLOB RENDERER_SOURCES CONFIGURE_DEPENDS
     "${SOURCE_DIR}/renderer/*.h"
@@ -72,8 +90,16 @@ file(GLOB LEGACY_SOURCES CONFIGURE_DEPENDS
     "${SOURCE_DIR}/*.cpp"
 )
 
-# 排除 main.cpp（单独添加）
+# 排除入口点文件（单独添加）
 list(FILTER LEGACY_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
+list(FILTER LEGACY_SOURCES EXCLUDE REGEX ".*editor_main\\.cpp$")
+
+# 将 EditorApp 从 EDITOR_SOURCES 分离（它是编辑器可执行文件专用的）
+set(EDITOR_APP_SOURCES
+    "${SOURCE_DIR}/editor/EditorApp.h"
+    "${SOURCE_DIR}/editor/EditorApp.cpp"
+)
+list(FILTER EDITOR_SOURCES EXCLUDE REGEX ".*EditorApp\\.(h|cpp)$")
 
 # ============================================================================
 # 第三方库
@@ -81,31 +107,28 @@ list(FILTER LEGACY_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
 add_subdirectory(${THIRD_PARTY_DIR})
 
 # ============================================================================
-# 主可执行文件
+# 引擎静态库 (运行时和编辑器共享)
 # ============================================================================
-add_executable(GLRenderer "${SOURCE_DIR}/main.cpp")
-
-# 添加所有源文件
-target_sources(GLRenderer PUBLIC
-    ${APP_SOURCES}
+add_library(GLRendererEngine STATIC
     ${CORE_SOURCES}
     ${GRAPHICS_SOURCES}
     ${RENDERER_SOURCES}
     ${SCENE_SOURCES}
+    ${ECS_SOURCES}
+    ${ASSET_SOURCES}
     ${UI_SOURCES}
     ${UTILS_SOURCES}
     ${LEGACY_SOURCES}
+    ${EDITOR_SOURCES}
 )
 
-# 包含目录
-target_include_directories(GLRenderer
+target_include_directories(GLRendererEngine
     PUBLIC
         "${SOURCE_DIR}"
         "${THIRD_PARTY_DIR}"
 )
 
-# 链接库
-target_link_libraries(GLRenderer
+target_link_libraries(GLRendererEngine
     PUBLIC
         glad
         glfw
@@ -113,7 +136,39 @@ target_link_libraries(GLRenderer
         stb_image
         imgui
         assimp
+        EnTT::EnTT
 )
+
+target_compile_definitions(GLRendererEngine PUBLIC
+    $<$<CONFIG:Debug>:_DEBUG>
+    GLM_ENABLE_EXPERIMENTAL
+)
+
+if(MSVC)
+    target_compile_options(GLRendererEngine PRIVATE /W3)
+else()
+    target_compile_options(GLRendererEngine PRIVATE -Wall -Wextra)
+endif()
+
+# ============================================================================
+# 运行时可执行文件 (SandboxApp)
+# ============================================================================
+add_executable(GLRenderer
+    "${SOURCE_DIR}/main.cpp"
+    ${APP_SOURCES}
+)
+
+target_link_libraries(GLRenderer PRIVATE GLRendererEngine)
+
+# ============================================================================
+# 编辑器可执行文件 (EditorApp)
+# ============================================================================
+add_executable(GLRendererEditor
+    "${SOURCE_DIR}/editor_main.cpp"
+    ${EDITOR_APP_SOURCES}
+)
+
+target_link_libraries(GLRendererEditor PRIVATE GLRendererEngine)
 
 # ============================================================================
 # 兼容旧的 Test 目标名称
@@ -121,17 +176,15 @@ target_link_libraries(GLRenderer
 add_executable(Test ALIAS GLRenderer)
 
 # ============================================================================
-# 编译选项
+# Visual Studio 启动项目设置
 # ============================================================================
-if(MSVC)
-    target_compile_options(GLRenderer PRIVATE /W3)
-else()
-    target_compile_options(GLRenderer PRIVATE -Wall -Wextra)
-endif()
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT GLRendererEditor)
 
-# Debug 模式定义
-target_compile_definitions(GLRenderer PRIVATE
-    $<$<CONFIG:Debug>:_DEBUG>
+# ============================================================================
+# 输出配置
+# ============================================================================
+set_target_properties(GLRenderer GLRendererEditor PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${PROJ_ROOT_DIR}/bin"
 )
 
 # ============================================================================
@@ -141,3 +194,4 @@ message(STATUS "GLRenderer configuration:")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Output directory: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+message(STATUS "  Targets: GLRenderer (Runtime), GLRendererEditor (Editor)")

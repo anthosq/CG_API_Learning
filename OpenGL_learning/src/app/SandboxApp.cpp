@@ -5,10 +5,6 @@
 
 namespace GLRenderer {
 
-// ============================================================================
-// 顶点数据
-// ============================================================================
-
 static float s_CubeVertices[] = {
     // positions          // normals           // texture coords
     -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f, 0.0f,
@@ -76,10 +72,6 @@ static float s_TransparentVertices[] = {
     1.0f, 1.0f, 0.0f,   1.0f, 1.0f
 };
 
-// ============================================================================
-// 构造/析构
-// ============================================================================
-
 SandboxApp::SandboxApp()
     : Application(WindowProps("GLRenderer Sandbox", 1280, 720))
     , m_Camera(glm::vec3(5.0f, 5.0f, 5.0f))
@@ -132,9 +124,6 @@ SandboxApp::SandboxApp()
 
 SandboxApp::~SandboxApp() = default;
 
-// ============================================================================
-// 生命周期
-// ============================================================================
 
 void SandboxApp::OnInit() {
     std::cout << "[SandboxApp] 初始化中..." << std::endl;
@@ -169,13 +158,44 @@ void SandboxApp::OnInit() {
     // 加载模型
     m_Model = Model("assets/model/Hana/Hana.fbx");
 
+    std::cout << "[SandboxApp] 初始化 ECS 系统..." << std::endl;
+    // 初始化 ECS
+    m_ECSWorld = std::make_unique<ECS::World>("SandboxWorld");
+    m_ECSSystemManager = std::make_unique<ECS::SystemManager>();
+
+    // 注册系统
+    m_ECSSystemManager->AddSystem<ECS::TransformSystem>();
+    m_ECSSystemManager->AddSystem<ECS::BehaviorSystem>();
+
+    // 创建示例实体
+    {
+        // 创建一个旋转的实体
+        ECS::Entity rotatingEntity = m_ECSWorld->CreateEntity("RotatingCube");
+        rotatingEntity.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f, 2.0f, 0.0f));
+        rotatingEntity.AddComponent<ECS::RotatorComponent>(glm::vec3(0, 1, 0), 45.0f);
+
+        // 创建一个浮动的实体
+        ECS::Entity floatingEntity = m_ECSWorld->CreateEntity("FloatingCube");
+        auto& floatTransform = floatingEntity.AddComponent<ECS::TransformComponent>(glm::vec3(3.0f, 1.0f, 0.0f));
+        auto& floating = floatingEntity.AddComponent<ECS::FloatingComponent>(1.0f, 0.5f);
+        floating.BasePosition = floatTransform.Position;
+
+        // 创建一个轨道运动的实体
+        ECS::Entity orbitingEntity = m_ECSWorld->CreateEntity("OrbitingCube");
+        orbitingEntity.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f, 1.0f, 3.0f));
+        orbitingEntity.AddComponent<ECS::OrbiterComponent>(glm::vec3(0.0f, 1.0f, 0.0f), 3.0f, 30.0f);
+    }
+
     std::cout << "[SandboxApp] 初始化完成" << std::endl;
 }
 
 void SandboxApp::OnShutdown() {
     std::cout << "[SandboxApp] 关闭中..." << std::endl;
 
-    // 资源会通过 RAII 自动释放
+    // 清理 ECS
+    m_ECSSystemManager.reset();
+    m_ECSWorld.reset();
+
     m_ImGuiLayer.reset();
     m_Grid.reset();
     m_SceneFBO.reset();
@@ -188,6 +208,11 @@ void SandboxApp::OnShutdown() {
 
 void SandboxApp::OnUpdate(float deltaTime) {
     ProcessInput(deltaTime);
+
+    // 更新 ECS 系统
+    if (m_ECSWorld && m_ECSSystemManager) {
+        m_ECSSystemManager->Update(*m_ECSWorld, deltaTime);
+    }
 }
 
 void SandboxApp::OnRender() {
@@ -284,7 +309,94 @@ void SandboxApp::OnImGuiRender() {
         ImGui::Checkbox("Visualize Depth Buffer", &m_DebugDepth);
     }
 
+    // ECS 信息
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader("ECS System", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Show ECS Demo Panel", &m_ShowECSDemo);
+
+        if (m_ECSWorld) {
+            ImGui::Text("World: %s", m_ECSWorld->GetName().c_str());
+            ImGui::Text("Entity Count: %zu", m_ECSWorld->GetEntityCount());
+            ImGui::Text("Transform Components: %zu", m_ECSWorld->GetComponentCount<ECS::TransformComponent>());
+            ImGui::Text("Rotator Components: %zu", m_ECSWorld->GetComponentCount<ECS::RotatorComponent>());
+            ImGui::Text("Floating Components: %zu", m_ECSWorld->GetComponentCount<ECS::FloatingComponent>());
+            ImGui::Text("Orbiter Components: %zu", m_ECSWorld->GetComponentCount<ECS::OrbiterComponent>());
+        }
+    }
+
     ImGui::End();
+
+    // ECS 演示面板
+    if (m_ShowECSDemo && m_ECSWorld) {
+        ImGui::Begin("ECS Demo", &m_ShowECSDemo);
+
+        ImGui::Text("Entity List:");
+        ImGui::Separator();
+
+        // 遍历所有带 TransformComponent 的实体
+        m_ECSWorld->Each<ECS::TransformComponent>([](ECS::Entity entity, ECS::TransformComponent& transform) {
+            auto& tag = entity.GetComponent<ECS::TagComponent>();
+
+            if (ImGui::TreeNode(tag.Name.c_str())) {
+                ImGui::Text("Position: (%.2f, %.2f, %.2f)",
+                    transform.Position.x, transform.Position.y, transform.Position.z);
+
+                glm::vec3 euler = transform.GetEulerAngles();
+                ImGui::Text("Rotation: (%.2f, %.2f, %.2f)",
+                    euler.x, euler.y, euler.z);
+
+                ImGui::Text("Scale: (%.2f, %.2f, %.2f)",
+                    transform.Scale.x, transform.Scale.y, transform.Scale.z);
+
+                // 显示附加组件
+                if (entity.HasComponent<ECS::RotatorComponent>()) {
+                    auto& rotator = entity.GetComponent<ECS::RotatorComponent>();
+                    ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f),
+                        "  [Rotator] Speed: %.1f deg/s", rotator.Speed);
+                }
+
+                if (entity.HasComponent<ECS::FloatingComponent>()) {
+                    auto& floating = entity.GetComponent<ECS::FloatingComponent>();
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 1.0f, 1.0f),
+                        "  [Floating] Amp: %.2f, Freq: %.2f", floating.Amplitude, floating.Frequency);
+                }
+
+                if (entity.HasComponent<ECS::OrbiterComponent>()) {
+                    auto& orbiter = entity.GetComponent<ECS::OrbiterComponent>();
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f),
+                        "  [Orbiter] Radius: %.2f, Speed: %.1f", orbiter.Radius, orbiter.Speed);
+                }
+
+                ImGui::TreePop();
+            }
+        });
+
+        ImGui::Separator();
+
+        // 创建新实体的按钮
+        if (ImGui::Button("Add Rotating Entity")) {
+            static int rotatorCount = 0;
+            ECS::Entity newEntity = m_ECSWorld->CreateEntity("NewRotator_" + std::to_string(rotatorCount++));
+            newEntity.AddComponent<ECS::TransformComponent>(
+                glm::vec3((rand() % 10) - 5, (rand() % 5), (rand() % 10) - 5));
+            newEntity.AddComponent<ECS::RotatorComponent>(
+                glm::vec3(0, 1, 0), 30.0f + (rand() % 60));
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Add Floating Entity")) {
+            static int floaterCount = 0;
+            ECS::Entity newEntity = m_ECSWorld->CreateEntity("NewFloater_" + std::to_string(floaterCount++));
+            auto& t = newEntity.AddComponent<ECS::TransformComponent>(
+                glm::vec3((rand() % 10) - 5, 1.0f, (rand() % 10) - 5));
+            auto& f = newEntity.AddComponent<ECS::FloatingComponent>(
+                0.5f + (rand() % 100) / 100.0f, 0.5f + (rand() % 100) / 100.0f);
+            f.BasePosition = t.Position;
+        }
+
+        ImGui::End();
+    }
 
     m_ImGuiLayer->End();
 }
@@ -299,10 +411,6 @@ void SandboxApp::OnWindowResize(int width, int height) {
         }
     }
 }
-
-// ============================================================================
-// 初始化辅助方法
-// ============================================================================
 
 void SandboxApp::SetupShaders() {
     m_LightShader = Shader(
@@ -430,17 +538,13 @@ void SandboxApp::SetupFramebuffers() {
 
 }
 
-// ============================================================================
-// 渲染辅助方法
-// ============================================================================
-
 void SandboxApp::RenderSkybox() {
     glm::mat4 view = glm::mat4(glm::mat3(m_Camera.GetViewMatrix())); // 去除平移部分
     float aspectRatio = GetWindow().GetAspectRatio();
     glm::mat4 projection = m_Camera.GetProjectionMatrix(aspectRatio);
 
     glDepthFunc(GL_LEQUAL);
-    glDisable(GL_CULL_FACE);
+    // glDisable(GL_CULL_FACE);
     glDepthMask(GL_FALSE);
 
     m_SkyboxShader.Bind();
@@ -454,7 +558,7 @@ void SandboxApp::RenderSkybox() {
     m_CubeVAO->Unbind();
 
     glDepthMask(GL_TRUE);
-    glEnable(GL_CULL_FACE);
+    // glEnable(GL_CULL_FACE);
     glDepthFunc(GL_LESS);
 }
 
@@ -702,10 +806,6 @@ void SandboxApp::VisualizeDepthBuffer() {
 
     RenderCommand::EnableDepthTest();
 }
-
-// ============================================================================
-// 输入处理
-// ============================================================================
 
 void SandboxApp::ProcessInput(float deltaTime) {
     // ESC 退出

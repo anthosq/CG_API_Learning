@@ -32,10 +32,7 @@ void Input::OnUpdate() {
     s_ScrollOffset = 0.0f;
 }
 
-// ============================================================================
 // 键盘输入
-// ============================================================================
-
 bool Input::IsKeyPressed(int keycode) {
     int state = glfwGetKey(s_Window, keycode);
     return state == GLFW_PRESS || state == GLFW_REPEAT;
@@ -45,10 +42,7 @@ bool Input::IsKeyReleased(int keycode) {
     return glfwGetKey(s_Window, keycode) == GLFW_RELEASE;
 }
 
-// ============================================================================
 // 鼠标输入
-// ============================================================================
-
 bool Input::IsMouseButtonPressed(int button) {
     return glfwGetMouseButton(s_Window, button) == GLFW_PRESS;
 }
@@ -89,10 +83,7 @@ void Input::ResetFirstMouse() {
     s_FirstMouse = true;
 }
 
-// ============================================================================
 // GLFW 回调
-// ============================================================================
-
 void Input::MouseCallback(GLFWwindow* window, double xpos, double ypos) {
     s_MousePosition = glm::vec2(static_cast<float>(xpos), static_cast<float>(ypos));
 

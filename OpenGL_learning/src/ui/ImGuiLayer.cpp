@@ -12,10 +12,18 @@ ImGuiLayer::ImGuiLayer(GLFWwindow* window) {
     // 配置 IO
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // 键盘导航
-    // io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;   // 停靠（需要 imgui docking 分支）
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;      // 启用停靠
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;    // 启用多视口
 
     // 设置默认主题
     SetDarkTheme();
+
+    // 调整视口样式
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.WindowRounding = 0.0f;
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
 
     // 初始化平台/渲染后端
     ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -37,6 +45,15 @@ void ImGuiLayer::Begin() {
 void ImGuiLayer::End() {
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+    // 处理多视口
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+        GLFWwindow* backup_context = glfwGetCurrentContext();
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+        glfwMakeContextCurrent(backup_context);
+    }
 }
 
 void ImGuiLayer::SetDarkTheme() {

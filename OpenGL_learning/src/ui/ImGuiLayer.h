@@ -7,9 +7,7 @@
 
 namespace GLRenderer {
 
-// ============================================================================
 // ImGuiLayer - ImGui 生命周期管理
-// ============================================================================
 class ImGuiLayer : public NonCopyable {
 public:
     ImGuiLayer(GLFWwindow* window);
