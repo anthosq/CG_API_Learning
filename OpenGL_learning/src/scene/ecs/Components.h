@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 #include <entt/entt.hpp>
+#include "core/UUID.h"
 
 namespace GLRenderer {
 
@@ -29,7 +30,22 @@ class Mesh;
 
 namespace ECS {
 
+// ============================================================================
 // 核心组件
+// ============================================================================
+
+/// ID 组件 - 存储实体的唯一标识符
+/// 每个实体都应该有一个 IDComponent，用于序列化和跨帧引用
+struct IDComponent {
+    UUID ID;
+
+    IDComponent() = default;
+    IDComponent(const UUID& uuid) : ID(uuid) {}
+    IDComponent(uint64_t uuid) : ID(uuid) {}
+
+    operator uint64_t() const { return static_cast<uint64_t>(ID); }
+};
+
 /// 标签组件 - 用于标识和分类实体
 struct TagComponent {
     std::string Name = "Entity";

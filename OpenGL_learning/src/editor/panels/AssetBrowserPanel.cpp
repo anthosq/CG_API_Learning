@@ -174,10 +174,46 @@ void AssetBrowserPanel::DrawAssetGrid() {
         // 图标区域
         ImGui::BeginGroup();
 
-        // 缩略图占位（实际项目中应该显示真正的缩略图）
+        // 缩略图显示
         ImVec2 buttonSize(m_ThumbnailSize, m_ThumbnailSize);
-        if (ImGui::Button(icon, buttonSize)) {
+
+        // 尝试显示纹理缩略图
+        bool showedThumbnail = false;
+        if (type == AssetType::Texture) {
+            AssetID assetID = AssetManager::Get().FindAssetByPath(entry.path());
+            if (assetID != NullAssetID) {
+                Texture* tex = AssetManager::Get().GetTexture(assetID);
+                if (tex && tex->IsValid()) {
+                    // 使用带 ID 的 ImageButton
+                    std::string buttonID = "##thumb_" + filename;
+                    ImGui::ImageButton(
+                        buttonID.c_str(),
+                        (ImTextureID)(intptr_t)tex->GetID(),
+                        buttonSize,
+                        ImVec2(0, 1), ImVec2(1, 0)  // UV 翻转
+                    );
+                    showedThumbnail = true;
+                }
+            }
+        }
+
+        // 如果没有缩略图，显示图标按钮
+        if (!showedThumbnail) {
+            if (ImGui::Button(icon, buttonSize)) {
+                m_SelectedPath = entry.path();
+            }
+        } else if (ImGui::IsItemClicked()) {
             m_SelectedPath = entry.path();
+        }
+
+        // 拖拽源（用于拖拽到场景）
+        if (type != AssetType::Unknown && !entry.is_directory()) {
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                std::string pathStr = entry.path().string();
+                ImGui::SetDragDropPayload("ASSET_PATH", pathStr.c_str(), pathStr.size() + 1);
+                ImGui::Text("%s", filename.c_str());
+                ImGui::EndDragDropSource();
+            }
         }
 
         // 双击处理

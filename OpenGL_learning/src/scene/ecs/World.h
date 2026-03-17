@@ -24,6 +24,7 @@
 
 #include "Entity.h"
 #include "Components.h"
+#include "core/UUID.h"
 #include <entt/entt.hpp>
 #include <string>
 #include <functional>
@@ -46,11 +47,14 @@ public:
     World& operator=(World&&) = default;
 
     // 实体管理
-    /// 创建新实体
+    /// 创建新实体（自动生成 UUID）
     Entity CreateEntity(const std::string& name = "Entity");
 
-    /// 创建带标签的实体
+    /// 创建带标签的实体（自动生成 UUID）
     Entity CreateEntity(const std::string& name, const std::string& tag);
+
+    /// 使用指定 UUID 创建实体（用于反序列化）
+    Entity CreateEntityWithUUID(UUID uuid, const std::string& name);
 
     /// 销毁实体
     void DestroyEntity(Entity entity);

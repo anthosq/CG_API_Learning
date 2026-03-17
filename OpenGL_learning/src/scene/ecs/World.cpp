@@ -22,7 +22,8 @@ Entity World::CreateEntity(const std::string& name) {
     entt::entity handle = m_Registry.create();
     Entity entity(handle, this);
 
-    // 自动添加 TagComponent
+    // 自动添加核心组件
+    entity.AddComponent<IDComponent>();      // UUID 自动生成
     entity.AddComponent<TagComponent>(name);
 
     return entity;
@@ -32,7 +33,20 @@ Entity World::CreateEntity(const std::string& name, const std::string& tag) {
     entt::entity handle = m_Registry.create();
     Entity entity(handle, this);
 
+    // 自动添加核心组件
+    entity.AddComponent<IDComponent>();      // UUID 自动生成
     entity.AddComponent<TagComponent>(name, tag);
+
+    return entity;
+}
+
+Entity World::CreateEntityWithUUID(UUID uuid, const std::string& name) {
+    entt::entity handle = m_Registry.create();
+    Entity entity(handle, this);
+
+    // 使用指定的 UUID
+    entity.AddComponent<IDComponent>(uuid);
+    entity.AddComponent<TagComponent>(name);
 
     return entity;
 }

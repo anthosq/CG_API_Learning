@@ -1,6 +1,7 @@
 #include "ViewportPanel.h"
 #include "editor/EditorContext.h"
 #include "core/Input.h"
+#include "asset/AssetManager.h"
 
 #include <imgui.h>
 #include <GLFW/glfw3.h>
@@ -22,6 +23,7 @@ ViewportPanel::ViewportPanel()
     spec.HasColorAttachment = true;
     spec.HasDepthAttachment = true;
     spec.DepthAsTexture = false;
+    spec.HasEntityIDAttachment = true;  // 启用实体 ID 附件用于鼠标拾取
     spec.Samples = 1;
 
     m_Framebuffer = std::make_unique<Framebuffer>(spec);
@@ -64,12 +66,30 @@ void ViewportPanel::OnDraw(EditorContext& context) {
     m_ViewportBounds[1] = {m_ViewportBounds[0].x + m_ViewportSize.x,
                            m_ViewportBounds[0].y + m_ViewportSize.y};
 
-    // 显示视口信息（调试用）
-    // ImGui::SetCursorPos(ImVec2(10, 30));
-    // ImGui::Text("Size: %.0f x %.0f", m_ViewportSize.x, m_ViewportSize.y);
-    // ImGui::Text("Focused: %s, Hovered: %s",
-    //             m_IsFocused ? "Yes" : "No",
-    //             m_IsHovered ? "Yes" : "No");
+    // 接受拖放资产
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            const char* path = static_cast<const char*>(payload->Data);
+            std::filesystem::path assetPath(path);
+
+            AssetType type = GetAssetTypeFromExtension(assetPath);
+            if (type == AssetType::Model) {
+                // 导入模型
+                ModelHandle handle = AssetManager::Get().ImportModel(assetPath);
+                if (handle.IsValid()) {
+                    // TODO: 在场景中创建实体并附加模型组件
+                    std::cout << "[Viewport] Dropped model: " << assetPath << std::endl;
+                }
+            } else if (type == AssetType::Texture) {
+                // 导入纹理
+                TextureHandle handle = AssetManager::Get().ImportTexture(assetPath);
+                if (handle.IsValid()) {
+                    std::cout << "[Viewport] Dropped texture: " << assetPath << std::endl;
+                }
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
 }
 
 ImGuiWindowFlags ViewportPanel::GetWindowFlags() const {
@@ -167,6 +187,63 @@ void ViewportPanel::ProcessCameraInput(float deltaTime) {
             m_Camera.ProcessMouseScroll(scroll);
         }
     }
+}
+
+bool ViewportPanel::ProcessMousePicking(int& outEntityID) {
+    outEntityID = -1;
+
+    // 仅在视口悬停时处理
+    if (!m_IsHovered) {
+        m_HoveredEntityID = -1;
+        return false;
+    }
+
+    // 如果正在进行相机操作，不进行拾取
+    if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT) ||
+        (Input::IsKeyPressed(GLFW_KEY_LEFT_ALT) &&
+         (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT) ||
+          Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_MIDDLE)))) {
+        m_HoveredEntityID = -1;
+        return false;
+    }
+
+    // 只在左键点击时读取（避免每帧 ReadPixel 导致的 GPU 同步延迟）
+    static bool wasLeftPressed = false;
+    bool isLeftPressed = Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
+
+    bool hasNewPick = false;
+
+    // 检测鼠标左键按下的瞬间
+    if (isLeftPressed && !wasLeftPressed) {
+        // 获取鼠标在视口中的位置
+        glm::vec2 mousePos = Input::GetMousePosition();
+
+        // 转换为视口局部坐标
+        float mx = mousePos.x - m_ViewportBounds[0].x;
+        float my = mousePos.y - m_ViewportBounds[0].y;
+
+        // 翻转 Y 坐标（OpenGL 原点在左下角）
+        my = m_ViewportSize.y - my;
+
+        // 检查是否在视口范围内
+        if (mx >= 0 && my >= 0 && mx < m_ViewportSize.x && my < m_ViewportSize.y) {
+            // 读取实体 ID（仅在点击时读取）
+            int pixelData = m_Framebuffer->ReadPixel(static_cast<int>(mx), static_cast<int>(my));
+            m_HoveredEntityID = pixelData;
+            outEntityID = pixelData;
+            hasNewPick = true;
+
+            std::cout << "[Viewport] Clicked at (" << static_cast<int>(mx) << ", "
+                      << static_cast<int>(my) << "), Entity ID: " << pixelData << std::endl;
+        } else {
+            m_HoveredEntityID = -1;
+            outEntityID = -1;
+            hasNewPick = true;  // 点击了视口外，也算是一次有效的"空选择"
+        }
+    }
+
+    wasLeftPressed = isLeftPressed;
+    return hasNewPick;
 }
 
 } // namespace GLRenderer

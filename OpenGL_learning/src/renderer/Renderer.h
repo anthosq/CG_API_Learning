@@ -4,8 +4,10 @@
 #include "graphics/Camera.h"
 #include "graphics/Shader.h"
 #include "graphics/Framebuffer.h"
+#include "graphics/Mesh.h"
 #include "scene/Light.h"
 #include <functional>
+#include <vector>
 
 namespace GLRenderer {
 
@@ -63,11 +65,16 @@ public:
     static void SetupDirectionalLight(Shader& shader, const DirectionalLight& light);
     static void SetupPointLights(Shader& shader, const PointLight* lights, int count);
     static void SetupSpotLight(Shader& shader, const SpotLight& light);
+    static void DisableSpotLight(Shader& shader);  // 禁用聚光灯（设置零贡献）
 
     // 绘制方法
 
     // 绘制全屏四边形（用于后处理）
     static void DrawFullscreenQuad();
+
+    // 提交网格绘制（支持实体 ID 用于鼠标拾取）
+    static void SubmitMesh(Mesh& mesh, Shader& shader, const glm::mat4& transform, int entityID = -1);
+    static void SubmitModel(Model& model, Shader& shader, const glm::mat4& transform, int entityID = -1);
 
     // 统计信息
 

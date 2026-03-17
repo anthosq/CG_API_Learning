@@ -16,6 +16,9 @@ struct FramebufferSpec {
     // 如果需要采样深度值（如阴影映射），设为 true
     bool DepthAsTexture = false;
 
+    // 是否包含实体 ID 附件（用于鼠标拾取）
+    bool HasEntityIDAttachment = false;
+
     // 采样数（用于 MSAA，1 表示不使用）
     uint32_t Samples = 1;
 
@@ -44,6 +47,7 @@ public:
     GLuint GetID() const { return m_ID; }
     GLuint GetColorAttachment() const { return m_ColorAttachment; }
     GLuint GetDepthAttachment() const { return m_DepthAttachment; }
+    GLuint GetEntityIDAttachment() const { return m_EntityIDAttachment; }
 
     uint32_t GetWidth() const { return m_Spec.Width; }
     uint32_t GetHeight() const { return m_Spec.Height; }
@@ -51,6 +55,10 @@ public:
     const FramebufferSpec& GetSpec() const { return m_Spec; }
 
     bool IsValid() const { return m_ID != 0; }
+
+    // 鼠标拾取相关
+    int ReadPixel(int x, int y) const;  // 读取实体 ID 附件的像素值
+    void ClearEntityID(int value = -1); // 清除实体 ID 附件
 
     // 静态方法：绑定默认帧缓冲（屏幕）
     static void BindDefault();
@@ -64,6 +72,7 @@ private:
 
     GLuint m_ID = 0;
     GLuint m_ColorAttachment = 0;
+    GLuint m_EntityIDAttachment = 0;  // 用于鼠标拾取的实体 ID 附件
     GLuint m_DepthAttachment = 0;  // 可以是纹理或渲染缓冲
     bool m_DepthIsTexture = false;
 

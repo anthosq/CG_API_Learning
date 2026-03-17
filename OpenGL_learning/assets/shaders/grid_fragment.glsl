@@ -1,5 +1,8 @@
 #version 330 core
-out vec4 FragColor;
+
+// 多渲染目标输出
+layout(location = 0) out vec4 FragColor;
+layout(location = 1) out int EntityID;
 
 in vec3 nearPoint;
 in vec3 farPoint;
@@ -80,4 +83,5 @@ void main() {
     }
 
     FragColor = color;
+    EntityID = -1;  // 网格不是可选实体
 }

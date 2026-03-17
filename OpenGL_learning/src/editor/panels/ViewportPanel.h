@@ -45,6 +45,10 @@ public:
     void ProcessCameraInput(float deltaTime);
     void OnResize(float width, float height);
 
+    // 鼠标拾取 - 返回是否有新的拾取结果
+    int GetHoveredEntityID() const { return m_HoveredEntityID; }
+    bool ProcessMousePicking(int& outEntityID);
+
 protected:
     void OnDraw(EditorContext& context) override;
     ImGuiWindowFlags GetWindowFlags() const override;
@@ -61,6 +65,8 @@ private:
     bool m_IsFocused = false;
     bool m_IsHovered = false;
     bool m_CameraControlEnabled = false;
+
+    int m_HoveredEntityID = -1;
 };
 
 } // namespace GLRenderer

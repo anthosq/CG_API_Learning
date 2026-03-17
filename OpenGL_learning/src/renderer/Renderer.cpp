@@ -91,8 +91,24 @@ void Renderer::SetupSpotLight(Shader& shader, const SpotLight& light) {
     shader.SetFloat("spotLight.constant", light.Constant);
     shader.SetFloat("spotLight.linear", light.Linear);
     shader.SetFloat("spotLight.quadratic", light.Quadratic);
-    shader.SetFloat("spotLight.innerCutOff", glm::cos(glm::radians(light.InnerCutOff)));
+    // 注意：shader 中使用 cutOff，这里对应 InnerCutOff
+    shader.SetFloat("spotLight.cutOff", glm::cos(glm::radians(light.InnerCutOff)));
     shader.SetFloat("spotLight.outerCutOff", glm::cos(glm::radians(light.OuterCutOff)));
+}
+
+void Renderer::DisableSpotLight(Shader& shader) {
+    // 设置聚光灯为禁用状态（ambient/diffuse/specular 为 0）
+    shader.SetVec3("spotLight.position", glm::vec3(0.0f));
+    shader.SetVec3("spotLight.direction", glm::vec3(0.0f, -1.0f, 0.0f));
+    shader.SetVec3("spotLight.ambient", glm::vec3(0.0f));
+    shader.SetVec3("spotLight.diffuse", glm::vec3(0.0f));
+    shader.SetVec3("spotLight.specular", glm::vec3(0.0f));
+    shader.SetFloat("spotLight.constant", 1.0f);
+    shader.SetFloat("spotLight.linear", 0.0f);
+    shader.SetFloat("spotLight.quadratic", 0.0f);
+    // 设置 cutOff > outerCutOff 使得 epsilon 为正，避免除零
+    shader.SetFloat("spotLight.cutOff", glm::cos(glm::radians(10.0f)));
+    shader.SetFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
 }
 
 // ============================================================================
@@ -119,6 +135,32 @@ void Renderer::RecordDrawCall(uint32_t vertexCount, uint32_t indexCount) {
     } else {
         s_Stats.Triangles += vertexCount / 3;
     }
+}
+
+void Renderer::SubmitMesh(Mesh& mesh, Shader& shader, const glm::mat4& transform, int entityID) {
+    shader.Bind();
+    SetupShaderMatrices(shader, transform);
+
+    // 设置实体 ID（用于鼠标拾取）
+    shader.SetInt("u_EntityID", entityID);
+
+    mesh.Draw(shader);
+
+    RecordDrawCall(static_cast<uint32_t>(mesh.vertices.size()),
+                   static_cast<uint32_t>(mesh.indices.size()));
+}
+
+void Renderer::SubmitModel(Model& model, Shader& shader, const glm::mat4& transform, int entityID) {
+    shader.Bind();
+    SetupShaderMatrices(shader, transform);
+
+    // 设置实体 ID（用于鼠标拾取）
+    shader.SetInt("u_EntityID", entityID);
+
+    model.Draw(shader);
+
+    // 统计信息会在 Model::Draw 内部处理
+    s_Stats.DrawCalls++;
 }
 
 // 私有方法

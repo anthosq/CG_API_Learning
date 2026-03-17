@@ -1,5 +1,8 @@
 #version 330 core
-out vec4 FragColor;
+
+// 多渲染目标输出
+layout(location = 0) out vec4 FragColor;
+layout(location = 1) out int EntityID;
 
 in vec3 Normal;
 in vec3 FragPos;
@@ -56,6 +59,9 @@ uniform Material material;
 uniform DirLight dirLight;
 uniform PointLight pointLight[NR_POINT_LIGHTS];
 uniform SpotLight spotLight;
+
+// Entity ID for mouse picking
+uniform int u_EntityID;
 
 vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir) {
     vec3 lightDir = normalize(-light.direction);
@@ -125,4 +131,5 @@ void main()
     result += CalcSpotLight(spotLight, norm, FragPos, viewDir);
 
     FragColor = vec4(result, 1.0);
+    EntityID = u_EntityID;
 }

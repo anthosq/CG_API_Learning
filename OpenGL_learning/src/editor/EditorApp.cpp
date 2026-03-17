@@ -212,6 +212,29 @@ void EditorApp::OnUpdate(float deltaTime) {
     // 处理视口相机输入
     if (m_ViewportPanel) {
         m_ViewportPanel->ProcessCameraInput(deltaTime);
+
+        // 处理鼠标拾取（仅在点击时读取，返回是否有新的选择）
+        int pickedEntityID = -1;
+        bool hasNewPick = m_ViewportPanel->ProcessMousePicking(pickedEntityID);
+
+        // 处理选择结果
+        if (hasNewPick) {
+            if (pickedEntityID >= 0 && m_World) {
+                // 检查是否是 ECS 实体（ID < 100 是 ECS 实体，>=100 是临时测试 ID）
+                auto& registry = m_World->GetRegistry();
+                auto entity = static_cast<entt::entity>(pickedEntityID);
+                if (registry.valid(entity)) {
+                    ECS::Entity ecsEntity(entity, m_World.get());
+                    m_Editor->GetContext().Select(ecsEntity);
+                    std::cout << "[EditorApp] Selected ECS entity: " << pickedEntityID << std::endl;
+                } else {
+                    std::cout << "[EditorApp] Clicked non-ECS object: " << pickedEntityID << std::endl;
+                }
+            } else {
+                // 点击空白处取消选择
+                m_Editor->GetContext().ClearSelection();
+            }
+        }
     }
 }
 
@@ -352,6 +375,9 @@ void EditorApp::RenderSceneToViewport() {
     RenderCommand::Clear();
     RenderCommand::EnableDepthTest();
 
+    // 清除实体 ID 附件（-1 表示无实体）
+    fbo->ClearEntityID(-1);
+
     glm::mat4 view = camera.GetViewMatrix();
     glm::mat4 projection = camera.GetProjectionMatrix(aspectRatio);
 
@@ -369,6 +395,7 @@ void EditorApp::RenderSceneToViewport() {
     // 设置光源
     Renderer::SetupDirectionalLight(m_LightShader, m_DirLight);
     Renderer::SetupPointLights(m_LightShader, m_PointLights, 4);
+    Renderer::DisableSpotLight(m_LightShader);  // 禁用聚光灯，避免未定义 uniform 导致 NaN
 
     // 材质
     m_CubeVAO->Bind();
@@ -384,7 +411,12 @@ void EditorApp::RenderSceneToViewport() {
         model = glm::translate(model, m_CubePositions[i]);
         float angle = 20.0f * i;
         model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
+
+        // 设置变换矩阵（包括法线矩阵）
+        glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(model)));
         m_LightShader.SetMat4("model", model);
+        m_LightShader.SetMat3("normalMatrix", normalMatrix);
+        m_LightShader.SetInt("u_EntityID", 100 + i);  // 临时 ID 用于测试拾取
         glDrawArrays(GL_TRIANGLES, 0, 36);
     }
 
@@ -399,6 +431,7 @@ void EditorApp::RenderSceneToViewport() {
         model = glm::translate(model, m_PointLightPositions[i]);
         model = glm::scale(model, glm::vec3(0.2f));
         m_LampShader.SetMat4("model", model);
+        m_LampShader.SetInt("u_EntityID", 200 + i);  // 临时 ID 用于测试拾取
         glDrawArrays(GL_TRIANGLES, 0, 36);
     }
 
@@ -454,6 +487,13 @@ void EditorApp::SetupTextures() {
     m_DiffuseMap = Texture("assets/pic/container2.png");
     m_SpecularMap = Texture("assets/pic/container2_specular.png");
     m_SkyboxTexture = TextureCube(m_SkyboxPaths);
+
+    // 验证纹理加载
+    std::cout << "[EditorApp] Diffuse texture ID: " << m_DiffuseMap.GetID()
+              << ", Size: " << m_DiffuseMap.GetWidth() << "x" << m_DiffuseMap.GetHeight() << std::endl;
+    std::cout << "[EditorApp] Specular texture ID: " << m_SpecularMap.GetID()
+              << ", Size: " << m_SpecularMap.GetWidth() << "x" << m_SpecularMap.GetHeight() << std::endl;
+    std::cout << "[EditorApp] Skybox texture ID: " << m_SkyboxTexture.GetID() << std::endl;
 }
 
 void EditorApp::OnWindowResize(int width, int height) {
