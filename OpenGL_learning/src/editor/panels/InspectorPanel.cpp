@@ -6,10 +6,6 @@
 
 namespace GLRenderer {
 
-// ============================================================================
-// 辅助函数
-// ============================================================================
-
 static bool DrawVec3Control(const char* label, glm::vec3& value, float resetValue = 0.0f, float speed = 0.1f) {
     bool changed = false;
 
@@ -92,10 +88,6 @@ static bool DrawColorControl(const char* label, glm::vec3& color) {
 
     return changed;
 }
-
-// ============================================================================
-// InspectorPanel
-// ============================================================================
 
 void InspectorPanel::OnDraw(EditorContext& context) {
     if (!context.HasSelection()) {

@@ -12,6 +12,14 @@ namespace GLRenderer {
     Mesh::Mesh(std::vector<MeshVertex> vertices, std::vector<unsigned int> indices, std::vector<MeshTexture> textures)
         : vertices(vertices), indices(indices), textures(textures) {
         SetupMesh();
+        CalculateBoundingBox();
+    }
+
+    void Mesh::CalculateBoundingBox() {
+        BoundingBox.Reset();
+        for (const auto& vertex : vertices) {
+            BoundingBox.Encapsulate(vertex.Position);
+        }
     }
 
     void Mesh::SetupMesh() {
@@ -85,11 +93,16 @@ namespace GLRenderer {
 
     void Model::LoadModel(const std::filesystem::path &path) {
         Assimp::Importer importer;
+        // 先移除原有法线，再生成平滑法线
+        importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS, aiComponent_NORMALS);
+
         const aiScene *scene = importer.ReadFile(path.string(),
                                                  aiProcess_Triangulate |
+                                                     aiProcess_RemoveComponent |
                                                      aiProcess_GenSmoothNormals |
                                                      aiProcess_FlipUVs |
-                                                     aiProcess_CalcTangentSpace);
+                                                     aiProcess_CalcTangentSpace |
+                                                     aiProcess_JoinIdenticalVertices);
 
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
         {
@@ -102,7 +115,19 @@ namespace GLRenderer {
 
         ProcessNode(scene->mRootNode, scene);
 
-        std::cout << "Model loaded successfully. Meshes: " << meshes.size() << std::endl;
+        // 计算整个模型的包围盒
+        CalculateModelBoundingBox();
+
+        std::cout << "Model loaded successfully. Meshes: " << meshes.size()
+                  << ", BoundingBox: [" << m_BoundingBox.Min.x << ", " << m_BoundingBox.Min.y << ", " << m_BoundingBox.Min.z << "] - ["
+                  << m_BoundingBox.Max.x << ", " << m_BoundingBox.Max.y << ", " << m_BoundingBox.Max.z << "]" << std::endl;
+    }
+
+    void Model::CalculateModelBoundingBox() {
+        m_BoundingBox.Reset();
+        for (const auto& mesh : meshes) {
+            m_BoundingBox.Encapsulate(mesh.GetBoundingBox());
+        }
     }
 
     void Model::ProcessNode(const aiNode *node, const aiScene *scene) {
@@ -188,9 +213,15 @@ namespace GLRenderer {
             aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
 
             std::vector<MeshTexture> diffuseMaps = LoadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
+            if (!diffuseMaps.empty()) {
+                m_HasDiffuseTextures = true;
+            }
             textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
 
             std::vector<MeshTexture> specularMaps = LoadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular", scene);
+            if (!specularMaps.empty()) {
+                m_HasSpecularTextures = true;
+            }
             textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
 
             std::vector<MeshTexture> normalMaps = LoadMaterialTextures(material, aiTextureType_NORMALS, "texture_normal", scene);
@@ -243,12 +274,11 @@ namespace GLRenderer {
         int width = texture->mWidth;
         int height = texture->mHeight;
 
-        stbi_set_flip_vertically_on_load(true);
-
         glBindTexture(GL_TEXTURE_2D, textureID);
 
         if (height == 0) {
-            // 压缩格式
+            // 压缩格式 (PNG/JPG 等嵌入数据)
+            stbi_set_flip_vertically_on_load(true);
             int nrComponents;
             unsigned char *data = stbi_load_from_memory(
                 reinterpret_cast<unsigned char *>(texture->pcData),
@@ -271,7 +301,7 @@ namespace GLRenderer {
                 std::cerr << "Failed to load embedded compressed texture" << std::endl;
             }
         } else {
-            // 未压缩格式
+            // 未压缩格式 (ARGB8888)
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, texture->pcData);
             glGenerateMipmap(GL_TEXTURE_2D);
         }

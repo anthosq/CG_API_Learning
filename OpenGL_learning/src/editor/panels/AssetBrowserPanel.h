@@ -1,18 +1,18 @@
 #pragma once
 
-// ============================================================================
-// AssetBrowserPanel.h - 资产浏览器面板
-// ============================================================================
-
 #include "Panel.h"
 #include "asset/AssetTypes.h"
+#include "graphics/Texture.h"
 #include <filesystem>
+#include <unordered_map>
+#include <memory>
 
 namespace GLRenderer {
 
 class AssetBrowserPanel : public Panel {
 public:
     AssetBrowserPanel();
+    ~AssetBrowserPanel() override;
 
 protected:
     void OnDraw(EditorContext& context) override;
@@ -24,6 +24,12 @@ private:
 
     // 获取文件图标（基于类型）
     const char* GetFileIcon(AssetType type) const;
+
+    // 获取预览纹理（自动加载）
+    Texture* GetPreviewTexture(const std::filesystem::path& path);
+
+    // 清理未使用的预览纹理
+    void CleanupPreviewCache();
 
     // 当前目录
     std::filesystem::path m_CurrentDirectory;
@@ -37,6 +43,15 @@ private:
 
     // 选择
     std::filesystem::path m_SelectedPath;
+
+    // 预览纹理缓存
+    std::unordered_map<std::string, std::unique_ptr<Texture>> m_PreviewCache;
+    std::filesystem::path m_LastDirectory;  // 用于检测目录切换
+
+    // 延迟加载队列
+    std::vector<std::filesystem::path> m_PendingLoads;
+    int m_MaxLoadsPerFrame = 2;  // 每帧最多加载 2 个纹理
+    int m_LoadsThisFrame = 0;
 };
 
 } // namespace GLRenderer

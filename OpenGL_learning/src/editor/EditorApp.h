@@ -1,8 +1,5 @@
 #pragma once
 
-// ============================================================================
-// EditorApp.h - 编辑器应用程序
-// ============================================================================
 //
 // EditorApp 是独立的编辑器应用，包含：
 // 1. DockSpace 布局
@@ -18,14 +15,19 @@
 #include "graphics/Buffer.h"
 #include "graphics/Framebuffer.h"
 #include "graphics/Mesh.h"
+#include "graphics/MeshFactory.h"
 #include "scene/Grid.h"
 #include "scene/Light.h"
 #include "ui/ImGuiLayer.h"
 #include "renderer/Renderer.h"
+#include "renderer/Renderer2D.h"
 #include "renderer/RenderCommand.h"
+#include "renderer/SceneRenderer.h"
 #include "scene/ecs/ECS.h"
 #include "editor/Editor.h"
 #include "editor/panels/ViewportPanel.h"
+#include "editor/panels/SettingsPanel.h"
+#include "editor/panels/PrimitivesPanel.h"
 #include "asset/AssetManager.h"
 
 #include <memory>
@@ -46,8 +48,6 @@ protected:
     void OnImGuiRender() override;
     void OnWindowResize(int width, int height) override;
 
-    void RenderSkybox();
-
 private:
     // DockSpace 设置
     void SetupDockSpace();
@@ -55,12 +55,17 @@ private:
     // 场景渲染到视口 FBO
     void RenderSceneToViewport();
 
-    void SetupShaders();
+    // 渲染编辑器可视化 (光源图标等)
+    void RenderEditorVisuals();
 
-    void SetupBuffers();
+    // 加载编辑器图标
+    void LoadEditorIcons();
 
-    void SetupTextures();
+    // 创建示例场景实体
+    void CreateSceneEntities();
 
+    // 创建网格资源（立方体 VAO）
+    void CreateMeshResources();
 
 private:
     // ImGui
@@ -70,36 +75,27 @@ private:
     std::unique_ptr<ECS::World> m_World;
     std::unique_ptr<ECS::SystemManager> m_SystemManager;
 
+    // 场景渲染器
+    std::unique_ptr<SceneRenderer> m_SceneRenderer;
+
     // 编辑器
     std::unique_ptr<Editor> m_Editor;
     ViewportPanel* m_ViewportPanel = nullptr;  // 由 Editor 拥有
 
-    // 场景资源
-    Shader m_GridShader;
-    Shader m_LightShader;
-    Shader m_LampShader;
-    Shader m_SkyboxShader;
+    // 注：共享网格资源通过 MeshFactory 获取
 
-    Texture m_DiffuseMap;
-    Texture m_SpecularMap;
-    TextureCube m_SkyboxTexture;
+    // 纹理资源 (通过 AssetManager 管理)
+    AssetHandle m_DiffuseMapHandle;
+    AssetHandle m_SpecularMapHandle;
+    std::unique_ptr<TextureCube> m_SkyboxTexture;  // 天空盒暂不使用 AssetManager
 
-    std::unique_ptr<VertexArray> m_CubeVAO;
+    // 编辑器图标
+    std::unique_ptr<Texture> m_PointLightIcon;
+    std::unique_ptr<Texture> m_DirectionalLightIcon;
+    std::unique_ptr<Texture> m_SpotLightIcon;
+    std::unique_ptr<Texture> m_CameraIcon;
 
-    std::unique_ptr<Grid> m_Grid;
-    Model m_Model;
-
-    // 光源
-    DirectionalLight m_DirLight;
-    PointLight m_PointLights[4];
-
-    // 场景设置
-    bool m_ShowGrid = true;
-    float m_GridSize = 100.0f;
-    float m_GridCellSize = 1.0f;
-
-    glm::vec3 m_CubePositions[10];
-    glm::vec3 m_PointLightPositions[4];
+    // 天空盒路径
     std::array<std::filesystem::path, 6> m_SkyboxPaths;
 };
 

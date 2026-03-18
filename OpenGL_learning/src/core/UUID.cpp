@@ -13,11 +13,11 @@ namespace GLRenderer {
 
     UUID::UUID(uint64_t uuid) : m_UUID(uuid) {}
 
-    UUID::UUID(const UUID& other) : m_UUID(other.m_UUID) {}
+    // Copy constructor uses = default in header
 
     UUID32::UUID32() : m_UUID(distr32(eng32)) {}
 
     UUID32::UUID32(uint32_t uuid) : m_UUID(uuid) {}
 
-    UUID32::UUID32(const UUID32& other) : m_UUID(other.m_UUID) {}
+    // Copy constructor uses = default in header
 }

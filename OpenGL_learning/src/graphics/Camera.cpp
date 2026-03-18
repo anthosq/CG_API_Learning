@@ -38,10 +38,6 @@ glm::mat4 Camera::GetViewProjectionMatrix(float aspectRatio) const {
     return GetProjectionMatrix(aspectRatio) * GetViewMatrix();
 }
 
-// ============================================================================
-// 输入处理
-// ============================================================================
-
 void Camera::ProcessKeyboard(CameraMovement direction, float deltaTime) {
     float velocity = m_Settings.MovementSpeed * deltaTime;
 
@@ -94,10 +90,6 @@ void Camera::ProcessMouseScroll(float yOffset) {
     m_Settings.Zoom = glm::clamp(m_Settings.Zoom, m_Settings.MinZoom, m_Settings.MaxZoom);
     SyncPublicMembers();
 }
-
-// ============================================================================
-// 属性设置
-// ============================================================================
 
 void Camera::SetPosition(const glm::vec3& position) {
     m_Position = position;

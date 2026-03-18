@@ -3,10 +3,6 @@
 
 namespace GLRenderer {
 
-// ============================================================================
-// 单例
-// ============================================================================
-
 AssetManager& AssetManager::Get() {
     static AssetManager instance;
     return instance;
@@ -18,10 +14,6 @@ AssetManager::~AssetManager() {
     }
 }
 
-// ============================================================================
-// 生命周期
-// ============================================================================
-
 void AssetManager::Initialize(const std::filesystem::path& assetDirectory) {
     if (m_Initialized) {
         std::cout << "[AssetManager] Already initialized" << std::endl;
@@ -31,7 +23,6 @@ void AssetManager::Initialize(const std::filesystem::path& assetDirectory) {
     m_AssetDirectory = assetDirectory;
     std::cout << "[AssetManager] Initializing with root: " << assetDirectory << std::endl;
 
-    // 创建默认资产
     CreateDefaultAssets();
 
     m_Initialized = true;
@@ -44,260 +35,228 @@ void AssetManager::Shutdown() {
     m_Textures.clear();
     m_Models.clear();
     m_Registry.clear();
-    m_PathToID.clear();
+    m_PathToHandle.clear();
 
-    m_DefaultTexture = TextureHandle();
-    m_WhiteTexture = TextureHandle();
-    m_BlackTexture = TextureHandle();
+    m_DefaultTexture = AssetHandle();
+    m_WhiteTexture = AssetHandle();
+    m_BlackTexture = AssetHandle();
 
-    m_NextID = 1;
     m_Initialized = false;
 
     std::cout << "[AssetManager] Shutdown complete" << std::endl;
 }
 
-// ============================================================================
-// 资产导入
-// ============================================================================
-
-TextureHandle AssetManager::ImportTexture(const std::filesystem::path& path) {
-    // 规范化路径
+AssetHandle AssetManager::ImportTexture(const std::filesystem::path& path) {
     std::string pathStr = path.string();
 
-    // 检查是否已导入
-    auto it = m_PathToID.find(pathStr);
-    if (it != m_PathToID.end()) {
-        return TextureHandle(it->second);
+    auto it = m_PathToHandle.find(pathStr);
+    if (it != m_PathToHandle.end()) {
+        return it->second;
     }
 
-    // 检查文件是否存在
     if (!std::filesystem::exists(path)) {
         std::cerr << "[AssetManager] Texture file not found: " << path << std::endl;
         return GetDefaultTexture();
     }
 
-    // 生成新 ID
-    AssetID id = GenerateAssetID();
+    AssetHandle handle;
 
-    // 创建元数据
     AssetMetadata metadata;
-    metadata.ID = id;
+    metadata.Handle = handle;
     metadata.Type = AssetType::Texture;
     metadata.SourcePath = path;
     metadata.Name = path.filename().string();
     metadata.IsLoaded = false;
 
-    // 尝试加载纹理
     try {
         auto texture = std::make_unique<Texture>(path);
-        m_Textures[id] = std::move(texture);
+        m_Textures[handle] = std::move(texture);
         metadata.IsLoaded = true;
-        std::cout << "[AssetManager] Imported texture: " << metadata.Name << " (ID: " << id << ")" << std::endl;
+        std::cout << "[AssetManager] Imported texture: " << metadata.Name
+                  << " (Handle: " << static_cast<uint64_t>(handle) << ")" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "[AssetManager] Failed to load texture: " << e.what() << std::endl;
         return GetDefaultTexture();
     }
 
-    // 注册
-    m_Registry[id] = metadata;
-    m_PathToID[pathStr] = id;
+    m_Registry[handle] = metadata;
+    m_PathToHandle[pathStr] = handle;
 
-    return TextureHandle(id);
+    return handle;
 }
 
-ModelHandle AssetManager::ImportModel(const std::filesystem::path& path) {
+AssetHandle AssetManager::ImportModel(const std::filesystem::path& path) {
     std::string pathStr = path.string();
 
-    // 检查是否已导入
-    auto it = m_PathToID.find(pathStr);
-    if (it != m_PathToID.end()) {
-        return ModelHandle(it->second);
+    auto it = m_PathToHandle.find(pathStr);
+    if (it != m_PathToHandle.end()) {
+        return it->second;
     }
 
-    // 检查文件是否存在
     if (!std::filesystem::exists(path)) {
         std::cerr << "[AssetManager] Model file not found: " << path << std::endl;
-        return ModelHandle();
+        return AssetHandle(0);
     }
 
-    // 生成新 ID
-    AssetID id = GenerateAssetID();
+    AssetHandle handle;
 
-    // 创建元数据
     AssetMetadata metadata;
-    metadata.ID = id;
+    metadata.Handle = handle;
     metadata.Type = AssetType::Model;
     metadata.SourcePath = path;
     metadata.Name = path.filename().string();
     metadata.IsLoaded = false;
 
-    // 尝试加载模型
     try {
         auto model = std::make_unique<Model>(path);
-        m_Models[id] = std::move(model);
+        m_Models[handle] = std::move(model);
         metadata.IsLoaded = true;
-        std::cout << "[AssetManager] Imported model: " << metadata.Name << " (ID: " << id << ")" << std::endl;
+        std::cout << "[AssetManager] Imported model: " << metadata.Name
+                  << " (Handle: " << static_cast<uint64_t>(handle) << ")" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "[AssetManager] Failed to load model: " << e.what() << std::endl;
-        return ModelHandle();
+        return AssetHandle(0);
     }
 
-    // 注册
-    m_Registry[id] = metadata;
-    m_PathToID[pathStr] = id;
+    m_Registry[handle] = metadata;
+    m_PathToHandle[pathStr] = handle;
 
-    return ModelHandle(id);
+    return handle;
 }
 
-// ============================================================================
-// 资产访问
-// ============================================================================
-
-Texture* AssetManager::GetTexture(AssetID id) {
-    auto it = m_Textures.find(id);
+Texture* AssetManager::GetTexture(AssetHandle handle) {
+    auto it = m_Textures.find(handle);
     if (it != m_Textures.end()) {
         return it->second.get();
     }
     return nullptr;
 }
 
-Model* AssetManager::GetModel(AssetID id) {
-    auto it = m_Models.find(id);
+Model* AssetManager::GetModel(AssetHandle handle) {
+    auto it = m_Models.find(handle);
     if (it != m_Models.end()) {
         return it->second.get();
     }
     return nullptr;
 }
 
-// ============================================================================
-// 资产查询
-// ============================================================================
-
-const AssetMetadata* AssetManager::GetMetadata(AssetID id) const {
-    auto it = m_Registry.find(id);
+const AssetMetadata* AssetManager::GetMetadata(AssetHandle handle) const {
+    auto it = m_Registry.find(handle);
     if (it != m_Registry.end()) {
         return &it->second;
     }
     return nullptr;
 }
 
-std::vector<AssetID> AssetManager::GetAssetsOfType(AssetType type) const {
-    std::vector<AssetID> result;
-    for (const auto& [id, metadata] : m_Registry) {
+std::vector<AssetHandle> AssetManager::GetAssetsOfType(AssetType type) const {
+    std::vector<AssetHandle> result;
+    for (const auto& [handle, metadata] : m_Registry) {
         if (metadata.Type == type) {
-            result.push_back(id);
+            result.push_back(handle);
         }
     }
     return result;
 }
 
-AssetID AssetManager::FindAssetByPath(const std::filesystem::path& path) const {
-    auto it = m_PathToID.find(path.string());
-    if (it != m_PathToID.end()) {
+AssetHandle AssetManager::FindAssetByPath(const std::filesystem::path& path) const {
+    auto it = m_PathToHandle.find(path.string());
+    if (it != m_PathToHandle.end()) {
         return it->second;
     }
-    return NullAssetID;
+    return AssetHandle(0);
 }
 
-bool AssetManager::IsLoaded(AssetID id) const {
-    auto it = m_Registry.find(id);
+bool AssetManager::IsLoaded(AssetHandle handle) const {
+    auto it = m_Registry.find(handle);
     if (it != m_Registry.end()) {
         return it->second.IsLoaded;
     }
     return false;
 }
 
-// ============================================================================
-// 默认资产
-// ============================================================================
-
-TextureHandle AssetManager::GetDefaultTexture() {
+AssetHandle AssetManager::GetDefaultTexture() {
     return m_DefaultTexture;
 }
 
-TextureHandle AssetManager::GetWhiteTexture() {
+AssetHandle AssetManager::GetWhiteTexture() {
     return m_WhiteTexture;
 }
 
-TextureHandle AssetManager::GetBlackTexture() {
+AssetHandle AssetManager::GetBlackTexture() {
     return m_BlackTexture;
 }
 
 void AssetManager::CreateDefaultAssets() {
     // 默认纹理（粉色/黑色棋盘格）
     {
-        AssetID id = GenerateAssetID();
+        AssetHandle handle;
 
         unsigned char data[4 * 4 * 4];
         for (int y = 0; y < 4; y++) {
             for (int x = 0; x < 4; x++) {
                 int idx = (y * 4 + x) * 4;
                 bool pink = ((x + y) % 2 == 0);
-                data[idx + 0] = pink ? 255 : 0;   // R
-                data[idx + 1] = pink ? 0 : 0;     // G
-                data[idx + 2] = pink ? 255 : 0;   // B
-                data[idx + 3] = 255;              // A
+                data[idx + 0] = pink ? 255 : 0;
+                data[idx + 1] = pink ? 0 : 0;
+                data[idx + 2] = pink ? 255 : 0;
+                data[idx + 3] = 255;
             }
         }
 
         auto texture = std::make_unique<Texture>(data, 4, 4, GL_RGBA, GL_RGBA8);
-        m_Textures[id] = std::move(texture);
+        m_Textures[handle] = std::move(texture);
 
         AssetMetadata metadata;
-        metadata.ID = id;
+        metadata.Handle = handle;
         metadata.Type = AssetType::Texture;
         metadata.Name = "DefaultTexture";
         metadata.IsLoaded = true;
         metadata.IsDefault = true;
-        m_Registry[id] = metadata;
+        m_Registry[handle] = metadata;
 
-        m_DefaultTexture = TextureHandle(id);
+        m_DefaultTexture = handle;
     }
 
     // 白色纹理
     {
-        AssetID id = GenerateAssetID();
+        AssetHandle handle;
 
         unsigned char data[4] = { 255, 255, 255, 255 };
         auto texture = std::make_unique<Texture>(data, 1, 1, GL_RGBA, GL_RGBA8);
-        m_Textures[id] = std::move(texture);
+        m_Textures[handle] = std::move(texture);
 
         AssetMetadata metadata;
-        metadata.ID = id;
+        metadata.Handle = handle;
         metadata.Type = AssetType::Texture;
         metadata.Name = "WhiteTexture";
         metadata.IsLoaded = true;
         metadata.IsDefault = true;
-        m_Registry[id] = metadata;
+        m_Registry[handle] = metadata;
 
-        m_WhiteTexture = TextureHandle(id);
+        m_WhiteTexture = handle;
     }
 
     // 黑色纹理
     {
-        AssetID id = GenerateAssetID();
+        AssetHandle handle;
 
         unsigned char data[4] = { 0, 0, 0, 255 };
         auto texture = std::make_unique<Texture>(data, 1, 1, GL_RGBA, GL_RGBA8);
-        m_Textures[id] = std::move(texture);
+        m_Textures[handle] = std::move(texture);
 
         AssetMetadata metadata;
-        metadata.ID = id;
+        metadata.Handle = handle;
         metadata.Type = AssetType::Texture;
         metadata.Name = "BlackTexture";
         metadata.IsLoaded = true;
         metadata.IsDefault = true;
-        m_Registry[id] = metadata;
+        m_Registry[handle] = metadata;
 
-        m_BlackTexture = TextureHandle(id);
+        m_BlackTexture = handle;
     }
 
     std::cout << "[AssetManager] Created default assets" << std::endl;
 }
-
-// ============================================================================
-// 目录扫描
-// ============================================================================
 
 void AssetManager::ScanDirectory(const std::filesystem::path& directory) {
     if (!std::filesystem::exists(directory)) {
@@ -312,37 +271,27 @@ void AssetManager::ScanDirectory(const std::filesystem::path& directory) {
             if (type != AssetType::Unknown) {
                 std::string pathStr = entry.path().string();
 
-                // 跳过已注册的
-                if (m_PathToID.find(pathStr) != m_PathToID.end()) {
+                if (m_PathToHandle.find(pathStr) != m_PathToHandle.end()) {
                     continue;
                 }
 
-                // 仅注册元数据，不加载
-                AssetID id = GenerateAssetID();
+                AssetHandle handle;
 
                 AssetMetadata metadata;
-                metadata.ID = id;
+                metadata.Handle = handle;
                 metadata.Type = type;
                 metadata.SourcePath = entry.path();
                 metadata.Name = entry.path().filename().string();
                 metadata.IsLoaded = false;
 
-                m_Registry[id] = metadata;
-                m_PathToID[pathStr] = id;
+                m_Registry[handle] = metadata;
+                m_PathToHandle[pathStr] = handle;
                 count++;
             }
         }
     }
 
     std::cout << "[AssetManager] Scanned directory, found " << count << " new assets" << std::endl;
-}
-
-// ============================================================================
-// 内部方法
-// ============================================================================
-
-AssetID AssetManager::GenerateAssetID() {
-    return m_NextID++;
 }
 
 } // namespace GLRenderer

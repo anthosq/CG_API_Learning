@@ -2,6 +2,7 @@
 
 #include "utils/GLCommon.h"
 #include "graphics/Shader.h"
+#include "core/AABB.h"
 #include <vector>
 #include <string>
 #include <filesystem>
@@ -11,6 +12,7 @@
 #include <assimp/scene.h>
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
+#include <assimp/config.h>
 
 #ifdef USE_GLI
 #include <gli/gli.hpp>
@@ -44,12 +46,18 @@ namespace GLRenderer {
         std::vector<MeshVertex> vertices;
         std::vector<unsigned int> indices;
         std::vector<MeshTexture> textures;
+        AABB BoundingBox;  // 包围盒
+
         Mesh(std::vector<MeshVertex> vertices, std::vector<unsigned int> indices, std::vector<MeshTexture> textures);
         void Draw(const Shader &shader);
+
+        // 获取包围盒
+        const AABB& GetBoundingBox() const { return BoundingBox; }
 
     private:
         unsigned int VAO, VBO, EBO;
         void SetupMesh();
+        void CalculateBoundingBox();  // 从顶点计算包围盒
     };
 
     class Model {
@@ -57,6 +65,15 @@ namespace GLRenderer {
         Model() = default;
         Model(const std::filesystem::path &path, bool gamma = false) : gamma_correction(gamma) { LoadModel(path); }
         void Draw(const Shader &shader);
+
+        bool HasDiffuseTextures() const { return m_HasDiffuseTextures; }
+        bool HasSpecularTextures() const { return m_HasSpecularTextures; }
+
+        // 获取合并的包围盒（所有子 Mesh 的 AABB）
+        const AABB& GetBoundingBox() const { return m_BoundingBox; }
+
+        // 获取子 Mesh 列表
+        const std::vector<Mesh>& GetMeshes() const { return meshes; }
 
     private:
         void LoadModel(const std::filesystem::path &path);
@@ -69,11 +86,15 @@ namespace GLRenderer {
         unsigned int LoadDDSTextureFromMemory(const char *path, const std::string &directory);
         unsigned int CreateDefaultTexture();
 
+        void CalculateModelBoundingBox();  // 合并所有 Mesh 的 AABB
+
     private:
         std::vector<Mesh> meshes;
         std::string directory;
-        // 类似记录一个library
         std::unordered_map<std::string, MeshTexture> loaded_textures;
         bool gamma_correction = false;
+        bool m_HasDiffuseTextures = false;
+        bool m_HasSpecularTextures = false;
+        AABB m_BoundingBox;  // 模型的合并包围盒
     };
 }

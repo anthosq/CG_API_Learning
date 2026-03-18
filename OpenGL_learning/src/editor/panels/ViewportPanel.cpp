@@ -2,9 +2,14 @@
 #include "editor/EditorContext.h"
 #include "core/Input.h"
 #include "asset/AssetManager.h"
+#include "scene/ecs/Components.h"
 
 #include <imgui.h>
+#include <ImGuizmo.h>
 #include <GLFW/glfw3.h>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/common.hpp>
+#include <algorithm>
 
 namespace GLRenderer {
 
@@ -59,12 +64,15 @@ void ViewportPanel::OnDraw(EditorContext& context) {
         ImVec2(1, 0)   // UV 最大值 (翻转 Y)
     );
 
-    // 保存视口边界（用于鼠标拾取）
-    ImVec2 windowPos = ImGui::GetWindowPos();
-    ImVec2 contentMin = ImGui::GetWindowContentRegionMin();
-    m_ViewportBounds[0] = {windowPos.x + contentMin.x, windowPos.y + contentMin.y};
-    m_ViewportBounds[1] = {m_ViewportBounds[0].x + m_ViewportSize.x,
-                           m_ViewportBounds[0].y + m_ViewportSize.y};
+    // 保存视口边界（用于鼠标拾取和 Gizmo）
+    // 使用 GetItemRectMin/Max 获取 Image 的精确位置
+    ImVec2 imageMin = ImGui::GetItemRectMin();
+    ImVec2 imageMax = ImGui::GetItemRectMax();
+    m_ViewportBounds[0] = {imageMin.x, imageMin.y};
+    m_ViewportBounds[1] = {imageMax.x, imageMax.y};
+
+    // 绘制 Gizmo
+    DrawGizmo(context);
 
     // 接受拖放资产
     if (ImGui::BeginDragDropTarget()) {
@@ -74,15 +82,26 @@ void ViewportPanel::OnDraw(EditorContext& context) {
 
             AssetType type = GetAssetTypeFromExtension(assetPath);
             if (type == AssetType::Model) {
-                // 导入模型
-                ModelHandle handle = AssetManager::Get().ImportModel(assetPath);
-                if (handle.IsValid()) {
-                    // TODO: 在场景中创建实体并附加模型组件
-                    std::cout << "[Viewport] Dropped model: " << assetPath << std::endl;
+                AssetHandle handle = AssetManager::Get().ImportModel(assetPath);
+                if (handle.IsValid() && context.World) {
+                    std::string entityName = assetPath.stem().string();
+                    ECS::Entity entity = context.World->CreateEntity(entityName);
+
+                    glm::vec3 spawnPosition = m_Camera.GetPosition() + m_Camera.GetFront() * 5.0f;
+                    entity.AddComponent<ECS::TransformComponent>(spawnPosition);
+
+                    auto& modelComp = entity.AddComponent<ECS::ModelComponent>();
+                    modelComp.AssetPath = assetPath.string();
+                    modelComp.Handle = handle;
+                    modelComp.Visible = true;
+
+                    context.Select(entity);
+
+                    std::cout << "[Viewport] Created entity '" << entityName
+                              << "' with model: " << assetPath << std::endl;
                 }
             } else if (type == AssetType::Texture) {
-                // 导入纹理
-                TextureHandle handle = AssetManager::Get().ImportTexture(assetPath);
+                AssetHandle handle = AssetManager::Get().ImportTexture(assetPath);
                 if (handle.IsValid()) {
                     std::cout << "[Viewport] Dropped texture: " << assetPath << std::endl;
                 }
@@ -198,11 +217,12 @@ bool ViewportPanel::ProcessMousePicking(int& outEntityID) {
         return false;
     }
 
-    // 如果正在进行相机操作，不进行拾取
+    // 如果正在进行相机操作或 Gizmo 操作，不进行拾取
     if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT) ||
         (Input::IsKeyPressed(GLFW_KEY_LEFT_ALT) &&
          (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT) ||
-          Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_MIDDLE)))) {
+          Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_MIDDLE))) ||
+        ImGuizmo::IsOver() || ImGuizmo::IsUsing()) {
         m_HoveredEntityID = -1;
         return false;
     }
@@ -218,23 +238,35 @@ bool ViewportPanel::ProcessMousePicking(int& outEntityID) {
         // 获取鼠标在视口中的位置
         glm::vec2 mousePos = Input::GetMousePosition();
 
-        // 转换为视口局部坐标
+        // 转换为视口局部坐标（相对于 Image 的位置）
         float mx = mousePos.x - m_ViewportBounds[0].x;
         float my = mousePos.y - m_ViewportBounds[0].y;
 
-        // 翻转 Y 坐标（OpenGL 原点在左下角）
-        my = m_ViewportSize.y - my;
-
         // 检查是否在视口范围内
         if (mx >= 0 && my >= 0 && mx < m_ViewportSize.x && my < m_ViewportSize.y) {
+            // 将视口坐标映射到 Framebuffer 坐标（可能大小不同）
+            float scaleX = static_cast<float>(m_Framebuffer->GetWidth()) / m_ViewportSize.x;
+            float scaleY = static_cast<float>(m_Framebuffer->GetHeight()) / m_ViewportSize.y;
+
+            int fbX = static_cast<int>(mx * scaleX);
+            int fbY = static_cast<int>(my * scaleY);
+
+            // 翻转 Y 坐标（OpenGL 原点在左下角）
+            fbY = m_Framebuffer->GetHeight() - fbY - 1;
+
+            // 确保坐标在有效范围内
+            fbX = glm::clamp(fbX, 0, static_cast<int>(m_Framebuffer->GetWidth()) - 1);
+            fbY = glm::clamp(fbY, 0, static_cast<int>(m_Framebuffer->GetHeight()) - 1);
+
             // 读取实体 ID（仅在点击时读取）
-            int pixelData = m_Framebuffer->ReadPixel(static_cast<int>(mx), static_cast<int>(my));
+            int pixelData = m_Framebuffer->ReadPixel(fbX, fbY);
             m_HoveredEntityID = pixelData;
             outEntityID = pixelData;
             hasNewPick = true;
 
-            std::cout << "[Viewport] Clicked at (" << static_cast<int>(mx) << ", "
-                      << static_cast<int>(my) << "), Entity ID: " << pixelData << std::endl;
+            std::cout << "[Viewport] Clicked at viewport(" << static_cast<int>(mx) << ", "
+                      << static_cast<int>(my) << ") -> FBO(" << fbX << ", " << fbY
+                      << "), Entity ID: " << pixelData << std::endl;
         } else {
             m_HoveredEntityID = -1;
             outEntityID = -1;
@@ -244,6 +276,112 @@ bool ViewportPanel::ProcessMousePicking(int& outEntityID) {
 
     wasLeftPressed = isLeftPressed;
     return hasNewPick;
+}
+
+void ViewportPanel::DrawGizmo(EditorContext& context) {
+    // 检查是否有选中的实体
+    if (!context.HasSelection()) {
+        return;
+    }
+
+    ECS::Entity selectedEntity = context.SelectedEntity;
+    if (!selectedEntity.IsValid() || !selectedEntity.HasComponent<ECS::TransformComponent>()) {
+        return;
+    }
+
+    // 获取变换组件
+    auto& transform = selectedEntity.GetComponent<ECS::TransformComponent>();
+
+    // 设置 ImGuizmo
+    ImGuizmo::SetOrthographic(false);
+    ImGuizmo::SetDrawlist();
+
+    // 设置 Gizmo 绘制区域
+    ImGuizmo::SetRect(
+        m_ViewportBounds[0].x,
+        m_ViewportBounds[0].y,
+        m_ViewportSize.x,
+        m_ViewportSize.y
+    );
+
+    // 获取相机矩阵
+    float aspectRatio = GetAspectRatio();
+    glm::mat4 viewMatrix = m_Camera.GetViewMatrix();
+    glm::mat4 projectionMatrix = m_Camera.GetProjectionMatrix(aspectRatio);
+
+    // 获取实体的世界变换矩阵
+    glm::mat4 entityMatrix = transform.WorldMatrix;
+
+    // 同步 EditorContext 的 Gizmo 模式到 ImGuizmo
+    switch (context.CurrentGizmoMode) {
+        case EditorContext::GizmoMode::Translate:
+            m_GizmoOperation = ImGuizmo::TRANSLATE;
+            break;
+        case EditorContext::GizmoMode::Rotate:
+            m_GizmoOperation = ImGuizmo::ROTATE;
+            break;
+        case EditorContext::GizmoMode::Scale:
+            m_GizmoOperation = ImGuizmo::SCALE;
+            break;
+    }
+
+    // 同步空间模式
+    m_GizmoMode = (context.CurrentGizmoSpace == EditorContext::GizmoSpace::Local)
+                  ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
+
+    // 处理快捷键切换 Gizmo 模式（同时更新 context）
+    if (m_IsFocused || m_IsHovered) {
+        if (Input::IsKeyPressed(GLFW_KEY_W) && !Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+            context.CurrentGizmoMode = EditorContext::GizmoMode::Translate;
+            m_GizmoOperation = ImGuizmo::TRANSLATE;
+        }
+        if (Input::IsKeyPressed(GLFW_KEY_E) && !Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+            context.CurrentGizmoMode = EditorContext::GizmoMode::Rotate;
+            m_GizmoOperation = ImGuizmo::ROTATE;
+        }
+        if (Input::IsKeyPressed(GLFW_KEY_R) && !Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+            context.CurrentGizmoMode = EditorContext::GizmoMode::Scale;
+            m_GizmoOperation = ImGuizmo::SCALE;
+        }
+    }
+
+    // 绘制并操控 Gizmo
+    float snapValue = 0.5f;  // 对齐值
+    if (m_GizmoOperation == ImGuizmo::ROTATE) {
+        snapValue = 45.0f;  // 旋转对齐角度
+    }
+
+    // 按住 Ctrl 启用对齐
+    bool snap = Input::IsKeyPressed(GLFW_KEY_LEFT_CONTROL) || Input::IsKeyPressed(GLFW_KEY_RIGHT_CONTROL);
+    float snapValues[3] = {snapValue, snapValue, snapValue};
+
+    ImGuizmo::Manipulate(
+        glm::value_ptr(viewMatrix),
+        glm::value_ptr(projectionMatrix),
+        m_GizmoOperation,
+        m_GizmoMode,
+        glm::value_ptr(entityMatrix),
+        nullptr,
+        snap ? snapValues : nullptr
+    );
+
+    // 如果 Gizmo 被使用，更新变换
+    if (ImGuizmo::IsUsing()) {
+        // 分解变换矩阵
+        glm::vec3 translation, rotation, scale;
+        ImGuizmo::DecomposeMatrixToComponents(
+            glm::value_ptr(entityMatrix),
+            glm::value_ptr(translation),
+            glm::value_ptr(rotation),
+            glm::value_ptr(scale)
+        );
+
+        // 更新变换组件
+        transform.Position = translation;
+        transform.SetEulerAngles(rotation);
+        transform.Scale = scale;
+        transform.Dirty = true;
+    }
 }
 
 } // namespace GLRenderer

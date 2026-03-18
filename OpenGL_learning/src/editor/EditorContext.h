@@ -1,8 +1,5 @@
 #pragma once
 
-// ============================================================================
-// EditorContext.h - 编辑器共享上下文
-// ============================================================================
 //
 // EditorContext 包含在所有编辑器面板之间共享的状态，如：
 // - 当前选中的实体
@@ -29,8 +26,8 @@ struct EditorContext {
     // 多选（未来扩展）
     std::vector<ECS::Entity> MultiSelection;
 
-    // 当前选中的资产 ID
-    AssetID SelectedAsset = NullAssetID;
+    // 当前选中的资产
+    AssetHandle SelectedAsset;
     // 编辑器状态
 
     // 播放/暂停状态（未来用于运行时预览）

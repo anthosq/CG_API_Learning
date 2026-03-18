@@ -1,14 +1,12 @@
 #pragma once
 
-// ============================================================================
-// ViewportPanel.h - 场景视口面板
-// ============================================================================
 //
 // ViewportPanel 负责：
 // 1. 持有独立的 Framebuffer 用于场景渲染
 // 2. 将渲染结果作为 ImGui::Image 显示
 // 3. 处理视口相机控制
 // 4. 管理视口大小和 FBO 调整
+// 5. ImGuizmo 变换操控
 //
 
 #include "Panel.h"
@@ -17,6 +15,7 @@
 
 #include <memory>
 #include <glm/glm.hpp>
+#include <ImGuizmo.h>
 
 namespace GLRenderer {
 
@@ -49,12 +48,17 @@ public:
     int GetHoveredEntityID() const { return m_HoveredEntityID; }
     bool ProcessMousePicking(int& outEntityID);
 
+    // Gizmo 操作模式
+    ImGuizmo::OPERATION GetGizmoOperation() const { return m_GizmoOperation; }
+    void SetGizmoOperation(ImGuizmo::OPERATION op) { m_GizmoOperation = op; }
+
 protected:
     void OnDraw(EditorContext& context) override;
     ImGuiWindowFlags GetWindowFlags() const override;
 
 private:
     void ResizeFramebufferIfNeeded(float width, float height);
+    void DrawGizmo(EditorContext& context);
 
     std::unique_ptr<Framebuffer> m_Framebuffer;
     Camera m_Camera;
@@ -67,6 +71,10 @@ private:
     bool m_CameraControlEnabled = false;
 
     int m_HoveredEntityID = -1;
+
+    // Gizmo 设置
+    ImGuizmo::OPERATION m_GizmoOperation = ImGuizmo::TRANSLATE;
+    ImGuizmo::MODE m_GizmoMode = ImGuizmo::LOCAL;
 };
 
 } // namespace GLRenderer

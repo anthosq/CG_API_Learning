@@ -9,10 +9,6 @@ namespace GLRenderer {
 std::deque<LogEntry> ConsolePanel::s_Entries;
 float ConsolePanel::s_StartTime = 0.0f;
 
-// ============================================================================
-// 静态日志方法
-// ============================================================================
-
 void ConsolePanel::Log(const std::string& message, LogEntry::Level level) {
     if (s_StartTime == 0.0f) {
         auto now = std::chrono::steady_clock::now();
@@ -65,10 +61,6 @@ void ConsolePanel::LogDebug(const std::string& message) {
 void ConsolePanel::Clear() {
     s_Entries.clear();
 }
-
-// ============================================================================
-// 面板绘制
-// ============================================================================
 
 void ConsolePanel::OnDraw(EditorContext& context) {
     DrawToolbar();

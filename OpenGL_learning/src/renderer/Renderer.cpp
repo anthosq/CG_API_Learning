@@ -111,10 +111,6 @@ void Renderer::DisableSpotLight(Shader& shader) {
     shader.SetFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
 }
 
-// ============================================================================
-// 绘制方法
-// ============================================================================
-
 void Renderer::DrawFullscreenQuad() {
     if (!s_FullscreenQuadVAO) return;
 
@@ -162,8 +158,6 @@ void Renderer::SubmitModel(Model& model, Shader& shader, const glm::mat4& transf
     // 统计信息会在 Model::Draw 内部处理
     s_Stats.DrawCalls++;
 }
-
-// 私有方法
 
 void Renderer::CreateFullscreenQuad() {
     // 全屏四边形顶点（位置 + 纹理坐标）

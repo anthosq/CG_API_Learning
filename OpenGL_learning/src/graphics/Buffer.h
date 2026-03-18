@@ -9,8 +9,12 @@ namespace GLRenderer {
 // VertexBuffer - VBO 封装
 class VertexBuffer : public NonCopyable {
 public:
-    // 创建顶点缓冲并上传数据
+    // 创建顶点缓冲并上传数据 (静态)
     VertexBuffer(const void* data, size_t size);
+
+    // 创建动态顶点缓冲 (用于批处理等需要频繁更新的场景)
+    VertexBuffer(const void* data, size_t size, bool dynamic);
+
     ~VertexBuffer();
 
     // 移动语义
@@ -23,15 +27,15 @@ public:
     // 更新缓冲区数据（用于动态缓冲）
     void SetData(const void* data, size_t size);
 
+    // 更新缓冲区部分数据（带偏移量）
+    void SetSubData(const void* data, size_t size, size_t offset);
+
     GLuint GetID() const { return m_ID; }
 
 private:
     GLuint m_ID = 0;
 };
 
-// ============================================================================
-// IndexBuffer - EBO 封装
-// ============================================================================
 class IndexBuffer : public NonCopyable {
 public:
     // 创建索引缓冲并上传数据
@@ -53,9 +57,6 @@ private:
     uint32_t m_Count = 0;
 };
 
-// ============================================================================
-// VertexAttribute - 顶点属性描述
-// ============================================================================
 struct VertexAttribute {
     uint32_t index;       // 属性索引 (location)
     int32_t size;         // 分量数量 (1, 2, 3, 4)
@@ -74,9 +75,6 @@ struct VertexAttribute {
     }
 };
 
-// ============================================================================
-// VertexArray - VAO 封装
-// ============================================================================
 class VertexArray : public NonCopyable {
 public:
     VertexArray();

@@ -10,9 +10,27 @@ AssetBrowserPanel::AssetBrowserPanel()
 {
     m_RootDirectory = "assets";
     m_CurrentDirectory = m_RootDirectory;
+    m_LastDirectory = m_CurrentDirectory;
+}
+
+AssetBrowserPanel::~AssetBrowserPanel() {
+    m_PreviewCache.clear();
 }
 
 void AssetBrowserPanel::OnDraw(EditorContext& context) {
+    // 重置每帧加载计数
+    m_LoadsThisFrame = 0;
+
+    // 处理待加载队列
+    while (!m_PendingLoads.empty() && m_LoadsThisFrame < m_MaxLoadsPerFrame) {
+        auto path = m_PendingLoads.back();
+        m_PendingLoads.pop_back();
+        GetPreviewTexture(path);  // 这会增加 m_LoadsThisFrame
+    }
+
+    // 清理旧的预览缓存
+    CleanupPreviewCache();
+
     // 工具栏
     {
         // 返回上级目录按钮
@@ -177,23 +195,20 @@ void AssetBrowserPanel::DrawAssetGrid() {
         // 缩略图显示
         ImVec2 buttonSize(m_ThumbnailSize, m_ThumbnailSize);
 
-        // 尝试显示纹理缩略图
+        // 尝试显示纹理缩略图（自动加载）
         bool showedThumbnail = false;
         if (type == AssetType::Texture) {
-            AssetID assetID = AssetManager::Get().FindAssetByPath(entry.path());
-            if (assetID != NullAssetID) {
-                Texture* tex = AssetManager::Get().GetTexture(assetID);
-                if (tex && tex->IsValid()) {
-                    // 使用带 ID 的 ImageButton
-                    std::string buttonID = "##thumb_" + filename;
-                    ImGui::ImageButton(
-                        buttonID.c_str(),
-                        (ImTextureID)(intptr_t)tex->GetID(),
-                        buttonSize,
-                        ImVec2(0, 1), ImVec2(1, 0)  // UV 翻转
-                    );
-                    showedThumbnail = true;
-                }
+            Texture* tex = GetPreviewTexture(entry.path());
+            if (tex && tex->IsValid()) {
+                // 使用带 ID 的 ImageButton
+                std::string buttonID = "##thumb_" + filename;
+                ImGui::ImageButton(
+                    buttonID.c_str(),
+                    (ImTextureID)(intptr_t)tex->GetID(),
+                    buttonSize,
+                    ImVec2(0, 1), ImVec2(1, 0)  // UV 翻转
+                );
+                showedThumbnail = true;
             }
         }
 
@@ -287,6 +302,72 @@ const char* AssetBrowserPanel::GetFileIcon(AssetType type) const {
         case AssetType::Material: return "[m]";
         case AssetType::Cubemap:  return "[C]";
         default:                  return "[?]";
+    }
+}
+
+Texture* AssetBrowserPanel::GetPreviewTexture(const std::filesystem::path& path) {
+    std::string pathStr = path.string();
+
+    // 先检查缓存
+    auto it = m_PreviewCache.find(pathStr);
+    if (it != m_PreviewCache.end()) {
+        return it->second.get();
+    }
+
+    // 检查文件是否存在
+    if (!std::filesystem::exists(path)) {
+        return nullptr;
+    }
+
+    // 限制每帧加载数量以避免卡顿
+    if (m_LoadsThisFrame >= m_MaxLoadsPerFrame) {
+        // 添加到待加载队列
+        bool alreadyPending = false;
+        for (const auto& p : m_PendingLoads) {
+            if (p == path) {
+                alreadyPending = true;
+                break;
+            }
+        }
+        if (!alreadyPending) {
+            m_PendingLoads.push_back(path);
+        }
+        return nullptr;
+    }
+
+    // 尝试加载纹理
+    try {
+        auto texture = std::make_unique<Texture>(path);
+        if (texture->IsValid()) {
+            Texture* result = texture.get();
+            m_PreviewCache[pathStr] = std::move(texture);
+            m_LoadsThisFrame++;
+            return result;
+        }
+    } catch (...) {
+        // 加载失败，返回 nullptr
+    }
+
+    return nullptr;
+}
+
+void AssetBrowserPanel::CleanupPreviewCache() {
+    // 当切换目录时，清理不在当前目录的预览纹理
+    if (m_CurrentDirectory != m_LastDirectory) {
+        std::vector<std::string> toRemove;
+
+        for (const auto& [path, tex] : m_PreviewCache) {
+            std::filesystem::path texPath(path);
+            if (texPath.parent_path() != m_CurrentDirectory) {
+                toRemove.push_back(path);
+            }
+        }
+
+        for (const auto& path : toRemove) {
+            m_PreviewCache.erase(path);
+        }
+
+        m_LastDirectory = m_CurrentDirectory;
     }
 }
 

@@ -1,29 +1,54 @@
 #pragma once
+
+//
+// 基于 64 位随机数的 UUID 实现。
+// 用于资产、实体等的唯一标识。
+//
+
 #include <cstdint>
 #include <functional>
 
 namespace GLRenderer {
-    class UUID {
-    public:
-        UUID();
-        UUID(uint64_t uuid);
-        UUID(const UUID& other);
-        operator uint64_t() { return m_UUID; }
-        operator const uint64_t() const { return m_UUID; }
-    private:
-        uint64_t m_UUID;
-    };
 
-    class UUID32 {
-    public:
-        UUID32();
-        UUID32(uint32_t uuid);
-        UUID32(const UUID32& other);
-        operator uint32_t() { return m_UUID; }
-        operator const uint32_t() const { return m_UUID; }
-    private:
-        uint32_t m_UUID;
-    };
+class UUID {
+public:
+    UUID();
+    UUID(uint64_t uuid);
+    UUID(const UUID& other) = default;
+    UUID& operator=(const UUID& other) = default;
+
+    operator uint64_t() const { return m_UUID; }
+
+    bool operator==(const UUID& other) const { return m_UUID == other.m_UUID; }
+    bool operator!=(const UUID& other) const { return m_UUID != other.m_UUID; }
+    bool operator<(const UUID& other) const { return m_UUID < other.m_UUID; }
+
+    bool IsValid() const { return m_UUID != 0; }
+
+private:
+    uint64_t m_UUID;
+};
+
+// UUID32 - 32 位唯一标识符
+class UUID32 {
+public:
+    UUID32();
+    UUID32(uint32_t uuid);
+    UUID32(const UUID32& other) = default;
+    UUID32& operator=(const UUID32& other) = default;
+
+    operator uint32_t() const { return m_UUID; }
+
+    bool operator==(const UUID32& other) const { return m_UUID == other.m_UUID; }
+    bool operator!=(const UUID32& other) const { return m_UUID != other.m_UUID; }
+    bool operator<(const UUID32& other) const { return m_UUID < other.m_UUID; }
+
+    bool IsValid() const { return m_UUID != 0; }
+
+private:
+    uint32_t m_UUID;
+};
+
 }
 
 namespace std {

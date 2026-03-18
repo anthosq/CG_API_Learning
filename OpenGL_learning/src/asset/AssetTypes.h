@@ -6,14 +6,13 @@
 #include <filesystem>
 #include <cstdint>
 
-#include "Mesh.h"
+#include "core/Ref.h"
+#include "core/UUID.h"
 
 namespace GLRenderer {
 
-// 资产 ID 类型
-
-using AssetID = uint64_t;
-constexpr AssetID NullAssetID = 0;
+// AssetHandle - 使用 UUID 作为资产句柄
+using AssetHandle = UUID;
 
 // 资产类型枚举
 enum class AssetType : uint8_t {
@@ -26,40 +25,35 @@ enum class AssetType : uint8_t {
 };
 
 // 资产元数据
-
 struct AssetMetadata {
-    AssetID ID = NullAssetID;
+    AssetHandle Handle;
     AssetType Type = AssetType::Unknown;
     std::filesystem::path SourcePath;
     std::string Name;
     bool IsLoaded = false;
     bool IsDefault = false;
 
-    bool IsValid() const { return ID != NullAssetID; }
+    bool IsValid() const { return Handle.IsValid(); }
 };
 
 // 工具函数
 inline AssetType GetAssetTypeFromExtension(const std::filesystem::path& path) {
     std::string ext = path.extension().string();
 
-    // 转小写
     for (char& c : ext) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
 
-    // 纹理格式
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
         ext == ".dds" || ext == ".tga" || ext == ".bmp") {
         return AssetType::Texture;
     }
 
-    // 模型格式
     if (ext == ".fbx" || ext == ".obj" || ext == ".gltf" ||
         ext == ".glb" || ext == ".dae" || ext == ".3ds") {
         return AssetType::Model;
     }
 
-    // 着色器格式
     if (ext == ".glsl" || ext == ".vert" || ext == ".frag" ||
         ext == ".vs" || ext == ".fs") {
         return AssetType::Shader;

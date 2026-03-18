@@ -10,6 +10,13 @@ VertexBuffer::VertexBuffer(const void* data, size_t size) {
     GL_CHECK_ERROR();
 }
 
+VertexBuffer::VertexBuffer(const void* data, size_t size, bool dynamic) {
+    glGenBuffers(1, &m_ID);
+    glBindBuffer(GL_ARRAY_BUFFER, m_ID);
+    glBufferData(GL_ARRAY_BUFFER, size, data, dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW);
+    GL_CHECK_ERROR();
+}
+
 VertexBuffer::~VertexBuffer() {
     if (m_ID != 0) {
         glDeleteBuffers(1, &m_ID);
@@ -48,9 +55,10 @@ void VertexBuffer::SetData(const void* data, size_t size) {
     glBufferSubData(GL_ARRAY_BUFFER, 0, size, data);
 }
 
-// ============================================================================
-// IndexBuffer 实现
-// ============================================================================
+void VertexBuffer::SetSubData(const void* data, size_t size, size_t offset) {
+    glBindBuffer(GL_ARRAY_BUFFER, m_ID);
+    glBufferSubData(GL_ARRAY_BUFFER, offset, size, data);
+}
 
 IndexBuffer::IndexBuffer(const uint32_t* data, uint32_t count)
     : m_Count(count) {
@@ -93,10 +101,6 @@ void IndexBuffer::Bind() const {
 void IndexBuffer::Unbind() const {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
-
-// ============================================================================
-// VertexArray 实现
-// ============================================================================
 
 VertexArray::VertexArray() {
     glGenVertexArrays(1, &m_ID);
