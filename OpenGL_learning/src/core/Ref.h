@@ -91,7 +91,7 @@ public:
     // 类型转换拷贝构造
     template<typename T2>
     Ref(const Ref<T2>& other) {
-        m_Instance = static_cast<T*>(other.Raw());
+        m_Instance = static_cast<T*>(other.m_Instance);
         IncRef();
     }
 
@@ -103,7 +103,7 @@ public:
     // 类型转换移动构造
     template<typename T2>
     Ref(Ref<T2>&& other) noexcept {
-        m_Instance = static_cast<T*>(other.Raw());
+        m_Instance = static_cast<T*>(other.m_Instance);
         other.m_Instance = nullptr;
     }
 
@@ -131,7 +131,7 @@ public:
     Ref& operator=(const Ref<T2>& other) {
         other.IncRef();
         DecRef();
-        m_Instance = static_cast<T*>(other.Raw());
+        m_Instance = static_cast<T*>(other.m_Instance);
         return *this;
     }
 
@@ -147,7 +147,7 @@ public:
     template<typename T2>
     Ref& operator=(Ref<T2>&& other) noexcept {
         DecRef();
-        m_Instance = static_cast<T*>(other.Raw());
+        m_Instance = static_cast<T*>(other.m_Instance);
         other.m_Instance = nullptr;
         return *this;
     }
@@ -190,10 +190,13 @@ public:
         IncRef();
     }
 
-    // 类型转换
+    // 类型转换 (使用 dynamic_cast 进行安全转换)
     template<typename T2>
     Ref<T2> As() const {
-        return Ref<T2>(*this);
+        if (!m_Instance) return nullptr;
+        T2* casted = dynamic_cast<T2*>(m_Instance);
+        if (!casted) return nullptr;
+        return Ref<T2>(casted);
     }
 
     // 静态创建方法

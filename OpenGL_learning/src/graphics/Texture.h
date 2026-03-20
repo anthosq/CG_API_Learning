@@ -1,20 +1,20 @@
 #pragma once
 
 #include "utils/GLCommon.h"
+#include "asset/Asset.h"
 #include <string>
 #include <filesystem>
 #include <array>
 
 namespace GLRenderer {
 
-// TextureSpec - 纹理配置
 struct TextureSpec {
     GLenum WrapS = GL_REPEAT;
     GLenum WrapT = GL_REPEAT;
     GLenum MinFilter = GL_LINEAR_MIPMAP_LINEAR;
     GLenum MagFilter = GL_LINEAR;
     bool GenerateMipmaps = true;
-    bool FlipVertically = true;  // stb_image 默认需要翻转
+    bool FlipVertically = true;
 };
 
 struct TextureCubeSpec {
@@ -24,34 +24,25 @@ struct TextureCubeSpec {
     GLenum MinFilter = GL_LINEAR;
     GLenum MagFilter = GL_LINEAR;
     bool GenerateMipmaps = true;
-    bool FlipVertically = false;  // stb_image 默认需要翻转
+    bool FlipVertically = false;
 };
 
-// Texture - 2D 纹理封装
-class Texture : public NonCopyable {
+class Texture2D : public Asset {
 public:
-    Texture() = default;
+    Texture2D() = default;
 
-    // 从文件加载纹理（自动检测格式）
-    explicit Texture(const std::filesystem::path& path,
-                     const TextureSpec& spec = TextureSpec());
+    explicit Texture2D(const std::filesystem::path& path,
+                       const TextureSpec& spec = TextureSpec());
 
-    // 从内存数据创建纹理
-    Texture(const void* data, int width, int height,
-            GLenum format = GL_RGBA, GLenum internalFormat = GL_RGBA8,
-            const TextureSpec& spec = TextureSpec());
+    Texture2D(const void* data, int width, int height,
+              GLenum format = GL_RGBA, GLenum internalFormat = GL_RGBA8,
+              const TextureSpec& spec = TextureSpec());
 
-    ~Texture();
+    ~Texture2D();
 
-    // 移动语义
-    Texture(Texture&& other) noexcept;
-    Texture& operator=(Texture&& other) noexcept;
-
-    // 绑定到指定纹理单元
     void Bind(uint32_t slot = 0) const;
     void Unbind() const;
 
-    // 属性访问
     GLuint GetID() const { return m_ID; }
     int GetWidth() const { return m_Width; }
     int GetHeight() const { return m_Height; }
@@ -60,20 +51,21 @@ public:
     bool IsValid() const { return m_ID != 0; }
     operator bool() const { return IsValid(); }
 
-    // 静态方法：创建默认纹理（棋盘格）
-    static Texture CreateDefault();
+    static AssetType GetStaticType() { return AssetType::Texture; }
+    AssetType GetAssetType() const override { return GetStaticType(); }
 
-    // 静态方法：检查文件是否为 DDS 格式
+    static Ref<Texture2D> Create(const std::filesystem::path& path,
+                                  const TextureSpec& spec = TextureSpec());
+    static Ref<Texture2D> Create(const void* data, int width, int height,
+                                  GLenum format = GL_RGBA, GLenum internalFormat = GL_RGBA8,
+                                  const TextureSpec& spec = TextureSpec());
+    static Ref<Texture2D> CreateDefault();
+
     static bool IsDDSFile(const std::filesystem::path& path);
 
 private:
-    // 从普通图片文件加载（PNG, JPG 等）
     bool LoadFromImage(const std::filesystem::path& path, const TextureSpec& spec);
-
-    // 从 DDS 文件加载
     bool LoadFromDDS(const std::filesystem::path& path);
-
-    // 应用纹理参数
     void ApplyParameters(const TextureSpec& spec);
 
     GLuint m_ID = 0;
@@ -82,45 +74,41 @@ private:
     std::string m_Path;
 };
 
-class TextureCube : public Texture {
+using Texture = Texture2D;
+
+class TextureCube : public Asset {
 public:
     TextureCube() = default;
 
-    // 从文件加载立方体纹理
-    explicit TextureCube(std::array<std::filesystem::path, 6> &paths,
-                         const TextureCubeSpec &spec = TextureCubeSpec());
+    explicit TextureCube(std::array<std::filesystem::path, 6>& paths,
+                         const TextureCubeSpec& spec = TextureCubeSpec());
 
-    // 从内存数据创建立方体纹理
-    TextureCube(const void *data, int width, int height,
+    TextureCube(const void* data, int width, int height,
                 GLenum format = GL_RGBA, GLenum internalFormat = GL_RGBA8,
-                const TextureCubeSpec &spec = TextureCubeSpec());
+                const TextureCubeSpec& spec = TextureCubeSpec());
 
     ~TextureCube();
 
-    // 移动语义
-    TextureCube(TextureCube &&other) noexcept;
-    TextureCube &operator=(TextureCube &&other) noexcept;
-
-    // 绑定到指定纹理单元
     void Bind(uint32_t slot = 0) const;
     void Unbind() const;
 
-    // 属性访问
     GLuint GetID() const { return m_ID; }
     int GetWidth() const { return m_Width; }
     int GetHeight() const { return m_Height; }
-    const std::array<std::filesystem::path, 6> &GetPaths() const { return m_Paths; }
+    const std::array<std::filesystem::path, 6>& GetPaths() const { return m_Paths; }
 
     bool IsValid() const { return m_ID != 0; }
     operator bool() const { return IsValid(); }
 
+    static AssetType GetStaticType() { return AssetType::TextureCube; }
+    AssetType GetAssetType() const override { return GetStaticType(); }
+
+    static Ref<TextureCube> Create(std::array<std::filesystem::path, 6>& paths,
+                                    const TextureCubeSpec& spec = TextureCubeSpec());
 
 private:
-    // 从普通图片文件加载（PNG, JPG 等）
-    bool LoadCubeMap(const std::array<std::filesystem::path, 6> &faces);
-
-    // 应用纹理参数
-    void ApplyParameters(const TextureCubeSpec &spec);
+    bool LoadCubeMap(const std::array<std::filesystem::path, 6>& faces);
+    void ApplyParameters(const TextureCubeSpec& spec);
 
     GLuint m_ID = 0;
     int m_Width = 0;
@@ -129,4 +117,5 @@ private:
 };
 
 } // namespace GLRenderer
+
 using GLRenderer::TextureSpec;

@@ -2,29 +2,43 @@
 
 namespace GLRenderer {
 
-Material::Material(std::shared_ptr<Shader> shader)
-    : m_Shader(std::move(shader)) {
+Material::Material(const Ref<Shader>& shader, const std::string& name)
+    : m_Shader(shader), m_Name(name) {
 }
 
-void Material::SetShader(std::shared_ptr<Shader> shader) {
-    m_Shader = std::move(shader);
-}
-
-void Material::SetTexture(uint32_t slot, Texture* texture) {
+void Material::SetTexture(uint32_t slot, const Ref<Texture2D>& texture) {
     m_Textures[slot] = texture;
 }
 
-void Material::SetTexture(const std::string& name, uint32_t slot, Texture* texture) {
+void Material::SetTexture(const std::string& name, uint32_t slot, const Ref<Texture2D>& texture) {
     m_Textures[slot] = texture;
     m_TextureSlotNames[name] = slot;
 }
 
-Texture* Material::GetTexture(uint32_t slot) const {
+void Material::SetTextureCube(uint32_t slot, const Ref<TextureCube>& texture) {
+    m_TexturesCube[slot] = texture;
+}
+
+Ref<Texture2D> Material::GetTexture(uint32_t slot) const {
     auto it = m_Textures.find(slot);
-    if (it != m_Textures.end()) {
-        return it->second;
+    return (it != m_Textures.end()) ? it->second : nullptr;
+}
+
+Ref<TextureCube> Material::GetTextureCube(uint32_t slot) const {
+    auto it = m_TexturesCube.find(slot);
+    return (it != m_TexturesCube.end()) ? it->second : nullptr;
+}
+
+void Material::SetFlag(Flag flag, bool value) {
+    if (value) {
+        m_Flags |= static_cast<uint32_t>(flag);
+    } else {
+        m_Flags &= ~static_cast<uint32_t>(flag);
     }
-    return nullptr;
+}
+
+bool Material::GetFlag(Flag flag) const {
+    return (m_Flags & static_cast<uint32_t>(flag)) != 0;
 }
 
 void Material::Bind() const {
@@ -79,7 +93,6 @@ void Material::UploadUniforms() const {
         }, value);
     }
 
-    // 设置纹理采样器 uniform
     for (const auto& [name, slot] : m_TextureSlotNames) {
         m_Shader->SetInt(name, static_cast<int>(slot));
     }
@@ -88,161 +101,31 @@ void Material::UploadUniforms() const {
 void Material::BindTextures() const {
     for (const auto& [slot, texture] : m_Textures) {
         if (texture && texture->IsValid()) {
-            glActiveTexture(GL_TEXTURE0 + slot);
-            texture->Bind();
+            texture->Bind(slot);
         }
     }
 
-    // 绑定 IBL 纹理 (使用 TextureCube)
-    if (m_PBRParams.UseIBL) {
-        if (m_IrradianceMap) {
-            glActiveTexture(GL_TEXTURE0 + TextureSlot::Irradiance);
-            m_IrradianceMap->Bind();
-        }
-        if (m_PrefilterMap) {
-            glActiveTexture(GL_TEXTURE0 + TextureSlot::Prefilter);
-            m_PrefilterMap->Bind();
-        }
-        if (m_BrdfLUT && m_BrdfLUT->IsValid()) {
-            glActiveTexture(GL_TEXTURE0 + TextureSlot::BrdfLUT);
-            m_BrdfLUT->Bind();
+    for (const auto& [slot, texture] : m_TexturesCube) {
+        if (texture && texture->IsValid()) {
+            texture->Bind(slot);
         }
     }
-
-    // 恢复活动纹理单元到 0
-    glActiveTexture(GL_TEXTURE0);
 }
 
-// ============================================================================
-// PBR 方法实现
-// ============================================================================
-
-void Material::SetPBRParams(const PBRMaterialParams& params) {
-    m_PBRParams = params;
-
-    // 设置对应的 uniform 值
-    Set("u_AlbedoColor", params.AlbedoColor);
-    Set("u_Metallic", params.Metallic);
-    Set("u_Roughness", params.Roughness);
-    Set("u_AO", params.AO);
-    Set("u_EmissiveColor", params.EmissiveColor);
-    Set("u_EmissiveIntensity", params.EmissiveIntensity);
-
-    // 纹理使用标志
-    Set("u_UseAlbedoMap", params.UseAlbedoMap);
-    Set("u_UseNormalMap", params.UseNormalMap);
-    Set("u_UseMetallicMap", params.UseMetallicMap);
-    Set("u_UseRoughnessMap", params.UseRoughnessMap);
-    Set("u_UseAOMap", params.UseAOMap);
-    Set("u_UseEmissiveMap", params.UseEmissiveMap);
-
-    // IBL 设置
-    Set("u_UseIBL", params.UseIBL);
-    Set("u_EnvironmentIntensity", params.EnvironmentIntensity);
-
-    // 设置纹理采样器 uniform (槽位)
-    Set("u_AlbedoMap", static_cast<int>(TextureSlot::Albedo));
-    Set("u_NormalMap", static_cast<int>(TextureSlot::Normal));
-    Set("u_MetallicMap", static_cast<int>(TextureSlot::Metallic));
-    Set("u_RoughnessMap", static_cast<int>(TextureSlot::Roughness));
-    Set("u_AOMap", static_cast<int>(TextureSlot::AO));
-    Set("u_EmissiveMap", static_cast<int>(TextureSlot::Emissive));
-    Set("u_IrradianceMap", static_cast<int>(TextureSlot::Irradiance));
-    Set("u_PrefilterMap", static_cast<int>(TextureSlot::Prefilter));
-    Set("u_BrdfLUT", static_cast<int>(TextureSlot::BrdfLUT));
+Ref<Material> Material::Create(const Ref<Shader>& shader, const std::string& name) {
+    return Ref<Material>(new Material(shader, name));
 }
 
-PBRMaterialParams Material::GetPBRParams() const {
-    return m_PBRParams;
-}
+Ref<Material> Material::Copy(const Ref<Material>& other) {
+    if (!other) return nullptr;
 
-void Material::SetAlbedo(const glm::vec3& color) {
-    m_PBRParams.AlbedoColor = color;
-    Set("u_AlbedoColor", color);
-}
-
-void Material::SetMetallic(float value) {
-    m_PBRParams.Metallic = value;
-    Set("u_Metallic", value);
-}
-
-void Material::SetRoughness(float value) {
-    m_PBRParams.Roughness = value;
-    Set("u_Roughness", value);
-}
-
-void Material::SetAO(float value) {
-    m_PBRParams.AO = value;
-    Set("u_AO", value);
-}
-
-void Material::SetEmissive(const glm::vec3& color, float intensity) {
-    m_PBRParams.EmissiveColor = color;
-    m_PBRParams.EmissiveIntensity = intensity;
-    Set("u_EmissiveColor", color);
-    Set("u_EmissiveIntensity", intensity);
-}
-
-void Material::SetAlbedoMap(Texture* texture) {
-    m_Textures[TextureSlot::Albedo] = texture;
-    m_PBRParams.UseAlbedoMap = (texture != nullptr);
-    Set("u_UseAlbedoMap", m_PBRParams.UseAlbedoMap);
-    Set("u_AlbedoMap", static_cast<int>(TextureSlot::Albedo));
-}
-
-void Material::SetNormalMap(Texture* texture) {
-    m_Textures[TextureSlot::Normal] = texture;
-    m_PBRParams.UseNormalMap = (texture != nullptr);
-    Set("u_UseNormalMap", m_PBRParams.UseNormalMap);
-    Set("u_NormalMap", static_cast<int>(TextureSlot::Normal));
-}
-
-void Material::SetMetallicMap(Texture* texture) {
-    m_Textures[TextureSlot::Metallic] = texture;
-    m_PBRParams.UseMetallicMap = (texture != nullptr);
-    Set("u_UseMetallicMap", m_PBRParams.UseMetallicMap);
-    Set("u_MetallicMap", static_cast<int>(TextureSlot::Metallic));
-}
-
-void Material::SetRoughnessMap(Texture* texture) {
-    m_Textures[TextureSlot::Roughness] = texture;
-    m_PBRParams.UseRoughnessMap = (texture != nullptr);
-    Set("u_UseRoughnessMap", m_PBRParams.UseRoughnessMap);
-    Set("u_RoughnessMap", static_cast<int>(TextureSlot::Roughness));
-}
-
-void Material::SetAOMap(Texture* texture) {
-    m_Textures[TextureSlot::AO] = texture;
-    m_PBRParams.UseAOMap = (texture != nullptr);
-    Set("u_UseAOMap", m_PBRParams.UseAOMap);
-    Set("u_AOMap", static_cast<int>(TextureSlot::AO));
-}
-
-void Material::SetEmissiveMap(Texture* texture) {
-    m_Textures[TextureSlot::Emissive] = texture;
-    m_PBRParams.UseEmissiveMap = (texture != nullptr);
-    Set("u_UseEmissiveMap", m_PBRParams.UseEmissiveMap);
-    Set("u_EmissiveMap", static_cast<int>(TextureSlot::Emissive));
-}
-
-void Material::SetIBL(TextureCube* irradianceMap, TextureCube* prefilterMap,
-                      Texture* brdfLUT, float intensity) {
-    m_IrradianceMap = irradianceMap;
-    m_PrefilterMap = prefilterMap;
-    m_BrdfLUT = brdfLUT;
-    m_PBRParams.UseIBL = (irradianceMap && prefilterMap && brdfLUT);
-    m_PBRParams.EnvironmentIntensity = intensity;
-
-    Set("u_UseIBL", m_PBRParams.UseIBL);
-    Set("u_EnvironmentIntensity", intensity);
-    Set("u_IrradianceMap", static_cast<int>(TextureSlot::Irradiance));
-    Set("u_PrefilterMap", static_cast<int>(TextureSlot::Prefilter));
-    Set("u_BrdfLUT", static_cast<int>(TextureSlot::BrdfLUT));
-}
-
-void Material::DisableIBL() {
-    m_PBRParams.UseIBL = false;
-    Set("u_UseIBL", false);
+    auto material = Ref<Material>(new Material(other->m_Shader, other->m_Name + "_Copy"));
+    material->m_Uniforms = other->m_Uniforms;
+    material->m_Textures = other->m_Textures;
+    material->m_TexturesCube = other->m_TexturesCube;
+    material->m_TextureSlotNames = other->m_TextureSlotNames;
+    material->m_Flags = other->m_Flags;
+    return material;
 }
 
 } // namespace GLRenderer

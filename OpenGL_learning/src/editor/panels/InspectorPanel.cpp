@@ -207,7 +207,7 @@ void InspectorPanel::DrawTransformComponent(ECS::TransformComponent& transform) 
 }
 
 void InspectorPanel::DrawMeshComponent(ECS::MeshComponent& mesh) {
-    ImGui::Text("VAO: %s", mesh.VAO ? "Assigned" : "None");
+    ImGui::Text("Mesh Handle: %s", mesh.MeshHandle.IsValid() ? "Valid" : "None");
     // TODO: 添加网格选择器
 }
 
@@ -274,7 +274,10 @@ void InspectorPanel::DrawPointLightComponent(ECS::PointLightComponent& light) {
 }
 
 void InspectorPanel::DrawDirectionalLightComponent(ECS::DirectionalLightComponent& light) {
-    DrawVec3Control("Direction", light.Direction);
+    // 提示：方向由 Transform 旋转控制
+    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Direction: Controlled by Transform rotation");
+    ImGui::Spacing();
+
     DrawColorControl("Color", light.Color);
 
     ImGui::Columns(2);
@@ -384,19 +387,7 @@ void InspectorPanel::DrawAddComponentButton(ECS::Entity entity) {
             }
         }
 
-        if (!entity.HasComponent<ECS::PointLightComponent>()) {
-            if (ImGui::MenuItem("Point Light")) {
-                entity.AddComponent<ECS::PointLightComponent>();
-                ImGui::CloseCurrentPopup();
-            }
-        }
-
-        if (!entity.HasComponent<ECS::DirectionalLightComponent>()) {
-            if (ImGui::MenuItem("Directional Light")) {
-                entity.AddComponent<ECS::DirectionalLightComponent>();
-                ImGui::CloseCurrentPopup();
-            }
-        }
+        // 注: 光源组件通过 PrimitivesPanel 或专用面板创建，不在此处添加
 
         if (!entity.HasComponent<ECS::RotatorComponent>()) {
             if (ImGui::MenuItem("Rotator")) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Application.h"
+#include "core/Ref.h"
 #include "graphics/Camera.h"
 #include "graphics/Shader.h"
 #include "graphics/Texture.h"
@@ -56,23 +57,23 @@ private:
     Camera m_Camera;
     bool m_CameraControlEnabled = false;
 
-    Shader m_LightShader;         // 光照着色器
-    Shader m_LampShader;          // 光源立方体着色器
-    Shader m_ModelShader;         // 模型着色器
-    Shader m_GridShader;          // 网格着色器
-    Shader m_SingleColorShader;   // 单色着色器（轮廓）
-    Shader m_DebugDepthShader;    // 深度调试着色器
-    Shader m_TransparentShader;   // 透明物体着色器
-    Shader m_ScreenShader;        // 屏幕后处理着色器
+    Ref<Shader> m_LightShader;         // 光照着色器
+    Ref<Shader> m_LampShader;          // 光源立方体着色器
+    Ref<Shader> m_ModelShader;         // 模型着色器
+    Ref<Shader> m_GridShader;          // 网格着色器
+    Ref<Shader> m_SingleColorShader;   // 单色着色器（轮廓）
+    Ref<Shader> m_DebugDepthShader;    // 深度调试着色器
+    Ref<Shader> m_TransparentShader;   // 透明物体着色器
+    Ref<Shader> m_ScreenShader;        // 屏幕后处理着色器
 
-    Shader m_SkyboxShader;        // 天空盒着色器
+    Ref<Shader> m_SkyboxShader;        // 天空盒着色器
 
 
-    Texture m_DiffuseMap;
-    Texture m_SpecularMap;
-    Texture m_TransparentTexture;
+    Ref<Texture2D> m_DiffuseMap;
+    Ref<Texture2D> m_SpecularMap;
+    Ref<Texture2D> m_TransparentTexture;
 
-    TextureCube m_SkyboxTexture;
+    Ref<TextureCube> m_SkyboxTexture;
 
     std::unique_ptr<VertexArray> m_CubeVAO;
     std::unique_ptr<VertexBuffer> m_CubeVBO;
@@ -87,7 +88,7 @@ private:
     std::unique_ptr<Framebuffer> m_DepthFBO;
 
     std::unique_ptr<Grid> m_Grid;
-    Model m_Model;
+    // TODO: 使用 MeshSource/StaticMesh 替代 Model
     std::unique_ptr<ImGuiLayer> m_ImGuiLayer;
 
     DirectionalLight m_DirLight;

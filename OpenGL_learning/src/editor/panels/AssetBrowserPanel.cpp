@@ -239,8 +239,8 @@ void AssetBrowserPanel::DrawAssetGrid() {
                 // 双击文件：导入资产
                 if (type == AssetType::Texture) {
                     AssetManager::Get().ImportTexture(entry.path());
-                } else if (type == AssetType::Model) {
-                    AssetManager::Get().ImportModel(entry.path());
+                } else if (type == AssetType::MeshSource) {
+                    AssetManager::Get().ImportMeshSource(entry.path());
                 }
             }
         }
@@ -253,8 +253,8 @@ void AssetBrowserPanel::DrawAssetGrid() {
                 if (ImGui::MenuItem("Import")) {
                     if (type == AssetType::Texture) {
                         AssetManager::Get().ImportTexture(entry.path());
-                    } else if (type == AssetType::Model) {
-                        AssetManager::Get().ImportModel(entry.path());
+                    } else if (type == AssetType::MeshSource) {
+                        AssetManager::Get().ImportMeshSource(entry.path());
                     }
                 }
             }
@@ -297,10 +297,10 @@ void AssetBrowserPanel::DrawAssetGrid() {
 const char* AssetBrowserPanel::GetFileIcon(AssetType type) const {
     switch (type) {
         case AssetType::Texture:  return "[T]";
-        case AssetType::Model:    return "[M]";
+        case AssetType::MeshSource:    return "[M]";
         case AssetType::Shader:   return "[S]";
         case AssetType::Material: return "[m]";
-        case AssetType::Cubemap:  return "[C]";
+        case AssetType::TextureCube:  return "[C]";
         default:                  return "[?]";
     }
 }

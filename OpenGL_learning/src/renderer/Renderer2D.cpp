@@ -22,16 +22,16 @@ struct QuadVertex {
 
 // 渲染器内部数据
 struct Renderer2DData {
-    std::unique_ptr<VertexArray> QuadVAO;
-    VertexBuffer* QuadVBO = nullptr;  // 由 VAO 所有，这里保存引用用于更新
-    std::shared_ptr<Shader> QuadShader;
-    std::unique_ptr<Texture> WhiteTexture;
+    Ref<VertexArray> QuadVAO;
+    Ref<VertexBuffer> QuadVBO;
+    Ref<Shader> QuadShader;
+    Ref<Texture2D> WhiteTexture;
 
     uint32_t QuadIndexCount = 0;
     QuadVertex* QuadVertexBufferBase = nullptr;
     QuadVertex* QuadVertexBufferPtr = nullptr;
 
-    std::array<Texture*, MaxTextureSlots> TextureSlots;
+    std::array<Ref<Texture2D>, MaxTextureSlots> TextureSlots;
     uint32_t TextureSlotIndex = 1;  // 0 = 白色纹理
 
     // 相机数据
@@ -53,11 +53,10 @@ void Renderer2D::Init() {
     std::cout << "[Renderer2D] Initializing..." << std::endl;
 
     // 创建 Quad VAO
-    s_Data.QuadVAO = std::make_unique<VertexArray>();
+    s_Data.QuadVAO = VertexArray::Create();
 
     // 创建顶点缓冲 (动态)
-    auto quadVBO = std::make_unique<VertexBuffer>(nullptr, MaxVertices * sizeof(QuadVertex), true);
-    s_Data.QuadVBO = quadVBO.get();  // 保存引用用于更新
+    s_Data.QuadVBO = VertexBuffer::Create(MaxVertices * sizeof(QuadVertex));
 
     // 设置顶点布局
     std::vector<VertexAttribute> layout = {
@@ -68,7 +67,7 @@ void Renderer2D::Init() {
         VertexAttribute::Int(4, 1, sizeof(QuadVertex), offsetof(QuadVertex, EntityID))
     };
 
-    s_Data.QuadVAO->AddVertexBuffer(std::move(quadVBO), layout);
+    s_Data.QuadVAO->AddVertexBuffer(s_Data.QuadVBO, layout);
 
     // 创建索引缓冲
     std::vector<uint32_t> indices(MaxIndices);
@@ -84,24 +83,26 @@ void Renderer2D::Init() {
 
         offset += 4;
     }
-    auto quadIBO = std::make_unique<IndexBuffer>(indices.data(), MaxIndices);
-    s_Data.QuadVAO->SetIndexBuffer(std::move(quadIBO));
+    auto quadIBO = IndexBuffer::Create(indices.data(), MaxIndices);
+    s_Data.QuadVAO->SetIndexBuffer(quadIBO);
 
     // 分配 CPU 端顶点缓冲
     s_Data.QuadVertexBufferBase = new QuadVertex[MaxVertices];
 
     // 创建 1x1 白色纹理
     uint32_t whitePixel = 0xFFFFFFFF;
-    s_Data.WhiteTexture = std::make_unique<Texture>(&whitePixel, 1, 1);
+    TextureSpec spec;
+    spec.GenerateMipmaps = false;
+    s_Data.WhiteTexture = Texture2D::Create(&whitePixel, 1, 1, GL_RGBA, GL_RGBA8, spec);
 
     // 初始化纹理槽位
-    s_Data.TextureSlots[0] = s_Data.WhiteTexture.get();
+    s_Data.TextureSlots[0] = s_Data.WhiteTexture;
     for (uint32_t i = 1; i < MaxTextureSlots; i++) {
         s_Data.TextureSlots[i] = nullptr;
     }
 
     // 加载着色器
-    s_Data.QuadShader = std::make_shared<Shader>("assets/shaders/quad2d.glsl");
+    s_Data.QuadShader = Shader::Create("assets/shaders/quad2d.glsl");
 
     // 设置纹理采样器数组
     s_Data.QuadShader->Bind();
@@ -124,10 +125,7 @@ void Renderer2D::Shutdown() {
     delete[] s_Data.QuadVertexBufferBase;
     s_Data.QuadVertexBufferBase = nullptr;
 
-    s_Data.QuadVAO.reset();  // 这会同时释放 VBO 和 IBO
-    s_Data.QuadVBO = nullptr;
-    s_Data.QuadShader.reset();
-    s_Data.WhiteTexture.reset();
+    // Ref<T> 会在析构时自动释放资源
 
     std::cout << "[Renderer2D] Shutdown" << std::endl;
 }
@@ -182,8 +180,21 @@ void Renderer2D::Flush() {
         reinterpret_cast<uint8_t*>(s_Data.QuadVertexBufferBase)
     );
 
-    // 先绑定 VAO，确保后续操作都在正确的上下文中
+    // 重置 OpenGL 状态，确保干净的起点
+    // 这是为了防止其他渲染器（如 SceneRenderer）的 VAO 状态泄漏
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+    // 绑定我们的 VAO
     s_Data.QuadVAO->Bind();
+
+    // 显式绑定 VBO 和 IBO，确保 VAO 状态正确
+    // 注意：这不应该是必需的，但某些驱动程序可能需要
+    s_Data.QuadVBO->Bind();
+    if (s_Data.QuadVAO->GetIndexBuffer()) {
+        s_Data.QuadVAO->GetIndexBuffer()->Bind();
+    }
 
     // 更新顶点数据
     s_Data.QuadVBO->SetSubData(s_Data.QuadVertexBufferBase, dataSize, 0);
@@ -261,12 +272,12 @@ void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size,
 }
 
 void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size,
-                          Texture* texture, const glm::vec4& tint) {
+                          const Ref<Texture2D>& texture, const glm::vec4& tint) {
     DrawQuad({ position.x, position.y, 0.0f }, size, texture, tint);
 }
 
 void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size,
-                          Texture* texture, const glm::vec4& tint) {
+                          const Ref<Texture2D>& texture, const glm::vec4& tint) {
     if (s_Data.QuadIndexCount >= MaxIndices) {
         NextBatch();
     }
@@ -345,7 +356,7 @@ void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& siz
 }
 
 void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size,
-                                 float rotation, Texture* texture, const glm::vec4& tint) {
+                                 float rotation, const Ref<Texture2D>& texture, const glm::vec4& tint) {
     if (s_Data.QuadIndexCount >= MaxIndices) {
         NextBatch();
     }
@@ -399,12 +410,12 @@ void Renderer2D::DrawBillboard(const glm::vec3& position, float size,
 }
 
 void Renderer2D::DrawBillboard(const glm::vec3& position, float size,
-                               Texture* texture, const glm::vec4& tint) {
+                               const Ref<Texture2D>& texture, const glm::vec4& tint) {
     DrawBillboard(position, { size, size }, texture, tint, -1);
 }
 
 void Renderer2D::DrawBillboard(const glm::vec3& position, const glm::vec2& size,
-                               Texture* texture, const glm::vec4& tint, int entityID) {
+                               const Ref<Texture2D>& texture, const glm::vec4& tint, int entityID) {
     if (s_Data.QuadIndexCount >= MaxIndices) {
         NextBatch();
     }
@@ -455,6 +466,78 @@ void Renderer2D::DrawBillboard(const glm::vec3& position, const glm::vec2& size,
 
     s_Data.QuadIndexCount += 6;
     s_Data.Stats.QuadCount++;
+}
+
+// === 线段绘制 ===
+
+void Renderer2D::DrawLine(const glm::vec3& start, const glm::vec3& end,
+                          const glm::vec4& color, float thickness) {
+    // 使用细长的 Quad 模拟线段
+    glm::vec3 direction = end - start;
+    float length = glm::length(direction);
+    if (length < 0.0001f) return;
+
+    glm::vec3 center = (start + end) * 0.5f;
+    glm::vec3 dir = direction / length;
+
+    // 计算垂直于线段和视线的向量
+    glm::vec3 cameraDir = glm::normalize(center - glm::vec3(glm::inverse(s_Data.ViewMatrix)[3]));
+    glm::vec3 perpendicular = glm::normalize(glm::cross(dir, cameraDir));
+    if (glm::length(perpendicular) < 0.0001f) {
+        perpendicular = s_Data.CameraRight;
+    }
+
+    float halfWidth = thickness * 0.005f;  // 转换为世界单位
+
+    // 4 个顶点
+    glm::vec3 positions[4] = {
+        start - perpendicular * halfWidth,
+        start + perpendicular * halfWidth,
+        end + perpendicular * halfWidth,
+        end - perpendicular * halfWidth
+    };
+
+    constexpr glm::vec2 texCoords[] = {
+        { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f }
+    };
+
+    for (int i = 0; i < 4; i++) {
+        s_Data.QuadVertexBufferPtr->Position = positions[i];
+        s_Data.QuadVertexBufferPtr->Color = color;
+        s_Data.QuadVertexBufferPtr->TexCoord = texCoords[i];
+        s_Data.QuadVertexBufferPtr->TexIndex = 0.0f;  // 白色纹理
+        s_Data.QuadVertexBufferPtr->EntityID = -1;
+        s_Data.QuadVertexBufferPtr++;
+    }
+
+    s_Data.QuadIndexCount += 6;
+    s_Data.Stats.QuadCount++;
+}
+
+void Renderer2D::DrawDirectionArrow(const glm::vec3& origin, const glm::vec3& direction,
+                                    float length, const glm::vec4& color, float thickness) {
+    glm::vec3 dir = glm::normalize(direction);
+    glm::vec3 endPoint = origin + dir * length;
+
+    // 绘制主线
+    DrawLine(origin, endPoint, color, thickness);
+
+    // 绘制箭头头部 (两条短线，形成 V 形)
+    float arrowHeadLength = length * 0.25f;
+    float arrowHeadWidth = length * 0.12f;
+
+    // 计算垂直于方向的向量
+    glm::vec3 up = glm::vec3(0, 1, 0);
+    if (std::abs(glm::dot(dir, up)) > 0.99f) {
+        up = glm::vec3(1, 0, 0);
+    }
+    glm::vec3 right = glm::normalize(glm::cross(dir, up));
+
+    glm::vec3 arrowBase = endPoint - dir * arrowHeadLength;
+
+    // 箭头的两个翼（左右）
+    DrawLine(endPoint, arrowBase + right * arrowHeadWidth, color, thickness);
+    DrawLine(endPoint, arrowBase - right * arrowHeadWidth, color, thickness);
 }
 
 // === 统计 ===

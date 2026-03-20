@@ -17,6 +17,7 @@
 #include "graphics/Buffer.h"
 #include "graphics/UniformBuffer.h"
 #include "graphics/MeshFactory.h"
+#include "graphics/StaticMesh.h"
 #include "scene/ecs/ECS.h"
 #include "scene/Light.h"
 #include "scene/Grid.h"
@@ -55,7 +56,7 @@ struct SceneEnvironment {
     bool SpotlightEnabled = false;
 
     // 天空盒
-    TextureCube* Skybox = nullptr;
+    Ref<TextureCube> Skybox;
 };
 
 // 光源实体信息（用于可视化和拾取）
@@ -83,9 +84,9 @@ public:
     void BeginScene(const Camera& camera, float aspectRatio);
     void EndScene();
 
-    void SubmitMesh(VertexArray* mesh, uint32_t vertexCount,
+    void SubmitMesh(const Ref<VertexArray>& mesh, uint32_t vertexCount,
                     const glm::mat4& transform, int entityID = -1);
-    void SubmitMesh(VertexArray* mesh, uint32_t vertexCount, uint32_t indexCount,
+    void SubmitMesh(const Ref<VertexArray>& mesh, uint32_t vertexCount, uint32_t indexCount,
                     const glm::mat4& transform, int entityID = -1);
     void SubmitModel(Model* model, const glm::mat4& transform,
                      bool hasDiffuse = true, bool hasSpecular = false,
@@ -111,8 +112,8 @@ public:
     void LoadShaders(const std::filesystem::path& shaderDir);
 
     // 设置默认纹理
-    void SetDefaultDiffuse(Texture* texture) { m_DefaultDiffuse = texture; }
-    void SetDefaultSpecular(Texture* texture) { m_DefaultSpecular = texture; }
+    void SetDefaultDiffuse(Ref<Texture2D> texture) { m_DefaultDiffuse = texture; }
+    void SetDefaultSpecular(Ref<Texture2D> texture) { m_DefaultSpecular = texture; }
 
     // 设置目标 Framebuffer
     void SetTargetFramebuffer(Framebuffer* fbo) { m_TargetFramebuffer = fbo; }
@@ -144,10 +145,10 @@ private:
 
     // 默认资源
     std::unique_ptr<Grid> m_Grid;
-    // 注：立方体使用 MeshFactory::Get().GetCube() 获取
+    Ref<StaticMesh> m_CubeMesh;  // 用于天空盒等
 
-    Texture* m_DefaultDiffuse = nullptr;
-    Texture* m_DefaultSpecular = nullptr;
+    Ref<Texture2D> m_DefaultDiffuse;
+    Ref<Texture2D> m_DefaultSpecular;
 
     // === 绘制列表 ===
     std::vector<DrawCommand> m_OpaqueDrawList;

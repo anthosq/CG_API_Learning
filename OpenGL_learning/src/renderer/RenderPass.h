@@ -4,6 +4,7 @@
 #include "Renderer.h"
 #include "graphics/Framebuffer.h"
 #include "graphics/Shader.h"
+#include "core/Ref.h"
 #include <vector>
 #include <memory>
 #include <functional>
@@ -128,7 +129,7 @@ private:
 // FullscreenPass - 全屏后处理通道
 class FullscreenPass : public FramebufferPass {
 public:
-    FullscreenPass(Shader* shader = nullptr, const char* name = "FullscreenPass")
+    FullscreenPass(const Ref<Shader>& shader = nullptr, const char* name = "FullscreenPass")
         : FramebufferPass(nullptr), m_Shader(shader), m_Name(name) {}
 
     void Execute() override {
@@ -157,8 +158,8 @@ public:
 
     const char* GetName() const override { return m_Name; }
 
-    void SetShader(Shader* shader) { m_Shader = shader; }
-    Shader* GetShader() const { return m_Shader; }
+    void SetShader(const Ref<Shader>& shader) { m_Shader = shader; }
+    const Ref<Shader>& GetShader() const { return m_Shader; }
 
     // 添加输入纹理
     void AddInputTexture(GLuint textureID, const std::string& uniformName) {
@@ -177,7 +178,7 @@ private:
         std::string uniformName;
     };
 
-    Shader* m_Shader = nullptr;
+    Ref<Shader> m_Shader;
     const char* m_Name;
     std::vector<TextureBinding> m_InputTextures;
     SetupCallback m_SetupCallback;

@@ -15,13 +15,15 @@ namespace GLRenderer {
 using AssetHandle = UUID;
 
 // 资产类型枚举
-enum class AssetType : uint8_t {
+enum class AssetType : uint16_t {
     Unknown = 0,
     Texture,
+    TextureCube,
     Shader,
-    Model,
     Material,
-    Cubemap
+    MeshSource,
+    StaticMesh,
+    Environment
 };
 
 // 资产元数据
@@ -32,6 +34,7 @@ struct AssetMetadata {
     std::string Name;
     bool IsLoaded = false;
     bool IsDefault = false;
+    bool IsMemoryOnly = false;  // 运行时创建，无文件路径
 
     bool IsValid() const { return Handle.IsValid(); }
 };
@@ -49,9 +52,13 @@ inline AssetType GetAssetTypeFromExtension(const std::filesystem::path& path) {
         return AssetType::Texture;
     }
 
+    if (ext == ".hdr" || ext == ".exr") {
+        return AssetType::Environment;
+    }
+
     if (ext == ".fbx" || ext == ".obj" || ext == ".gltf" ||
         ext == ".glb" || ext == ".dae" || ext == ".3ds") {
-        return AssetType::Model;
+        return AssetType::MeshSource;
     }
 
     if (ext == ".glsl" || ext == ".vert" || ext == ".frag" ||
@@ -64,12 +71,14 @@ inline AssetType GetAssetTypeFromExtension(const std::filesystem::path& path) {
 
 inline const char* AssetTypeToString(AssetType type) {
     switch (type) {
-        case AssetType::Texture:  return "Texture";
-        case AssetType::Shader:   return "Shader";
-        case AssetType::Model:    return "Model";
-        case AssetType::Material: return "Material";
-        case AssetType::Cubemap:  return "Cubemap";
-        default:                  return "Unknown";
+        case AssetType::Texture:      return "Texture";
+        case AssetType::TextureCube:  return "TextureCube";
+        case AssetType::Shader:       return "Shader";
+        case AssetType::Material:     return "Material";
+        case AssetType::MeshSource:   return "MeshSource";
+        case AssetType::StaticMesh:   return "StaticMesh";
+        case AssetType::Environment:  return "Environment";
+        default:                      return "Unknown";
     }
 }
 

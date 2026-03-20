@@ -1,6 +1,7 @@
 #include "PrimitivesPanel.h"
 #include "editor/EditorContext.h"
 #include "scene/ecs/Components.h"
+#include "asset/AssetManager.h"
 #include <imgui.h>
 #include <sstream>
 
@@ -72,8 +73,7 @@ void PrimitivesPanel::OnDraw(EditorContext& context) {
 }
 
 void PrimitivesPanel::CreateCube(EditorContext& context) {
-    StaticMesh* mesh = MeshFactory::Get().GetCube();
-    if (!mesh) return;
+    AssetHandle meshHandle = MeshFactory::CreateCube();
 
     std::string name = GenerateUniqueName(context, "Cube");
     ECS::Entity entity = context.World->CreateEntity(name);
@@ -82,7 +82,7 @@ void PrimitivesPanel::CreateCube(EditorContext& context) {
     entity.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f));
 
     // Mesh
-    entity.AddComponent<ECS::MeshComponent>(mesh->GetVertexArray(), mesh->GetVertexCount());
+    entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
     // Material (使用默认值)
     entity.AddComponent<ECS::MaterialComponent>();
@@ -94,8 +94,7 @@ void PrimitivesPanel::CreateCube(EditorContext& context) {
 }
 
 void PrimitivesPanel::CreateSphere(EditorContext& context) {
-    StaticMesh* mesh = MeshFactory::Get().GetSphere();
-    if (!mesh) return;
+    AssetHandle meshHandle = MeshFactory::CreateSphere();
 
     std::string name = GenerateUniqueName(context, "Sphere");
     ECS::Entity entity = context.World->CreateEntity(name);
@@ -103,12 +102,8 @@ void PrimitivesPanel::CreateSphere(EditorContext& context) {
     // Transform
     entity.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f));
 
-    // Mesh - 球体使用索引绘制
-    entity.AddComponent<ECS::MeshComponent>(
-        mesh->GetVertexArray(),
-        mesh->GetVertexCount(),
-        mesh->GetIndexCount()
-    );
+    // Mesh
+    entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
     // Material
     entity.AddComponent<ECS::MaterialComponent>();
@@ -119,8 +114,7 @@ void PrimitivesPanel::CreateSphere(EditorContext& context) {
 }
 
 void PrimitivesPanel::CreatePlane(EditorContext& context) {
-    StaticMesh* mesh = MeshFactory::Get().GetPlane();
-    if (!mesh) return;
+    AssetHandle meshHandle = MeshFactory::CreatePlane();
 
     std::string name = GenerateUniqueName(context, "Plane");
     ECS::Entity entity = context.World->CreateEntity(name);
@@ -128,12 +122,8 @@ void PrimitivesPanel::CreatePlane(EditorContext& context) {
     // Transform
     entity.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f));
 
-    // Mesh - 平面使用索引绘制
-    entity.AddComponent<ECS::MeshComponent>(
-        mesh->GetVertexArray(),
-        mesh->GetVertexCount(),
-        mesh->GetIndexCount()
-    );
+    // Mesh
+    entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
     // Material
     entity.AddComponent<ECS::MaterialComponent>();
@@ -144,8 +134,7 @@ void PrimitivesPanel::CreatePlane(EditorContext& context) {
 }
 
 void PrimitivesPanel::CreateCylinder(EditorContext& context) {
-    StaticMesh* mesh = MeshFactory::Get().GetCylinder();
-    if (!mesh) return;
+    AssetHandle meshHandle = MeshFactory::CreateCylinder();
 
     std::string name = GenerateUniqueName(context, "Cylinder");
     ECS::Entity entity = context.World->CreateEntity(name);
@@ -153,12 +142,8 @@ void PrimitivesPanel::CreateCylinder(EditorContext& context) {
     // Transform
     entity.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f));
 
-    // Mesh - 圆柱体使用索引绘制
-    entity.AddComponent<ECS::MeshComponent>(
-        mesh->GetVertexArray(),
-        mesh->GetVertexCount(),
-        mesh->GetIndexCount()
-    );
+    // Mesh
+    entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
     // Material
     entity.AddComponent<ECS::MaterialComponent>();

@@ -154,9 +154,7 @@ void SandboxApp::OnInit() {
     // 创建网格
     m_Grid = std::make_unique<Grid>(m_GridSize, m_GridCellSize);
 
-    std::cout << "[SandboxApp] 加载模型..." << std::endl;
-    // 加载模型
-    m_Model = Model("assets/model/Hana/Hana.fbx");
+    // TODO: 使用 MeshSource/StaticMesh 加载模型
 
     std::cout << "[SandboxApp] 初始化 ECS 系统..." << std::endl;
     // 初始化 ECS
@@ -413,47 +411,47 @@ void SandboxApp::OnWindowResize(int width, int height) {
 }
 
 void SandboxApp::SetupShaders() {
-    m_LightShader = Shader(
+    m_LightShader = Ref<Shader>::Create(
         std::filesystem::path("assets/shaders/light_vertex.glsl"),
         std::filesystem::path("assets/shaders/light_fragment.glsl")
     );
 
-    m_LampShader = Shader(
+    m_LampShader = Ref<Shader>::Create(
         std::filesystem::path("assets/shaders/lamp_vertex.glsl"),
         std::filesystem::path("assets/shaders/lamp_fragment.glsl")
     );
 
-    m_ModelShader = Shader(
+    m_ModelShader = Ref<Shader>::Create(
         std::filesystem::path("assets/shaders/model_loading_vertex.glsl"),
         std::filesystem::path("assets/shaders/model_loading_frag.glsl")
     );
 
-    m_GridShader = Shader(
+    m_GridShader = Ref<Shader>::Create(
         std::filesystem::path("assets/shaders/grid_vertex.glsl"),
         std::filesystem::path("assets/shaders/grid_fragment.glsl")
     );
 
-    m_SingleColorShader = Shader(
+    m_SingleColorShader = Ref<Shader>::Create(
         std::filesystem::path("assets/shaders/light_vertex.glsl"),
         std::filesystem::path("assets/shaders/shader_single_color.glsl")
     );
 
-    m_DebugDepthShader = Shader(
+    m_DebugDepthShader = Ref<Shader>::Create(
         std::filesystem::path("assets/shaders/screen_vertex.glsl"),
         std::filesystem::path("assets/shaders/depth_debug_fragment.glsl")
     );
 
-    m_TransparentShader = Shader(
+    m_TransparentShader = Ref<Shader>::Create(
         std::filesystem::path("assets/shaders/grass_vertex.glsl"),
         std::filesystem::path("assets/shaders/grass_fragment.glsl")
     );
 
-    m_ScreenShader = Shader(
+    m_ScreenShader = Ref<Shader>::Create(
         std::filesystem::path("assets/shaders/framebuffer_vertex.glsl"),
         std::filesystem::path("assets/shaders/framebuffer_frag.glsl")
     );
 
-    m_SkyboxShader = Shader(
+    m_SkyboxShader = Ref<Shader>::Create(
         std::filesystem::path("assets/shaders/skybox_vertex.glsl"),
         std::filesystem::path("assets/shaders/skybox_frag.glsl")
     );
@@ -462,47 +460,47 @@ void SandboxApp::SetupShaders() {
 void SandboxApp::SetupBuffers() {
     // 立方体 VAO
     m_CubeVAO = std::make_unique<VertexArray>();
-    auto cubeVBO = std::make_unique<VertexBuffer>(s_CubeVertices, sizeof(s_CubeVertices));
+    auto cubeVBO = Ref<VertexBuffer>::Create(s_CubeVertices, sizeof(s_CubeVertices));
 
     std::vector<VertexAttribute> cubeLayout = {
         VertexAttribute::Float(0, 3, 8 * sizeof(float), 0),                     // 位置
         VertexAttribute::Float(1, 3, 8 * sizeof(float), 3 * sizeof(float)),     // 法线
         VertexAttribute::Float(2, 2, 8 * sizeof(float), 6 * sizeof(float))      // 纹理坐标
     };
-    m_CubeVAO->AddVertexBuffer(std::move(cubeVBO), cubeLayout);
+    m_CubeVAO->AddVertexBuffer(cubeVBO, cubeLayout);
 
     // 屏幕四边形 VAO
     m_ScreenQuadVAO = std::make_unique<VertexArray>();
-    auto screenVBO = std::make_unique<VertexBuffer>(s_ScreenQuadVertices, sizeof(s_ScreenQuadVertices));
+    auto screenVBO = Ref<VertexBuffer>::Create(s_ScreenQuadVertices, sizeof(s_ScreenQuadVertices));
 
     std::vector<VertexAttribute> screenLayout = {
         VertexAttribute::Float(0, 2, 4 * sizeof(float), 0),                     // 位置
         VertexAttribute::Float(1, 2, 4 * sizeof(float), 2 * sizeof(float))      // 纹理坐标
     };
-    m_ScreenQuadVAO->AddVertexBuffer(std::move(screenVBO), screenLayout);
+    m_ScreenQuadVAO->AddVertexBuffer(screenVBO, screenLayout);
 
     // 透明物体 VAO
     m_TransparentVAO = std::make_unique<VertexArray>();
-    auto transparentVBO = std::make_unique<VertexBuffer>(s_TransparentVertices, sizeof(s_TransparentVertices));
+    auto transparentVBO = Ref<VertexBuffer>::Create(s_TransparentVertices, sizeof(s_TransparentVertices));
 
     std::vector<VertexAttribute> transparentLayout = {
         VertexAttribute::Float(0, 3, 5 * sizeof(float), 0),                     // 位置
         VertexAttribute::Float(1, 2, 5 * sizeof(float), 3 * sizeof(float))      // 纹理坐标
     };
-    m_TransparentVAO->AddVertexBuffer(std::move(transparentVBO), transparentLayout);
+    m_TransparentVAO->AddVertexBuffer(transparentVBO, transparentLayout);
 
 }
 
 void SandboxApp::SetupTextures() {
-    m_DiffuseMap = Texture("assets/pic/container2.png");
-    m_SpecularMap = Texture("assets/pic/container2_specular.png");
+    m_DiffuseMap = Ref<Texture2D>::Create("assets/pic/container2.png");
+    m_SpecularMap = Ref<Texture2D>::Create("assets/pic/container2_specular.png");
 
     // 透明纹理使用特殊配置
     TextureSpec transparentSpec;
     transparentSpec.WrapS = GL_CLAMP_TO_EDGE;
     transparentSpec.WrapT = GL_CLAMP_TO_EDGE;
-    m_TransparentTexture = Texture("assets/pic/blending_transparent_window.png", transparentSpec);
-    
+    m_TransparentTexture = Ref<Texture2D>::Create("assets/pic/blending_transparent_window.png", transparentSpec);
+
     // skyboxTextures
     m_SkyboxPaths = {
         "assets/pic/skybox/right.jpg",
@@ -512,7 +510,7 @@ void SandboxApp::SetupTextures() {
         "assets/pic/skybox/front.jpg",
         "assets/pic/skybox/back.jpg"
     };
-    m_SkyboxTexture = TextureCube(m_SkyboxPaths);
+    m_SkyboxTexture = Ref<TextureCube>::Create(m_SkyboxPaths);
 }
 
 void SandboxApp::SetupFramebuffers() {
@@ -547,13 +545,13 @@ void SandboxApp::RenderSkybox() {
     // glDisable(GL_CULL_FACE);
     glDepthMask(GL_FALSE);
 
-    m_SkyboxShader.Bind();
-    m_SkyboxShader.SetInt("skybox", 0);
-    m_SkyboxShader.SetMat4("view", view);
-    m_SkyboxShader.SetMat4("projection", projection);
+    m_SkyboxShader->Bind();
+    m_SkyboxShader->SetInt("skybox", 0);
+    m_SkyboxShader->SetMat4("view", view);
+    m_SkyboxShader->SetMat4("projection", projection);
 
     m_CubeVAO->Bind();
-    m_SkyboxTexture.Bind(0);
+    m_SkyboxTexture->Bind(0);
     RenderCommand::DrawArrays(GL_TRIANGLES, 0, 36);
     m_CubeVAO->Unbind();
 
@@ -569,7 +567,7 @@ void SandboxApp::RenderScene() {
 
     // 渲染网格
     if (m_ShowGrid) {
-        m_Grid->Draw(m_GridShader, view, projection,
+        m_Grid->Draw(*m_GridShader, view, projection,
                      m_Camera.GetNearPlane(), m_Camera.GetFarPlane());
     }
 
@@ -582,18 +580,7 @@ void SandboxApp::RenderScene() {
     // 渲染轮廓立方体
     RenderOutlinedCube();
 
-    // 渲染加载的模型 (m_Model)
-    m_ModelShader.Bind();
-    m_ModelShader.SetMat4("projection", projection);
-    m_ModelShader.SetMat4("view", view);
-    
-    // 设置模型的变换矩阵（可根据你的模型具体尺寸和需求调整位置和缩放）
-    glm::mat4 modelMat = glm::mat4(1.0f);
-    modelMat = glm::translate(modelMat, glm::vec3(0.0f, 0.0f, 0.0f)); 
-    modelMat = glm::scale(modelMat, glm::vec3(1.0f)); 
-    m_ModelShader.SetMat4("model", modelMat);
-    
-    m_Model.Draw(m_ModelShader);
+    // TODO: 使用 MeshSource/StaticMesh 渲染模型
 
     // 渲染透明物体
     RenderTransparentObjects();
@@ -604,9 +591,9 @@ void SandboxApp::RenderLamps() {
     float aspectRatio = GetWindow().GetAspectRatio();
     glm::mat4 projection = m_Camera.GetProjectionMatrix(aspectRatio);
 
-    m_LampShader.Bind();
-    m_LampShader.SetMat4("view", view);
-    m_LampShader.SetMat4("projection", projection);
+    m_LampShader->Bind();
+    m_LampShader->SetMat4("view", view);
+    m_LampShader->SetMat4("projection", projection);
 
     m_CubeVAO->Bind();
 
@@ -614,8 +601,8 @@ void SandboxApp::RenderLamps() {
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, m_PointLightPositions[i]);
         model = glm::scale(model, glm::vec3(0.2f));
-        m_LampShader.SetMat4("model", model);
-        m_LampShader.SetVec3("lightColor", m_LightColor);
+        m_LampShader->SetMat4("model", model);
+        m_LampShader->SetVec3("lightColor", m_LightColor);
 
         RenderCommand::DrawArrays(GL_TRIANGLES, 0, 36);
     }
@@ -628,56 +615,56 @@ void SandboxApp::RenderCubes() {
     float aspectRatio = GetWindow().GetAspectRatio();
     glm::mat4 projection = m_Camera.GetProjectionMatrix(aspectRatio);
 
-    m_LightShader.Bind();
+    m_LightShader->Bind();
 
     // 绑定纹理
-    m_DiffuseMap.Bind(0);
-    m_LightShader.SetInt("material.diffuse", 0);
+    m_DiffuseMap->Bind(0);
+    m_LightShader->SetInt("material.diffuse", 0);
 
-    m_SpecularMap.Bind(1);
-    m_LightShader.SetInt("material.specular", 1);
+    m_SpecularMap->Bind(1);
+    m_LightShader->SetInt("material.specular", 1);
 
     // 设置材质属性
-    m_LightShader.SetFloat("material.shininess", m_MaterialShininess);
+    m_LightShader->SetFloat("material.shininess", m_MaterialShininess);
 
     // 设置方向光
-    m_LightShader.SetVec3("dirLight.direction", m_DirLight.Direction);
-    m_LightShader.SetVec3("dirLight.ambient", m_LightAmbient);
-    m_LightShader.SetVec3("dirLight.diffuse", m_LightDiffuse);
-    m_LightShader.SetVec3("dirLight.specular", m_LightSpecular);
+    m_LightShader->SetVec3("dirLight.direction", m_DirLight.Direction);
+    m_LightShader->SetVec3("dirLight.ambient", m_LightAmbient);
+    m_LightShader->SetVec3("dirLight.diffuse", m_LightDiffuse);
+    m_LightShader->SetVec3("dirLight.specular", m_LightSpecular);
 
     // 设置点光源
     for (int i = 0; i < 4; ++i) {
         std::string base = "pointLight[" + std::to_string(i) + "]";
-        m_LightShader.SetVec3(base + ".position", m_PointLightPositions[i]);
-        m_LightShader.SetVec3(base + ".ambient", m_LightAmbient);
-        m_LightShader.SetVec3(base + ".diffuse", glm::vec3(0.8f));
-        m_LightShader.SetVec3(base + ".specular", glm::vec3(1.0f));
-        m_LightShader.SetFloat(base + ".constant", 1.0f);
-        m_LightShader.SetFloat(base + ".linear", 0.09f);
-        m_LightShader.SetFloat(base + ".quadratic", 0.032f);
+        m_LightShader->SetVec3(base + ".position", m_PointLightPositions[i]);
+        m_LightShader->SetVec3(base + ".ambient", m_LightAmbient);
+        m_LightShader->SetVec3(base + ".diffuse", glm::vec3(0.8f));
+        m_LightShader->SetVec3(base + ".specular", glm::vec3(1.0f));
+        m_LightShader->SetFloat(base + ".constant", 1.0f);
+        m_LightShader->SetFloat(base + ".linear", 0.09f);
+        m_LightShader->SetFloat(base + ".quadratic", 0.032f);
     }
 
     // 设置聚光灯
     glm::vec3 camPos = m_Camera.GetPosition();
     glm::vec3 camFront = m_Camera.GetFront();
-    m_LightShader.SetVec3("spotLight.position", camPos);
-    m_LightShader.SetVec3("spotLight.direction", camFront);
-    m_LightShader.SetVec3("spotLight.ambient", glm::vec3(0.0f));
-    m_LightShader.SetVec3("spotLight.diffuse", glm::vec3(1.0f));
-    m_LightShader.SetVec3("spotLight.specular", glm::vec3(1.0f));
-    m_LightShader.SetFloat("spotLight.constant", 1.0f);
-    m_LightShader.SetFloat("spotLight.linear", 0.09f);
-    m_LightShader.SetFloat("spotLight.quadratic", 0.032f);
-    m_LightShader.SetFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
-    m_LightShader.SetFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
+    m_LightShader->SetVec3("spotLight.position", camPos);
+    m_LightShader->SetVec3("spotLight.direction", camFront);
+    m_LightShader->SetVec3("spotLight.ambient", glm::vec3(0.0f));
+    m_LightShader->SetVec3("spotLight.diffuse", glm::vec3(1.0f));
+    m_LightShader->SetVec3("spotLight.specular", glm::vec3(1.0f));
+    m_LightShader->SetFloat("spotLight.constant", 1.0f);
+    m_LightShader->SetFloat("spotLight.linear", 0.09f);
+    m_LightShader->SetFloat("spotLight.quadratic", 0.032f);
+    m_LightShader->SetFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
+    m_LightShader->SetFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
 
     // 设置观察位置
-    m_LightShader.SetVec3("viewPos", camPos);
+    m_LightShader->SetVec3("viewPos", camPos);
 
     // 设置视图和投影矩阵
-    m_LightShader.SetMat4("view", view);
-    m_LightShader.SetMat4("projection", projection);
+    m_LightShader->SetMat4("view", view);
+    m_LightShader->SetMat4("projection", projection);
 
     m_CubeVAO->Bind();
 
@@ -689,8 +676,8 @@ void SandboxApp::RenderCubes() {
         model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
 
         glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(model)));
-        m_LightShader.SetMat3("normalMatrix", normalMatrix);
-        m_LightShader.SetMat4("model", model);
+        m_LightShader->SetMat3("normalMatrix", normalMatrix);
+        m_LightShader->SetMat4("model", model);
 
         RenderCommand::DrawArrays(GL_TRIANGLES, 0, 36);
     }
@@ -713,12 +700,12 @@ void SandboxApp::RenderOutlinedCube() {
     RenderCommand::SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
     RenderCommand::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
 
-    m_LightShader.Bind();
+    m_LightShader->Bind();
     glm::mat4 model = glm::mat4(1.0f);
     model = glm::translate(model, m_CubePositions[0]);
     glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(model)));
-    m_LightShader.SetMat3("normalMatrix", normalMatrix);
-    m_LightShader.SetMat4("model", model);
+    m_LightShader->SetMat3("normalMatrix", normalMatrix);
+    m_LightShader->SetMat4("model", model);
     RenderCommand::DrawArrays(GL_TRIANGLES, 0, 36);
 
     // 第二遍：绘制轮廓
@@ -726,13 +713,13 @@ void SandboxApp::RenderOutlinedCube() {
     RenderCommand::SetStencilMask(0x00);
     RenderCommand::DisableDepthTest();
 
-    m_SingleColorShader.Bind();
-    m_SingleColorShader.SetMat4("view", view);
-    m_SingleColorShader.SetMat4("projection", projection);
+    m_SingleColorShader->Bind();
+    m_SingleColorShader->SetMat4("view", view);
+    m_SingleColorShader->SetMat4("projection", projection);
     model = glm::mat4(1.0f);
     model = glm::translate(model, m_CubePositions[0]);
     model = glm::scale(model, glm::vec3(1.02f));
-    m_SingleColorShader.SetMat4("model", model);
+    m_SingleColorShader->SetMat4("model", model);
     RenderCommand::DrawArrays(GL_TRIANGLES, 0, 36);
 
     // 恢复状态
@@ -748,13 +735,13 @@ void SandboxApp::RenderTransparentObjects() {
     float aspectRatio = GetWindow().GetAspectRatio();
     glm::mat4 projection = m_Camera.GetProjectionMatrix(aspectRatio);
 
-    m_TransparentShader.Bind();
-    m_TransparentShader.SetMat4("projection", projection);
-    m_TransparentShader.SetMat4("view", view);
+    m_TransparentShader->Bind();
+    m_TransparentShader->SetMat4("projection", projection);
+    m_TransparentShader->SetMat4("view", view);
 
     m_TransparentVAO->Bind();
-    m_TransparentTexture.Bind(0);
-    m_TransparentShader.SetInt("texture1", 0);
+    m_TransparentTexture->Bind(0);
+    m_TransparentShader->SetInt("texture1", 0);
 
     // 按距离排序（从远到近）
     std::map<float, glm::vec3> sorted;
@@ -768,7 +755,7 @@ void SandboxApp::RenderTransparentObjects() {
     for (auto it = sorted.rbegin(); it != sorted.rend(); ++it) {
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, it->second);
-        m_TransparentShader.SetMat4("model", model);
+        m_TransparentShader->SetMat4("model", model);
         RenderCommand::DrawArrays(GL_TRIANGLES, 0, 6);
     }
 
@@ -781,14 +768,14 @@ void SandboxApp::RenderPostProcess() {
     RenderCommand::SetClearColor(glm::vec4(0.1f, 0.1f, 0.1f, 1.0f));
     RenderCommand::ClearColorBuffer();
 
-    m_ScreenShader.Bind();
+    m_ScreenShader->Bind();
     m_ScreenQuadVAO->Bind();
     RenderCommand::DisableDepthTest();
 
     // 绑定场景纹理
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_SceneFBO->GetColorAttachment());
-    m_ScreenShader.SetInt("screenTexture", 0);
+    m_ScreenShader->SetInt("screenTexture", 0);
 
     RenderCommand::DrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -804,11 +791,11 @@ void SandboxApp::VisualizeDepthBuffer() {
 
     RenderCommand::DisableDepthTest();
 
-    m_DebugDepthShader.Bind();
-    m_DebugDepthShader.SetFloat("near", m_Camera.GetNearPlane());
-    m_DebugDepthShader.SetFloat("far", m_Camera.GetFarPlane());
-    m_DebugDepthShader.SetInt("visualizationMode", 0);
-    m_DebugDepthShader.SetInt("depthMap", 0);
+    m_DebugDepthShader->Bind();
+    m_DebugDepthShader->SetFloat("near", m_Camera.GetNearPlane());
+    m_DebugDepthShader->SetFloat("far", m_Camera.GetFarPlane());
+    m_DebugDepthShader->SetInt("visualizationMode", 0);
+    m_DebugDepthShader->SetInt("depthMap", 0);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_DepthFBO->GetDepthAttachment());

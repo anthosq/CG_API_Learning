@@ -4,19 +4,15 @@
 
 namespace GLRenderer {
 
-// 统一格式构造函数
 Shader::Shader(const std::filesystem::path& filepath) {
-    // 从文件名提取着色器名称
     m_Name = filepath.stem().string();
 
-    // 读取文件
     std::string source = ReadFile(filepath);
     if (source.empty()) {
         std::cerr << "[Shader] 无法读取着色器文件: " << filepath << std::endl;
         return;
     }
 
-    // 解析着色器源码
     auto shaderSources = ParseShaderSource(source);
 
     if (shaderSources.find(GL_VERTEX_SHADER) == shaderSources.end() ||
@@ -25,7 +21,6 @@ Shader::Shader(const std::filesystem::path& filepath) {
         return;
     }
 
-    // 编译着色器
     GLuint vertexShader = CompileShader(GL_VERTEX_SHADER, shaderSources[GL_VERTEX_SHADER]);
     GLuint fragmentShader = CompileShader(GL_FRAGMENT_SHADER, shaderSources[GL_FRAGMENT_SHADER]);
 
@@ -35,12 +30,10 @@ Shader::Shader(const std::filesystem::path& filepath) {
         return;
     }
 
-    // 链接程序
     if (!LinkProgram(vertexShader, fragmentShader)) {
         std::cerr << "[Shader] 链接失败: " << filepath << std::endl;
     }
 
-    // 删除已链接的着色器
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
@@ -51,12 +44,9 @@ Shader::Shader(const std::filesystem::path& filepath) {
     }
 }
 
-// 分离格式构造函数（向后兼容）
 Shader::Shader(const std::filesystem::path& vertexPath,
                const std::filesystem::path& fragmentPath) {
-    // 从顶点着色器路径提取名称
     std::string filename = vertexPath.stem().string();
-    // 移除 _vertex 或 _vert 后缀
     if (filename.size() > 7 && filename.substr(filename.size() - 7) == "_vertex") {
         m_Name = filename.substr(0, filename.size() - 7);
     } else if (filename.size() > 5 && filename.substr(filename.size() - 5) == "_vert") {
@@ -65,7 +55,6 @@ Shader::Shader(const std::filesystem::path& vertexPath,
         m_Name = filename;
     }
 
-    // 读取着色器源码
     std::string vertexSource = ReadFile(vertexPath);
     std::string fragmentSource = ReadFile(fragmentPath);
 
@@ -74,7 +63,6 @@ Shader::Shader(const std::filesystem::path& vertexPath,
         return;
     }
 
-    // 编译着色器
     GLuint vertexShader = CompileShader(GL_VERTEX_SHADER, vertexSource);
     GLuint fragmentShader = CompileShader(GL_FRAGMENT_SHADER, fragmentSource);
 
@@ -84,10 +72,8 @@ Shader::Shader(const std::filesystem::path& vertexPath,
         return;
     }
 
-    // 链接程序
     LinkProgram(vertexShader, fragmentShader);
 
-    // 删除已链接的着色器
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
@@ -101,30 +87,6 @@ Shader::~Shader() {
     }
 }
 
-Shader::Shader(Shader&& other) noexcept
-    : m_ID(other.m_ID),
-      m_Name(std::move(other.m_Name)),
-      m_UniformCache(std::move(other.m_UniformCache)),
-      m_UniformBlockCache(std::move(other.m_UniformBlockCache)) {
-    other.m_ID = 0;
-}
-
-Shader& Shader::operator=(Shader&& other) noexcept {
-    if (this != &other) {
-        // 释放当前资源
-        if (m_ID != 0) {
-            glDeleteProgram(m_ID);
-        }
-        // 转移所有权
-        m_ID = other.m_ID;
-        m_Name = std::move(other.m_Name);
-        m_UniformCache = std::move(other.m_UniformCache);
-        m_UniformBlockCache = std::move(other.m_UniformBlockCache);
-        other.m_ID = 0;
-    }
-    return *this;
-}
-
 void Shader::Bind() const {
     glUseProgram(m_ID);
 }
@@ -134,20 +96,16 @@ void Shader::Unbind() const {
 }
 
 GLint Shader::GetUniformLocation(const std::string& name) const {
-    // 先查缓存
     auto it = m_UniformCache.find(name);
     if (it != m_UniformCache.end()) {
         return it->second;
     }
 
-    // 查询并缓存
     GLint location = glGetUniformLocation(m_ID, name.c_str());
     if (location == -1) {
-        // 仅在首次警告，避免刷屏
         static std::unordered_map<std::string, bool> warned;
         std::string key = m_Name + "::" + name;
         if (!warned[key]) {
-            // std::cerr << "[Shader:" << m_Name << "] uniform '" << name << "' 不存在或未使用" << std::endl;
             warned[key] = true;
         }
     }
@@ -204,24 +162,30 @@ void Shader::SetIntArray(const std::string& name, const int* values, uint32_t co
 }
 
 void Shader::BindUniformBlock(const std::string& blockName, uint32_t bindingPoint) const {
-    // 先查缓存
     auto it = m_UniformBlockCache.find(blockName);
     GLuint blockIndex;
 
     if (it != m_UniformBlockCache.end()) {
         blockIndex = it->second;
     } else {
-        // 查询 uniform block 索引
         blockIndex = glGetUniformBlockIndex(m_ID, blockName.c_str());
         if (blockIndex != GL_INVALID_INDEX) {
             m_UniformBlockCache[blockName] = blockIndex;
         }
     }
 
-    // 绑定到指定绑定点
     if (blockIndex != GL_INVALID_INDEX) {
         glUniformBlockBinding(m_ID, blockIndex, bindingPoint);
     }
+}
+
+Ref<Shader> Shader::Create(const std::filesystem::path& filepath) {
+    return Ref<Shader>(new Shader(filepath));
+}
+
+Ref<Shader> Shader::Create(const std::filesystem::path& vertexPath,
+                           const std::filesystem::path& fragmentPath) {
+    return Ref<Shader>(new Shader(vertexPath, fragmentPath));
 }
 
 std::string Shader::ReadFile(const std::filesystem::path& path) {
@@ -249,18 +213,15 @@ std::unordered_map<GLenum, std::string> Shader::ParseShaderSource(const std::str
     size_t pos = source.find(typeToken, 0);
 
     while (pos != std::string::npos) {
-        // 找到行尾
         size_t eol = source.find_first_of("\r\n", pos);
         if (eol == std::string::npos) {
             std::cerr << "[Shader] 解析错误：#type 后缺少换行" << std::endl;
             break;
         }
 
-        // 提取着色器类型
         size_t begin = pos + typeTokenLength + 1;
         std::string typeStr = source.substr(begin, eol - begin);
 
-        // 去除前后空格
         size_t start = typeStr.find_first_not_of(" \t");
         size_t end = typeStr.find_last_not_of(" \t");
         if (start != std::string::npos && end != std::string::npos) {
@@ -274,17 +235,14 @@ std::unordered_map<GLenum, std::string> Shader::ParseShaderSource(const std::str
             continue;
         }
 
-        // 找到着色器源码的开始位置
         size_t nextLinePos = source.find_first_not_of("\r\n", eol);
         if (nextLinePos == std::string::npos) {
             std::cerr << "[Shader] 着色器类型 '" << typeStr << "' 后没有源码" << std::endl;
             break;
         }
 
-        // 找到下一个 #type 或文件结尾
         pos = source.find(typeToken, nextLinePos);
 
-        // 提取着色器源码
         if (pos == std::string::npos) {
             shaderSources[type] = source.substr(nextLinePos);
         } else {
@@ -314,7 +272,6 @@ GLuint Shader::CompileShader(GLenum type, const std::string& source) {
     glShaderSource(shader, 1, &src, nullptr);
     glCompileShader(shader);
 
-    // 检查编译错误
     int success;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (!success) {
@@ -341,7 +298,6 @@ bool Shader::LinkProgram(GLuint vertexShader, GLuint fragmentShader) {
     glAttachShader(m_ID, fragmentShader);
     glLinkProgram(m_ID);
 
-    // 检查链接错误
     int success;
     glGetProgramiv(m_ID, GL_LINK_STATUS, &success);
     if (!success) {
@@ -356,7 +312,7 @@ bool Shader::LinkProgram(GLuint vertexShader, GLuint fragmentShader) {
     return true;
 }
 
-void ShaderLibrary::Add(const std::string& name, std::shared_ptr<Shader> shader) {
+void ShaderLibrary::Add(const std::string& name, Ref<Shader> shader) {
     if (Exists(name)) {
         std::cerr << "[ShaderLibrary] 着色器已存在: " << name << std::endl;
         return;
@@ -364,7 +320,7 @@ void ShaderLibrary::Add(const std::string& name, std::shared_ptr<Shader> shader)
     m_Shaders[name] = shader;
 }
 
-void ShaderLibrary::Add(std::shared_ptr<Shader> shader) {
+void ShaderLibrary::Add(Ref<Shader> shader) {
     if (!shader) {
         std::cerr << "[ShaderLibrary] 无法添加空着色器" << std::endl;
         return;
@@ -372,18 +328,18 @@ void ShaderLibrary::Add(std::shared_ptr<Shader> shader) {
     Add(shader->GetName(), shader);
 }
 
-std::shared_ptr<Shader> ShaderLibrary::Load(const std::filesystem::path& filepath) {
+Ref<Shader> ShaderLibrary::Load(const std::filesystem::path& filepath) {
     std::string name = filepath.stem().string();
     return Load(name, filepath);
 }
 
-std::shared_ptr<Shader> ShaderLibrary::Load(const std::string& name, const std::filesystem::path& filepath) {
+Ref<Shader> ShaderLibrary::Load(const std::string& name, const std::filesystem::path& filepath) {
     if (Exists(name)) {
         std::cout << "[ShaderLibrary] 返回已缓存的着色器: " << name << std::endl;
         return m_Shaders[name];
     }
 
-    auto shader = std::make_shared<Shader>(filepath);
+    auto shader = Shader::Create(filepath);
     if (shader->IsValid()) {
         m_Shaders[name] = shader;
         return shader;
@@ -393,7 +349,7 @@ std::shared_ptr<Shader> ShaderLibrary::Load(const std::string& name, const std::
     return nullptr;
 }
 
-std::shared_ptr<Shader> ShaderLibrary::Get(const std::string& name) const {
+Ref<Shader> ShaderLibrary::Get(const std::string& name) const {
     auto it = m_Shaders.find(name);
     if (it != m_Shaders.end()) {
         return it->second;

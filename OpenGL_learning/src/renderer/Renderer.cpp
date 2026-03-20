@@ -2,18 +2,54 @@
 
 namespace GLRenderer {
 
-// 静态成员初始化
+struct RendererData {
+    Ref<Texture2D> WhiteTexture;
+    Ref<Texture2D> BlackTexture;
+    Ref<Texture2D> NormalTexture;
+    Ref<Texture2D> BRDFLutTexture;
+    Ref<TextureCube> BlackCubeTexture;
+
+    Ref<VertexArray> FullscreenQuadVAO;
+};
+
+static RendererData s_Data;
+
 SceneData Renderer::s_SceneData;
 RendererStats Renderer::s_Stats;
 std::unique_ptr<VertexArray> Renderer::s_FullscreenQuadVAO;
 bool Renderer::s_Initialized = false;
 
-// 生命周期
-
 void Renderer::Init() {
     if (s_Initialized) return;
 
     RenderCommand::Init();
+
+    // 创建 1x1 白色纹理
+    uint32_t whiteData = 0xFFFFFFFF;
+    TextureSpec defaultSpec;
+    defaultSpec.GenerateMipmaps = false;
+    defaultSpec.MinFilter = GL_NEAREST;
+    defaultSpec.MagFilter = GL_NEAREST;
+    s_Data.WhiteTexture = Texture2D::Create(&whiteData, 1, 1, GL_RGBA, GL_RGBA8, defaultSpec);
+
+    // 创建 1x1 黑色纹理
+    uint32_t blackData = 0xFF000000;
+    s_Data.BlackTexture = Texture2D::Create(&blackData, 1, 1, GL_RGBA, GL_RGBA8, defaultSpec);
+
+    // 创建 1x1 法线纹理 (128, 128, 255, 255) -> 朝向 +Z 的默认法线
+    uint32_t normalData = 0xFFFF8080;
+    s_Data.NormalTexture = Texture2D::Create(&normalData, 1, 1, GL_RGBA, GL_RGBA8, defaultSpec);
+
+    // 尝试加载 BRDF LUT 纹理
+    std::filesystem::path brdfPath = "assets/render/BRDF_LUT.png";
+    if (std::filesystem::exists(brdfPath)) {
+        TextureSpec brdfSpec;
+        brdfSpec.WrapS = GL_CLAMP_TO_EDGE;
+        brdfSpec.WrapT = GL_CLAMP_TO_EDGE;
+        brdfSpec.GenerateMipmaps = false;
+        s_Data.BRDFLutTexture = Texture2D::Create(brdfPath, brdfSpec);
+    }
+
     CreateFullscreenQuad();
 
     s_Initialized = true;
@@ -21,18 +57,41 @@ void Renderer::Init() {
 }
 
 void Renderer::Shutdown() {
+    s_Data.WhiteTexture = nullptr;
+    s_Data.BlackTexture = nullptr;
+    s_Data.NormalTexture = nullptr;
+    s_Data.BRDFLutTexture = nullptr;
+    s_Data.BlackCubeTexture = nullptr;
+    s_Data.FullscreenQuadVAO = nullptr;
+
     s_FullscreenQuadVAO.reset();
     s_Initialized = false;
     std::cout << "[Renderer] 已关闭" << std::endl;
 }
 
-// 帧管理
+Ref<Texture2D> Renderer::GetWhiteTexture() {
+    return s_Data.WhiteTexture;
+}
+
+Ref<Texture2D> Renderer::GetBlackTexture() {
+    return s_Data.BlackTexture;
+}
+
+Ref<Texture2D> Renderer::GetNormalTexture() {
+    return s_Data.NormalTexture;
+}
+
+Ref<Texture2D> Renderer::GetBRDFLutTexture() {
+    return s_Data.BRDFLutTexture;
+}
+
+Ref<TextureCube> Renderer::GetBlackCubeTexture() {
+    return s_Data.BlackCubeTexture;
+}
 
 void Renderer::BeginFrame(const Camera& camera, float aspectRatio) {
-    // 重置统计
     s_Stats.Reset();
 
-    // 更新场景数据
     s_SceneData.ViewMatrix = camera.GetViewMatrix();
     s_SceneData.ProjectionMatrix = camera.GetProjectionMatrix(aspectRatio);
     s_SceneData.ViewProjectionMatrix = s_SceneData.ProjectionMatrix * s_SceneData.ViewMatrix;
@@ -42,10 +101,7 @@ void Renderer::BeginFrame(const Camera& camera, float aspectRatio) {
 }
 
 void Renderer::EndFrame() {
-    // 可以在这里做一些帧结束的清理工作
 }
-
-// 渲染辅助方法
 
 void Renderer::SetupShaderMatrices(Shader& shader) {
     shader.SetMat4("view", s_SceneData.ViewMatrix);
@@ -57,7 +113,6 @@ void Renderer::SetupShaderMatrices(Shader& shader, const glm::mat4& model) {
     SetupShaderMatrices(shader);
     shader.SetMat4("model", model);
 
-    // 计算法线矩阵
     glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
     shader.SetMat3("normalMatrix", normalMatrix);
 }
@@ -91,13 +146,11 @@ void Renderer::SetupSpotLight(Shader& shader, const SpotLight& light) {
     shader.SetFloat("spotLight.constant", light.Constant);
     shader.SetFloat("spotLight.linear", light.Linear);
     shader.SetFloat("spotLight.quadratic", light.Quadratic);
-    // 注意：shader 中使用 cutOff，这里对应 InnerCutOff
     shader.SetFloat("spotLight.cutOff", glm::cos(glm::radians(light.InnerCutOff)));
     shader.SetFloat("spotLight.outerCutOff", glm::cos(glm::radians(light.OuterCutOff)));
 }
 
 void Renderer::DisableSpotLight(Shader& shader) {
-    // 设置聚光灯为禁用状态（ambient/diffuse/specular 为 0）
     shader.SetVec3("spotLight.position", glm::vec3(0.0f));
     shader.SetVec3("spotLight.direction", glm::vec3(0.0f, -1.0f, 0.0f));
     shader.SetVec3("spotLight.ambient", glm::vec3(0.0f));
@@ -106,7 +159,6 @@ void Renderer::DisableSpotLight(Shader& shader) {
     shader.SetFloat("spotLight.constant", 1.0f);
     shader.SetFloat("spotLight.linear", 0.0f);
     shader.SetFloat("spotLight.quadratic", 0.0f);
-    // 设置 cutOff > outerCutOff 使得 epsilon 为正，避免除零
     shader.SetFloat("spotLight.cutOff", glm::cos(glm::radians(10.0f)));
     shader.SetFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
 }
@@ -137,7 +189,6 @@ void Renderer::SubmitMesh(Mesh& mesh, Shader& shader, const glm::mat4& transform
     shader.Bind();
     SetupShaderMatrices(shader, transform);
 
-    // 设置实体 ID（用于鼠标拾取）
     shader.SetInt("u_EntityID", entityID);
 
     mesh.Draw(shader);
@@ -150,19 +201,15 @@ void Renderer::SubmitModel(Model& model, Shader& shader, const glm::mat4& transf
     shader.Bind();
     SetupShaderMatrices(shader, transform);
 
-    // 设置实体 ID（用于鼠标拾取）
     shader.SetInt("u_EntityID", entityID);
 
     model.Draw(shader);
 
-    // 统计信息会在 Model::Draw 内部处理
     s_Stats.DrawCalls++;
 }
 
 void Renderer::CreateFullscreenQuad() {
-    // 全屏四边形顶点（位置 + 纹理坐标）
     float quadVertices[] = {
-        // 位置          // 纹理坐标
         -1.0f,  1.0f,    0.0f, 1.0f,
         -1.0f, -1.0f,    0.0f, 0.0f,
          1.0f, -1.0f,    1.0f, 0.0f,
@@ -173,14 +220,14 @@ void Renderer::CreateFullscreenQuad() {
     };
 
     s_FullscreenQuadVAO = std::make_unique<VertexArray>();
-    auto vbo = std::make_unique<VertexBuffer>(quadVertices, sizeof(quadVertices));
+    auto vbo = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
 
     std::vector<VertexAttribute> layout = {
-        VertexAttribute::Float(0, 2, 4 * sizeof(float), 0),                    // 位置
-        VertexAttribute::Float(1, 2, 4 * sizeof(float), 2 * sizeof(float))     // 纹理坐标
+        VertexAttribute::Float(0, 2, 4 * sizeof(float), 0),
+        VertexAttribute::Float(1, 2, 4 * sizeof(float), 2 * sizeof(float))
     };
 
-    s_FullscreenQuadVAO->AddVertexBuffer(std::move(vbo), layout);
+    s_FullscreenQuadVAO->AddVertexBuffer(vbo, layout);
 }
 
 }

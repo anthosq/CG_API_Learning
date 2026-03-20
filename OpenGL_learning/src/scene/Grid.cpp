@@ -20,26 +20,21 @@ void Grid::Draw(const Shader& shader,
                 float farPlane) {
     shader.Bind();
 
-    // 设置 uniform
     const_cast<Shader&>(shader).SetMat4("view", view);
     const_cast<Shader&>(shader).SetMat4("projection", projection);
     const_cast<Shader&>(shader).SetFloat("gridSize", m_Settings.Size);
     const_cast<Shader&>(shader).SetFloat("gridCellSize", m_Settings.CellSize);
     const_cast<Shader&>(shader).SetVec3("gridColorThin", m_Settings.ThinColor);
-    // gridColorThick 暂未在shader中使用
     const_cast<Shader&>(shader).SetFloat("near", nearPlane);
     const_cast<Shader&>(shader).SetFloat("far", farPlane);
 
-    // 设置混合
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // 绘制
     if (m_VAO) {
         m_VAO->Bind();
         glDrawArrays(GL_TRIANGLES, 0, 6);
         m_VAO->Unbind();
     } else if (VAO != 0) {
-        // 兼容旧的 VAO
         glBindVertexArray(VAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
@@ -49,7 +44,6 @@ void Grid::Draw(const Shader& shader,
 }
 
 void Grid::SetupGrid() {
-    // 全屏四边形顶点
     float vertices[] = {
         -1.0f,  1.0f, 0.0f,
         -1.0f, -1.0f, 0.0f,
@@ -60,22 +54,28 @@ void Grid::SetupGrid() {
          1.0f,  1.0f, 0.0f
     };
 
-    // 使用新的 Buffer 类
-    m_VAO = std::make_unique<VertexArray>();
+    m_VAO = VertexArray::Create();
 
-    auto vbo = std::make_unique<VertexBuffer>(vertices, sizeof(vertices));
+    auto vbo = VertexBuffer::Create(vertices, sizeof(vertices));
 
     std::vector<VertexAttribute> layout = {
         VertexAttribute::Float(0, 3, 3 * sizeof(float), 0)
     };
 
-    m_VAO->AddVertexBuffer(std::move(vbo), layout);
+    m_VAO->AddVertexBuffer(vbo, layout);
 
-    // 同时设置兼容的 VAO/VBO（用于旧代码）
     VAO = m_VAO->GetID();
 
     std::cout << "[Grid] 创建完成: size=" << m_Settings.Size
               << ", cellSize=" << m_Settings.CellSize << std::endl;
+}
+
+Ref<Grid> Grid::Create(float size, float cellSize) {
+    return Ref<Grid>(new Grid(size, cellSize));
+}
+
+Ref<Grid> Grid::Create(const GridSettings& settings) {
+    return Ref<Grid>(new Grid(settings));
 }
 
 } // namespace GLRenderer

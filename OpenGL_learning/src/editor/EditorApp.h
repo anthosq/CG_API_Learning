@@ -87,13 +87,13 @@ private:
     // 纹理资源 (通过 AssetManager 管理)
     AssetHandle m_DiffuseMapHandle;
     AssetHandle m_SpecularMapHandle;
-    std::unique_ptr<TextureCube> m_SkyboxTexture;  // 天空盒暂不使用 AssetManager
+    Ref<TextureCube> m_SkyboxTexture;  // 天空盒暂不使用 AssetManager
 
     // 编辑器图标
-    std::unique_ptr<Texture> m_PointLightIcon;
-    std::unique_ptr<Texture> m_DirectionalLightIcon;
-    std::unique_ptr<Texture> m_SpotLightIcon;
-    std::unique_ptr<Texture> m_CameraIcon;
+    Ref<Texture2D> m_PointLightIcon;
+    Ref<Texture2D> m_DirectionalLightIcon;
+    Ref<Texture2D> m_SpotLightIcon;
+    Ref<Texture2D> m_CameraIcon;
 
     // 天空盒路径
     std::array<std::filesystem::path, 6> m_SkyboxPaths;

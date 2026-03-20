@@ -4,8 +4,10 @@
 #include "graphics/Camera.h"
 #include "graphics/Shader.h"
 #include "graphics/Framebuffer.h"
+#include "graphics/Texture.h"
 #include "graphics/Mesh.h"
 #include "scene/Light.h"
+#include "core/Ref.h"
 #include <functional>
 #include <vector>
 
@@ -76,8 +78,14 @@ public:
     static void SubmitMesh(Mesh& mesh, Shader& shader, const glm::mat4& transform, int entityID = -1);
     static void SubmitModel(Model& model, Shader& shader, const glm::mat4& transform, int entityID = -1);
 
-    // 统计信息
+    // 默认纹理访问
+    static Ref<Texture2D> GetWhiteTexture();
+    static Ref<Texture2D> GetBlackTexture();
+    static Ref<Texture2D> GetNormalTexture();
+    static Ref<Texture2D> GetBRDFLutTexture();
+    static Ref<TextureCube> GetBlackCubeTexture();
 
+    // 统计信息
     static const RendererStats& GetStats() { return s_Stats; }
     static void ResetStats() { s_Stats.Reset(); }
 

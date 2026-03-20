@@ -2,15 +2,15 @@
 
 #include "graphics/Shader.h"
 #include "graphics/Buffer.h"
+#include "graphics/MeshSource.h"
 #include "RenderCommand.h"
 #include "asset/AssetTypes.h"
+#include "core/Ref.h"
 #include <glm/glm.hpp>
 
 namespace GLRenderer {
 
-// =============================================================================
 // UBO 数据结构 (std140 布局)
-// =============================================================================
 
 // 相机 UBO (绑定点 0)
 // std140 对齐规则:
@@ -68,7 +68,7 @@ enum class DepthCompareOp {
 };
 
 struct PipelineSpecification {
-    Shader* ShaderProgram = nullptr;
+    Ref<Shader> ShaderProgram;
     DepthCompareOp DepthOp = DepthCompareOp::Less;
     bool DepthTest = true;
     bool DepthWrite = true;
@@ -183,8 +183,8 @@ public:
 
     // 注意：不再提供 Unbind()，每个 Pass 应自己管理状态恢复
 
-    Shader* GetShader() const { return m_Spec.ShaderProgram; }
-    void SetShader(Shader* shader) { m_Spec.ShaderProgram = shader; }
+    const Ref<Shader>& GetShader() const { return m_Spec.ShaderProgram; }
+    void SetShader(const Ref<Shader>& shader) { m_Spec.ShaderProgram = shader; }
 
     PipelineSpecification& GetSpecification() { return m_Spec; }
     const PipelineSpecification& GetSpecification() const { return m_Spec; }
@@ -195,15 +195,18 @@ private:
 
 enum class DrawCommandType {
     Mesh,       // VertexArray (MeshComponent)
-    Model       // Model (ModelComponent)
+    Model,      // Model (ModelComponent)
+    MeshSource  // MeshSource (导入的网格数据)
 };
 
 struct DrawCommand {
     DrawCommandType Type = DrawCommandType::Model;
 
-    // 几何数据 (二选一)
+    // 几何数据 (根据 Type 选择)
     Model* ModelPtr = nullptr;
-    VertexArray* MeshPtr = nullptr;
+    Ref<VertexArray> MeshPtr;
+    Ref<MeshSource> MeshSourcePtr;
+    uint32_t SubmeshIndex = 0;
     uint32_t VertexCount = 0;
     uint32_t IndexCount = 0;
     bool UseIndices = false;

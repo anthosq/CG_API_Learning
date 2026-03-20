@@ -1,6 +1,7 @@
 #include "SceneRenderer.h"
 #include "RenderCommand.h"
 #include "asset/AssetManager.h"
+#include "graphics/MeshSource.h"
 #include <algorithm>
 
 namespace GLRenderer {
@@ -20,11 +21,8 @@ void SceneRenderer::Initialize() {
 
     CreateDefaultResources();
 
-    // 设置默认光照
-    m_Environment.DirLight.Direction = glm::vec3(-0.2f, -1.0f, -0.3f);
-    m_Environment.DirLight.Ambient = glm::vec3(0.05f);
-    m_Environment.DirLight.Diffuse = glm::vec3(0.4f);
-    m_Environment.DirLight.Specular = glm::vec3(0.5f);
+    // 默认不设置方向光（全部为零）
+    // 如需方向光，通过 GetEnvironment().DirLight 配置
 
     // 创建 Pipeline
     m_OpaquePipeline = std::make_unique<Pipeline>(PipelineSpecification::Opaque());
@@ -155,12 +153,12 @@ void SceneRenderer::EndScene() {
 }
 
 
-void SceneRenderer::SubmitMesh(VertexArray* mesh, uint32_t vertexCount,
+void SceneRenderer::SubmitMesh(const Ref<VertexArray>& mesh, uint32_t vertexCount,
                                 const glm::mat4& transform, int entityID) {
     SubmitMesh(mesh, vertexCount, 0, transform, entityID);
 }
 
-void SceneRenderer::SubmitMesh(VertexArray* mesh, uint32_t vertexCount, uint32_t indexCount,
+void SceneRenderer::SubmitMesh(const Ref<VertexArray>& mesh, uint32_t vertexCount, uint32_t indexCount,
                                 const glm::mat4& transform, int entityID) {
     if (!mesh) return;
 
@@ -205,37 +203,71 @@ void SceneRenderer::SortTransparentDrawList() {
 }
 
 void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
-    // 收集 ModelComponent 实体
+    // TODO: 重构为使用 MeshSource/StaticMesh
+    // ModelComponent 暂时禁用，等待 MeshSourceComponent 替代
+    /*
     world.Each<ECS::TransformComponent, ECS::ModelComponent>(
         [this](ECS::Entity entity,
                ECS::TransformComponent& transform,
                ECS::ModelComponent& modelComp) {
             if (!modelComp.Visible) return;
-
-            Model* model = AssetManager::Get().GetModel(modelComp.Handle);
-            if (!model) return;
-
-            bool hasDiffuse = model->HasDiffuseTextures();
-            bool hasSpecular = model->HasSpecularTextures();
-
-            SubmitModel(model, transform.WorldMatrix, hasDiffuse, hasSpecular,
-                       static_cast<int>(entity.GetHandle()));
+            // Model* model = AssetManager::Get().GetModel(modelComp.Handle);
+            // ...
         }
     );
+    */
 
     // 收集 MeshComponent 实体
     world.Each<ECS::TransformComponent, ECS::MeshComponent>(
         [this](ECS::Entity entity,
                ECS::TransformComponent& transform,
-               ECS::MeshComponent& mesh) {
-            if (!mesh.VAO) return;
+               ECS::MeshComponent& meshComp) {
+            if (!meshComp.MeshHandle.IsValid()) return;
 
-            if (mesh.UseIndices && mesh.IndexCount > 0) {
-                SubmitMesh(mesh.VAO, mesh.VertexCount, mesh.IndexCount,
-                          transform.WorldMatrix, static_cast<int>(entity.GetHandle()));
-            } else {
-                SubmitMesh(mesh.VAO, mesh.VertexCount, transform.WorldMatrix,
-                          static_cast<int>(entity.GetHandle()));
+            // 首先尝试获取 StaticMesh
+            auto staticMesh = AssetManager::Get().GetAsset<StaticMesh>(meshComp.MeshHandle);
+            if (staticMesh) {
+                if (staticMesh->IsIndexed()) {
+                    SubmitMesh(staticMesh->GetVertexArray(),
+                              staticMesh->GetVertexCount(),
+                              staticMesh->GetIndexCount(),
+                              transform.WorldMatrix,
+                              static_cast<int>(entity.GetHandle()));
+                } else {
+                    SubmitMesh(staticMesh->GetVertexArray(),
+                              staticMesh->GetVertexCount(),
+                              transform.WorldMatrix,
+                              static_cast<int>(entity.GetHandle()));
+                }
+                return;
+            }
+
+            // 如果不是 StaticMesh，尝试获取 MeshSource 并渲染
+            auto meshSource = AssetManager::Get().GetAsset<MeshSource>(meshComp.MeshHandle);
+            if (meshSource) {
+                // 确保 GPU 缓冲区已创建
+                if (!meshSource->HasGPUBuffers()) {
+                    meshSource->CreateGPUBuffers();
+                }
+
+                auto vb = meshSource->GetVertexBuffer();
+                auto ib = meshSource->GetIndexBuffer();
+                if (!vb || !ib) return;
+
+                // 渲染每个 submesh
+                for (const auto& submesh : meshSource->GetSubmeshes()) {
+                    DrawCommand cmd;
+                    cmd.Type = DrawCommandType::MeshSource;
+                    cmd.MeshSourcePtr = meshSource;
+                    cmd.SubmeshIndex = static_cast<uint32_t>(&submesh - meshSource->GetSubmeshes().data());
+                    cmd.Transform = transform.WorldMatrix * submesh.Transform;
+                    cmd.NormalMatrix = glm::transpose(glm::inverse(glm::mat3(cmd.Transform)));
+                    cmd.EntityID = static_cast<int>(entity.GetHandle());
+                    cmd.VertexCount = submesh.VertexCount;
+                    cmd.IndexCount = submesh.IndexCount;
+                    cmd.UseIndices = true;
+                    m_OpaqueDrawList.push_back(cmd);
+                }
             }
         }
     );
@@ -323,8 +355,7 @@ void SceneRenderer::SkyboxPass() {
     auto skyboxShader = m_ShaderLibrary.Get("skybox");
     if (!skyboxShader) return;
 
-    StaticMesh* cube = MeshFactory::Get().GetCube();
-    if (!cube) return;
+    if (!m_CubeMesh) return;
 
     // 去除平移部分
     glm::mat4 view = glm::mat4(glm::mat3(m_ViewMatrix));
@@ -339,10 +370,10 @@ void SceneRenderer::SkyboxPass() {
     skyboxShader->SetMat4("view", view);
     skyboxShader->SetMat4("projection", m_ProjectionMatrix);
 
-    cube->Bind();
+    m_CubeMesh->Bind();
     m_Environment.Skybox->Bind(0);
-    RenderCommand::DrawArrays(GL_TRIANGLES, 0, cube->GetVertexCount());
-    cube->Unbind();
+    RenderCommand::DrawArrays(GL_TRIANGLES, 0, m_CubeMesh->GetVertexCount());
+    m_CubeMesh->Unbind();
 
     // 恢复状态
     // glEnable(GL_CULL_FACE);
@@ -369,7 +400,7 @@ void SceneRenderer::GeometryPass() {
 
     if (modelShader) {
         modelShader->Bind();
-        m_OpaquePipeline->SetShader(modelShader.get());
+        m_OpaquePipeline->SetShader(modelShader);
 
         modelShader->SetMat4("u_View", m_ViewMatrix);
         modelShader->SetMat4("u_Projection", m_ProjectionMatrix);
@@ -401,7 +432,7 @@ void SceneRenderer::GeometryPass() {
     // 处理 Mesh 类型的绘制命令
     if (litShader) {
         litShader->Bind();
-        m_OpaquePipeline->SetShader(litShader.get());
+        m_OpaquePipeline->SetShader(litShader);
 
         litShader->SetMat4("u_View", m_ViewMatrix);
         litShader->SetMat4("u_Projection", m_ProjectionMatrix);
@@ -419,6 +450,7 @@ void SceneRenderer::GeometryPass() {
         }
         litShader->SetFloat("material.shininess", 32.0f);
 
+        // 处理 Mesh 类型 (基元几何体)
         for (const auto& cmd : m_OpaqueDrawList) {
             if (cmd.Type != DrawCommandType::Mesh) continue;
             if (!cmd.MeshPtr) continue;
@@ -435,13 +467,59 @@ void SceneRenderer::GeometryPass() {
             }
             cmd.MeshPtr->Unbind();
         }
+
+        // 处理 MeshSource 类型 (导入的模型)
+        for (const auto& cmd : m_OpaqueDrawList) {
+            if (cmd.Type != DrawCommandType::MeshSource) continue;
+            if (!cmd.MeshSourcePtr) continue;
+
+            auto vao = cmd.MeshSourcePtr->GetVertexArray();
+            if (!vao) continue;
+
+            litShader->SetMat4("u_Model", cmd.Transform);
+            litShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
+            litShader->SetInt("u_EntityID", cmd.EntityID);
+
+            const auto& submeshes = cmd.MeshSourcePtr->GetSubmeshes();
+            if (cmd.SubmeshIndex >= submeshes.size()) continue;
+
+            const auto& submesh = submeshes[cmd.SubmeshIndex];
+
+            // 绑定 submesh 对应的纹理
+            const auto& materials = cmd.MeshSourcePtr->GetMaterials();
+            if (submesh.MaterialIndex < materials.size()) {
+                AssetHandle texHandle = materials[submesh.MaterialIndex];
+                if (texHandle.IsValid()) {
+                    auto texture = AssetManager::Get().GetAsset<Texture2D>(texHandle);
+                    if (texture) {
+                        texture->Bind(0);
+                        litShader->SetInt("material.diffuse", 0);
+                    }
+                }
+            }
+
+            vao->Bind();
+            glDrawElementsBaseVertex(
+                GL_TRIANGLES,
+                submesh.IndexCount,
+                GL_UNSIGNED_INT,
+                (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+                submesh.BaseVertex
+            );
+            vao->Unbind();
+        }
     }
 
     // 恢复渲染状态
     if (m_Settings.Wireframe) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
-    glEnable(GL_CULL_FACE);
+
+    // 重置 OpenGL 状态，避免影响后续渲染 (如 Renderer2D)
+    glBindVertexArray(0);
+    glUseProgram(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
 void SceneRenderer::TransparentPass() {
@@ -457,7 +535,7 @@ void SceneRenderer::TransparentPass() {
     auto modelShader = m_ShaderLibrary.Get("model");
     if (modelShader) {
         modelShader->Bind();
-        m_TransparentPipeline->SetShader(modelShader.get());
+        m_TransparentPipeline->SetShader(modelShader);
 
         modelShader->SetMat4("u_View", m_ViewMatrix);
         modelShader->SetMat4("u_Projection", m_ProjectionMatrix);
@@ -502,11 +580,38 @@ void SceneRenderer::SetupLighting(Shader& shader) {
 void SceneRenderer::CreateDefaultResources() {
     m_Grid = std::make_unique<Grid>(m_Settings.GridSize, m_Settings.GridCellSize);
 
-    // 初始化 MeshFactory（如果尚未初始化）
-    // 注：MeshFactory 是单例，首次调用 GetCube() 时会自动初始化
+    // 创建立方体网格 (用于天空盒等)
+    AssetHandle cubeHandle = MeshFactory::CreateCube();
+    m_CubeMesh = AssetManager::Get().GetAsset<StaticMesh>(cubeHandle);
 }
 
 void SceneRenderer::SyncLightsFromECS(ECS::World& world) {
+    // 同步方向光（使用第一个找到的方向光实体）
+    bool foundDirLight = false;
+    world.Each<ECS::TransformComponent, ECS::DirectionalLightComponent>(
+        [this, &foundDirLight](ECS::Entity entity,
+               ECS::TransformComponent& transform,
+               ECS::DirectionalLightComponent& light) {
+            if (!foundDirLight) {
+                // 从 Transform 的旋转获取方向（forward 向量）
+                glm::vec3 direction = transform.GetForward();
+                m_Environment.DirLight.Direction = direction;
+                m_Environment.DirLight.Ambient = glm::vec3(0.1f) * light.Intensity;
+                m_Environment.DirLight.Diffuse = light.Color * light.Intensity;
+                m_Environment.DirLight.Specular = light.Color * light.Intensity;
+                foundDirLight = true;
+            }
+        }
+    );
+
+    // 如果没有方向光实体，使用默认的弱方向光（保证场景基本可见）
+    if (!foundDirLight) {
+        m_Environment.DirLight.Direction = glm::vec3(-0.2f, -1.0f, -0.3f);
+        m_Environment.DirLight.Ambient = glm::vec3(0.1f);
+        m_Environment.DirLight.Diffuse = glm::vec3(0.3f);   // 默认漫反射光
+        m_Environment.DirLight.Specular = glm::vec3(0.3f);  // 默认镜面反射光
+    }
+
     // 同步点光源
     m_Environment.PointLightCount = 0;
 
@@ -526,8 +631,6 @@ void SceneRenderer::SyncLightsFromECS(ECS::World& world) {
             }
         }
     );
-
-    // TODO: 同步方向光和聚光灯（如果有 ECS 组件的话）
 }
 
 } // namespace GLRenderer

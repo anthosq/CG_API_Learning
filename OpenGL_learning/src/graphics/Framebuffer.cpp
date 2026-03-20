@@ -11,37 +11,37 @@ Framebuffer::~Framebuffer() {
     Cleanup();
 }
 
-Framebuffer::Framebuffer(Framebuffer&& other) noexcept
-    : m_ID(other.m_ID),
-      m_ColorAttachment(other.m_ColorAttachment),
-      m_EntityIDAttachment(other.m_EntityIDAttachment),
-      m_DepthAttachment(other.m_DepthAttachment),
-      m_DepthIsTexture(other.m_DepthIsTexture),
-      m_Spec(other.m_Spec) {
-    other.m_ID = 0;
-    other.m_ColorAttachment = 0;
-    other.m_EntityIDAttachment = 0;
-    other.m_DepthAttachment = 0;
-}
+// Framebuffer::Framebuffer(Framebuffer&& other) noexcept
+//     : m_ID(other.m_ID),
+//       m_ColorAttachment(other.m_ColorAttachment),
+//       m_EntityIDAttachment(other.m_EntityIDAttachment),
+//       m_DepthAttachment(other.m_DepthAttachment),
+//       m_DepthIsTexture(other.m_DepthIsTexture),
+//       m_Spec(other.m_Spec) {
+//     other.m_ID = 0;
+//     other.m_ColorAttachment = 0;
+//     other.m_EntityIDAttachment = 0;
+//     other.m_DepthAttachment = 0;
+// }
 
-Framebuffer& Framebuffer::operator=(Framebuffer&& other) noexcept {
-    if (this != &other) {
-        Cleanup();
+// Framebuffer& Framebuffer::operator=(Framebuffer&& other) noexcept {
+//     if (this != &other) {
+//         Cleanup();
 
-        m_ID = other.m_ID;
-        m_ColorAttachment = other.m_ColorAttachment;
-        m_EntityIDAttachment = other.m_EntityIDAttachment;
-        m_DepthAttachment = other.m_DepthAttachment;
-        m_DepthIsTexture = other.m_DepthIsTexture;
-        m_Spec = other.m_Spec;
+//         m_ID = other.m_ID;
+//         m_ColorAttachment = other.m_ColorAttachment;
+//         m_EntityIDAttachment = other.m_EntityIDAttachment;
+//         m_DepthAttachment = other.m_DepthAttachment;
+//         m_DepthIsTexture = other.m_DepthIsTexture;
+//         m_Spec = other.m_Spec;
 
-        other.m_ID = 0;
-        other.m_ColorAttachment = 0;
-        other.m_EntityIDAttachment = 0;
-        other.m_DepthAttachment = 0;
-    }
-    return *this;
-}
+//         other.m_ID = 0;
+//         other.m_ColorAttachment = 0;
+//         other.m_EntityIDAttachment = 0;
+//         other.m_DepthAttachment = 0;
+//     }
+//     return *this;
+// }
 
 void Framebuffer::Bind() const {
     glBindFramebuffer(GL_FRAMEBUFFER, m_ID);

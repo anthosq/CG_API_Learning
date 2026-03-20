@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utils/GLCommon.h"
+#include "core/Ref.h"
 
 namespace GLRenderer {
 
@@ -26,15 +27,11 @@ struct FramebufferSpec {
     bool SwapChainTarget = false;
 };
 
-class Framebuffer : public NonCopyable {
+class Framebuffer : public RefCounter {
 public:
     Framebuffer() = default;
     explicit Framebuffer(const FramebufferSpec& spec);
     ~Framebuffer();
-
-    // 移动语义
-    Framebuffer(Framebuffer&& other) noexcept;
-    Framebuffer& operator=(Framebuffer&& other) noexcept;
 
     // 绑定/解绑
     void Bind() const;

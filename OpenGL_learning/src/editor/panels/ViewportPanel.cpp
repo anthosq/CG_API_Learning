@@ -81,8 +81,8 @@ void ViewportPanel::OnDraw(EditorContext& context) {
             std::filesystem::path assetPath(path);
 
             AssetType type = GetAssetTypeFromExtension(assetPath);
-            if (type == AssetType::Model) {
-                AssetHandle handle = AssetManager::Get().ImportModel(assetPath);
+            if (type == AssetType::MeshSource) {
+                AssetHandle handle = AssetManager::Get().ImportMeshSource(assetPath);
                 if (handle.IsValid() && context.World) {
                     std::string entityName = assetPath.stem().string();
                     ECS::Entity entity = context.World->CreateEntity(entityName);
@@ -90,15 +90,14 @@ void ViewportPanel::OnDraw(EditorContext& context) {
                     glm::vec3 spawnPosition = m_Camera.GetPosition() + m_Camera.GetFront() * 5.0f;
                     entity.AddComponent<ECS::TransformComponent>(spawnPosition);
 
-                    auto& modelComp = entity.AddComponent<ECS::ModelComponent>();
-                    modelComp.AssetPath = assetPath.string();
-                    modelComp.Handle = handle;
-                    modelComp.Visible = true;
+                    // TODO: MeshSource 需要转换为 StaticMesh 才能用于 MeshComponent
+                    // 目前暂时使用 MeshComponent 存储 MeshSource handle
+                    entity.AddComponent<ECS::MeshComponent>(handle);
 
                     context.Select(entity);
 
                     std::cout << "[Viewport] Created entity '" << entityName
-                              << "' with model: " << assetPath << std::endl;
+                              << "' with mesh: " << assetPath << std::endl;
                 }
             } else if (type == AssetType::Texture) {
                 AssetHandle handle = AssetManager::Get().ImportTexture(assetPath);

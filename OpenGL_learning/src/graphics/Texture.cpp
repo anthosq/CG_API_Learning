@@ -5,12 +5,11 @@
 
 namespace GLRenderer {
 
-Texture::Texture(const std::filesystem::path& path, const TextureSpec& spec) {
+Texture2D::Texture2D(const std::filesystem::path& path, const TextureSpec& spec) {
     m_Path = path.string();
 
     bool success = false;
 
-    // 根据扩展名选择加载方式
     if (IsDDSFile(path)) {
         success = LoadFromDDS(path);
     } else {
@@ -18,13 +17,13 @@ Texture::Texture(const std::filesystem::path& path, const TextureSpec& spec) {
     }
 
     if (!success) {
-        std::cerr << "[Texture] 加载失败: " << path << std::endl;
+        std::cerr << "[Texture2D] 加载失败: " << path << std::endl;
     }
 }
 
-Texture::Texture(const void* data, int width, int height,
-                 GLenum format, GLenum internalFormat,
-                 const TextureSpec& spec)
+Texture2D::Texture2D(const void* data, int width, int height,
+                     GLenum format, GLenum internalFormat,
+                     const TextureSpec& spec)
     : m_Width(width), m_Height(height) {
     glGenTextures(1, &m_ID);
     glBindTexture(GL_TEXTURE_2D, m_ID);
@@ -41,51 +40,33 @@ Texture::Texture(const void* data, int width, int height,
     GL_CHECK_ERROR();
 }
 
-Texture::~Texture() {
+Texture2D::~Texture2D() {
     if (m_ID != 0) {
         glDeleteTextures(1, &m_ID);
         m_ID = 0;
     }
 }
 
-Texture::Texture(Texture&& other) noexcept
-    : m_ID(other.m_ID),
-      m_Width(other.m_Width),
-      m_Height(other.m_Height),
-      m_Path(std::move(other.m_Path)) {
-    other.m_ID = 0;
-    other.m_Width = 0;
-    other.m_Height = 0;
-}
-
-Texture& Texture::operator=(Texture&& other) noexcept {
-    if (this != &other) {
-        if (m_ID != 0) {
-            glDeleteTextures(1, &m_ID);
-        }
-        m_ID = other.m_ID;
-        m_Width = other.m_Width;
-        m_Height = other.m_Height;
-        m_Path = std::move(other.m_Path);
-
-        other.m_ID = 0;
-        other.m_Width = 0;
-        other.m_Height = 0;
-    }
-    return *this;
-}
-
-void Texture::Bind(uint32_t slot) const {
+void Texture2D::Bind(uint32_t slot) const {
     glActiveTexture(GL_TEXTURE0 + slot);
     glBindTexture(GL_TEXTURE_2D, m_ID);
 }
 
-void Texture::Unbind() const {
+void Texture2D::Unbind() const {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-Texture Texture::CreateDefault() {
-    // 创建 8x8 棋盘纹理（粉色和黑色）
+Ref<Texture2D> Texture2D::Create(const std::filesystem::path& path, const TextureSpec& spec) {
+    return Ref<Texture2D>(new Texture2D(path, spec));
+}
+
+Ref<Texture2D> Texture2D::Create(const void* data, int width, int height,
+                                  GLenum format, GLenum internalFormat,
+                                  const TextureSpec& spec) {
+    return Ref<Texture2D>(new Texture2D(data, width, height, format, internalFormat, spec));
+}
+
+Ref<Texture2D> Texture2D::CreateDefault() {
     const int size = 8;
     unsigned char data[size * size * 3];
 
@@ -93,9 +74,9 @@ Texture Texture::CreateDefault() {
         for (int j = 0; j < size; j++) {
             int index = (i * size + j) * 3;
             bool isPink = ((i / 2) + (j / 2)) % 2 == 0;
-            data[index + 0] = isPink ? 255 : 0;   // R
-            data[index + 1] = isPink ? 0 : 0;     // G
-            data[index + 2] = isPink ? 255 : 0;   // B
+            data[index + 0] = isPink ? 255 : 0;
+            data[index + 1] = isPink ? 0 : 0;
+            data[index + 2] = isPink ? 255 : 0;
         }
     }
 
@@ -104,17 +85,16 @@ Texture Texture::CreateDefault() {
     spec.MagFilter = GL_NEAREST;
     spec.GenerateMipmaps = false;
 
-    return Texture(data, size, size, GL_RGB, GL_RGB8, spec);
+    return Ref<Texture2D>(new Texture2D(data, size, size, GL_RGB, GL_RGB8, spec));
 }
 
-bool Texture::IsDDSFile(const std::filesystem::path& path) {
+bool Texture2D::IsDDSFile(const std::filesystem::path& path) {
     std::string ext = path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
     return ext == ".dds";
 }
 
-bool Texture::LoadFromImage(const std::filesystem::path& path, const TextureSpec& spec) {
-    // 设置 stb_image 垂直翻转
+bool Texture2D::LoadFromImage(const std::filesystem::path& path, const TextureSpec& spec) {
     stbi_set_flip_vertically_on_load(spec.FlipVertically);
 
     int channels;
@@ -122,11 +102,10 @@ bool Texture::LoadFromImage(const std::filesystem::path& path, const TextureSpec
                                      &m_Width, &m_Height, &channels, 0);
 
     if (!data) {
-        std::cerr << "[Texture] stbi_load 失败: " << path << std::endl;
+        std::cerr << "[Texture2D] stbi_load 失败: " << path << std::endl;
         return false;
     }
 
-    // 根据通道数确定格式
     GLenum format = GL_RGBA;
     GLenum internalFormat = GL_RGBA8;
 
@@ -149,7 +128,6 @@ bool Texture::LoadFromImage(const std::filesystem::path& path, const TextureSpec
             break;
     }
 
-    // 创建纹理
     glGenTextures(1, &m_ID);
     glBindTexture(GL_TEXTURE_2D, m_ID);
 
@@ -169,15 +147,13 @@ bool Texture::LoadFromImage(const std::filesystem::path& path, const TextureSpec
     return true;
 }
 
-bool Texture::LoadFromDDS(const std::filesystem::path& path) {
+bool Texture2D::LoadFromDDS(const std::filesystem::path& path) {
     m_ID = DDSLoader::LoadDDS(path.string());
 
     if (m_ID == 0) {
         return false;
     }
 
-    // DDS 加载器已经设置了宽高和参数
-    // 这里我们需要查询实际的尺寸
     glBindTexture(GL_TEXTURE_2D, m_ID);
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &m_Width);
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &m_Height);
@@ -185,17 +161,15 @@ bool Texture::LoadFromDDS(const std::filesystem::path& path) {
     return true;
 }
 
-void Texture::ApplyParameters(const TextureSpec& spec) {
+void Texture2D::ApplyParameters(const TextureSpec& spec) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, spec.WrapS);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, spec.WrapT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, spec.MinFilter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, spec.MagFilter);
 }
 
-
-// TextureCube
-TextureCube::TextureCube(std::array<std::filesystem::path, 6> &paths,
-                         const TextureCubeSpec &spec) {
+TextureCube::TextureCube(std::array<std::filesystem::path, 6>& paths,
+                         const TextureCubeSpec& spec) {
     stbi_set_flip_vertically_on_load(spec.FlipVertically);
     bool success = LoadCubeMap(paths);
     if (!success) {
@@ -205,15 +179,28 @@ TextureCube::TextureCube(std::array<std::filesystem::path, 6> &paths,
     }
 }
 
-void TextureCube::ApplyParameters(const TextureCubeSpec &spec) {
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, spec.WrapS);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, spec.WrapT);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, spec.WrapR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, spec.MinFilter);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, spec.MagFilter);
+TextureCube::~TextureCube() {
+    if (m_ID != 0) {
+        glDeleteTextures(1, &m_ID);
+        m_ID = 0;
+    }
 }
 
-bool TextureCube::LoadCubeMap(const std::array<std::filesystem::path, 6> &faces) {
+void TextureCube::Bind(uint32_t slot) const {
+    glActiveTexture(GL_TEXTURE0 + slot);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_ID);
+}
+
+void TextureCube::Unbind() const {
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+}
+
+Ref<TextureCube> TextureCube::Create(std::array<std::filesystem::path, 6>& paths,
+                                      const TextureCubeSpec& spec) {
+    return Ref<TextureCube>(new TextureCube(paths, spec));
+}
+
+bool TextureCube::LoadCubeMap(const std::array<std::filesystem::path, 6>& faces) {
     glGenTextures(1, &m_ID);
     glBindTexture(GL_TEXTURE_CUBE_MAP, m_ID);
 
@@ -221,14 +208,14 @@ bool TextureCube::LoadCubeMap(const std::array<std::filesystem::path, 6> &faces)
     GLenum format;
 
     for (unsigned int i = 0; i < faces.size(); i++) {
-        unsigned char *data = stbi_load(faces[i].string().c_str(),
-                                          &m_Width, &m_Height, &nrChannels, 0);
+        unsigned char* data = stbi_load(faces[i].string().c_str(),
+                                         &m_Width, &m_Height, &nrChannels, 0);
         if (data) {
             switch (nrChannels) {
-            case 1:     format = GL_RED;break;
-            case 3:     format = GL_RGB;break;
-            case 4:     format = GL_RGBA;break;
-            default:    format = GL_RGB;
+                case 1: format = GL_RED; break;
+                case 3: format = GL_RGB; break;
+                case 4: format = GL_RGBA; break;
+                default: format = GL_RGB;
             }
             glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format,
                          m_Width, m_Height, 0, format, GL_UNSIGNED_BYTE, data);
@@ -243,45 +230,12 @@ bool TextureCube::LoadCubeMap(const std::array<std::filesystem::path, 6> &faces)
     return true;
 }
 
-void TextureCube::Bind(uint32_t slot) const {
-    glActiveTexture(GL_TEXTURE0 + slot);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, m_ID);
+void TextureCube::ApplyParameters(const TextureCubeSpec& spec) {
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, spec.WrapS);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, spec.WrapT);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, spec.WrapR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, spec.MinFilter);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, spec.MagFilter);
 }
 
-void TextureCube::Unbind() const {
-    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-}
-
-TextureCube::~TextureCube() {
-    if (m_ID != 0) {
-        glDeleteTextures(1, &m_ID);
-        m_ID = 0;
-    }
-}
-
-
-TextureCube &TextureCube::operator=(TextureCube &&other) noexcept {
-    if (this != &other) {
-        if (m_ID != 0) {
-            glDeleteTextures(1, &m_ID);
-        }
-        Unbind();
-        m_ID = other.m_ID;
-        m_Width = other.m_Width;
-        m_Height = other.m_Height;
-        m_Paths = std::move(other.m_Paths);
-
-        other.m_ID = 0;
-    }
-    return *this;
-}
-
-TextureCube::TextureCube(TextureCube &&other) noexcept
-    : m_ID(other.m_ID),
-      m_Width(other.m_Width),
-      m_Height(other.m_Height),
-      m_Paths(std::move(other.m_Paths)) {
-    other.m_ID = 0; 
-}
-
-}
+} // namespace GLRenderer

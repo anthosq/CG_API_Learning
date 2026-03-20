@@ -25,9 +25,6 @@
 
 namespace GLRenderer {
 
-// 前向声明
-class VertexArray;
-
 namespace ECS {
 
 // 核心组件
@@ -110,6 +107,7 @@ struct TransformComponent {
 struct HierarchyComponent {
     std::vector<entt::entity> Children;
 
+    // 临时, Component不应该持有任何方法
     void AddChild(entt::entity child) {
         Children.push_back(child);
     }
@@ -125,26 +123,19 @@ struct HierarchyComponent {
 // 渲染组件
 
 struct MeshComponent {
-    VertexArray* VAO = nullptr;
-    uint32_t VertexCount = 0;
-    uint32_t IndexCount = 0;
-    bool UseIndices = false;
-
-    bool HasMesh() const { return VAO != nullptr; }
+    AssetHandle MeshHandle;  // 引用 StaticMesh 资产
+    uint32_t SubmeshIndex = 0;  // TODO: 后续移至 SubmeshComponent
 
     MeshComponent() = default;
-    MeshComponent(VertexArray* vao, uint32_t vertexCount)
-        : VAO(vao), VertexCount(vertexCount) {}
-    MeshComponent(VertexArray* vao, uint32_t vertexCount, uint32_t indexCount)
-        : VAO(vao), VertexCount(vertexCount), IndexCount(indexCount), UseIndices(true) {}
+    MeshComponent(AssetHandle handle, uint32_t submeshIndex = 0)
+        : MeshHandle(handle), SubmeshIndex(submeshIndex) {}
 };
 
+// [DEPRECATED] 使用 MeshComponent 替代
 struct ModelComponent {
     AssetHandle Handle;
     std::string AssetPath;
     bool Visible = true;
-
-    bool HasModel() const { return Handle.IsValid(); }
 
     ModelComponent() = default;
     ModelComponent(AssetHandle handle) : Handle(handle) {}

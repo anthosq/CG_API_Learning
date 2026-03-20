@@ -56,7 +56,7 @@ void EditorApp::OnInit() {
     std::cout << "[EditorApp] Loading textures..." << std::endl;
     m_DiffuseMapHandle = AssetManager::Get().ImportTexture("assets/pic/container2.png");
     m_SpecularMapHandle = AssetManager::Get().ImportTexture("assets/pic/container2_specular.png");
-    m_SkyboxTexture = std::make_unique<TextureCube>(m_SkyboxPaths);
+    m_SkyboxTexture = Ref<TextureCube>::Create(m_SkyboxPaths);
 
     // 初始化 ECS
     std::cout << "[EditorApp] Initializing ECS..." << std::endl;
@@ -78,12 +78,12 @@ void EditorApp::OnInit() {
     // 加载编辑器图标 (由 EditorApp 管理，不再由 SceneRenderer)
     LoadEditorIcons();
 
-    // 设置默认纹理
-    m_SceneRenderer->SetDefaultDiffuse(AssetManager::Get().GetTexture(m_DiffuseMapHandle));
-    m_SceneRenderer->SetDefaultSpecular(AssetManager::Get().GetTexture(m_SpecularMapHandle));
+    // 设置默认纹理 (白色纹理用于 Primitives)
+    m_SceneRenderer->SetDefaultDiffuse(Renderer::GetWhiteTexture());
+    m_SceneRenderer->SetDefaultSpecular(Renderer::GetWhiteTexture());
 
     // 设置天空盒
-    m_SceneRenderer->GetEnvironment().Skybox = m_SkyboxTexture.get();
+    m_SceneRenderer->GetEnvironment().Skybox = m_SkyboxTexture;
 
     // 初始化编辑器
     std::cout << "[EditorApp] Initializing editor..." << std::endl;
@@ -115,16 +115,9 @@ void EditorApp::OnShutdown() {
     m_SystemManager.reset();
     m_World.reset();
 
-    // 释放编辑器图标
-    m_PointLightIcon.reset();
-    m_DirectionalLightIcon.reset();
-    m_SpotLightIcon.reset();
-    m_CameraIcon.reset();
-
-    m_SkyboxTexture.reset();
+    // 编辑器图标和 SkyboxTexture 通过 Ref<T> 自动释放
     // 注：m_DiffuseMapHandle 和 m_SpecularMapHandle 由 AssetManager 管理
-    // 注：立方体网格由 MeshFactory 管理，需要在 MeshFactory::Shutdown() 中释放
-    MeshFactory::Get().Shutdown();
+    // 注：MeshFactory 创建的网格由 AssetManager 管理
 
     AssetManager::Get().Shutdown();
     m_ImGuiLayer.reset();
@@ -289,13 +282,13 @@ void EditorApp::RenderSceneToViewport() {
 }
 
 void EditorApp::CreateMeshResources() {
-    // 初始化 MeshFactory（创建共享几何体资源）
-    MeshFactory::Get().Initialize();
+    // MeshFactory 现在是纯静态 API，无需初始化
+    // 基元几何体通过 MeshFactory::CreateXXX() 按需创建
 }
 
 void EditorApp::CreateSceneEntities() {
-    // 获取共享立方体网格
-    StaticMesh* cubeMesh = MeshFactory::Get().GetCube();
+    // 创建共享立方体网格
+    AssetHandle cubeMeshHandle = MeshFactory::CreateCube();
 
     // 立方体位置
     glm::vec3 cubePositions[] = {
@@ -321,8 +314,8 @@ void EditorApp::CreateSceneEntities() {
         float angle = 20.0f * i;
         transform.SetEulerAngles(glm::vec3(angle * 1.0f, angle * 0.3f, angle * 0.5f));
 
-        // Mesh - 引用共享的立方体 VAO (从 MeshFactory 获取)
-        cube.AddComponent<ECS::MeshComponent>(cubeMesh->GetVertexArray(), cubeMesh->GetVertexCount());
+        // Mesh - 引用共享的立方体 (通过 AssetHandle)
+        cube.AddComponent<ECS::MeshComponent>(cubeMeshHandle);
 
         // Material - 使用默认材质
         auto& material = cube.AddComponent<ECS::MaterialComponent>();
@@ -358,7 +351,7 @@ void EditorApp::CreateSceneEntities() {
     {
         ECS::Entity rotatingCube = m_World->CreateEntity("RotatingCube");
         auto& transform = rotatingCube.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f, 2.0f, 0.0f));
-        rotatingCube.AddComponent<ECS::MeshComponent>(cubeMesh->GetVertexArray(), cubeMesh->GetVertexCount());
+        rotatingCube.AddComponent<ECS::MeshComponent>(cubeMeshHandle);
         rotatingCube.AddComponent<ECS::RotatorComponent>(glm::vec3(0, 1, 0), 45.0f);
         auto& mat = rotatingCube.AddComponent<ECS::MaterialComponent>();
         mat.DiffuseMapHandle = m_DiffuseMapHandle;
@@ -366,7 +359,7 @@ void EditorApp::CreateSceneEntities() {
 
         ECS::Entity floatingCube = m_World->CreateEntity("FloatingCube");
         auto& floatTransform = floatingCube.AddComponent<ECS::TransformComponent>(glm::vec3(3.0f, 1.0f, 0.0f));
-        floatingCube.AddComponent<ECS::MeshComponent>(cubeMesh->GetVertexArray(), cubeMesh->GetVertexCount());
+        floatingCube.AddComponent<ECS::MeshComponent>(cubeMeshHandle);
         auto& floating = floatingCube.AddComponent<ECS::FloatingComponent>(1.0f, 0.5f);
         floating.BasePosition = floatTransform.Position;
         auto& floatMat = floatingCube.AddComponent<ECS::MaterialComponent>();
@@ -375,7 +368,7 @@ void EditorApp::CreateSceneEntities() {
 
         ECS::Entity orbitingCube = m_World->CreateEntity("OrbitingCube");
         orbitingCube.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f, 1.0f, 3.0f));
-        orbitingCube.AddComponent<ECS::MeshComponent>(cubeMesh->GetVertexArray(), cubeMesh->GetVertexCount());
+        orbitingCube.AddComponent<ECS::MeshComponent>(cubeMeshHandle);
         orbitingCube.AddComponent<ECS::OrbiterComponent>(glm::vec3(0.0f, 1.0f, 0.0f), 3.0f, 30.0f);
         auto& orbitMat = orbitingCube.AddComponent<ECS::MaterialComponent>();
         orbitMat.DiffuseMapHandle = m_DiffuseMapHandle;
@@ -398,19 +391,19 @@ void EditorApp::LoadEditorIcons() {
     auto cameraPath = iconsDir / "Camera.png";
 
     if (std::filesystem::exists(pointLightPath)) {
-        m_PointLightIcon = std::make_unique<Texture>(pointLightPath.string());
+        m_PointLightIcon = Ref<Texture2D>::Create(pointLightPath.string());
         std::cout << "[EditorApp] Loaded PointLight icon" << std::endl;
     }
     if (std::filesystem::exists(dirLightPath)) {
-        m_DirectionalLightIcon = std::make_unique<Texture>(dirLightPath.string());
+        m_DirectionalLightIcon = Ref<Texture2D>::Create(dirLightPath.string());
         std::cout << "[EditorApp] Loaded DirectionalLight icon" << std::endl;
     }
     if (std::filesystem::exists(spotLightPath)) {
-        m_SpotLightIcon = std::make_unique<Texture>(spotLightPath.string());
+        m_SpotLightIcon = Ref<Texture2D>::Create(spotLightPath.string());
         std::cout << "[EditorApp] Loaded SpotLight icon" << std::endl;
     }
     if (std::filesystem::exists(cameraPath)) {
-        m_CameraIcon = std::make_unique<Texture>(cameraPath.string());
+        m_CameraIcon = Ref<Texture2D>::Create(cameraPath.string());
         std::cout << "[EditorApp] Loaded Camera icon" << std::endl;
     }
 }
@@ -440,7 +433,7 @@ void EditorApp::RenderEditorVisuals() {
                 Renderer2D::DrawBillboard(
                     transform.Position,
                     glm::vec2(0.5f),
-                    m_PointLightIcon.get(),
+                    m_PointLightIcon,
                     glm::vec4(1.0f),
                     static_cast<int>(entity.GetHandle())
                 );
@@ -448,20 +441,30 @@ void EditorApp::RenderEditorVisuals() {
         );
     }
 
-    // 渲染方向光图标
-    if (m_DirectionalLightIcon) {
-        m_World->Each<ECS::TransformComponent, ECS::DirectionalLightComponent>(
-            [this](ECS::Entity entity, ECS::TransformComponent& transform, ECS::DirectionalLightComponent& light) {
+    // 渲染方向光图标和方向箭头
+    m_World->Each<ECS::TransformComponent, ECS::DirectionalLightComponent>(
+        [this](ECS::Entity entity, ECS::TransformComponent& transform, ECS::DirectionalLightComponent& light) {
+            // 绘制图标
+            if (m_DirectionalLightIcon) {
                 Renderer2D::DrawBillboard(
                     transform.Position,
                     glm::vec2(0.5f),
-                    m_DirectionalLightIcon.get(),
+                    m_DirectionalLightIcon,
                     glm::vec4(1.0f),
                     static_cast<int>(entity.GetHandle())
                 );
             }
-        );
-    }
+
+            // 绘制方向箭头 (黄色) - 使用 Transform 的 forward 方向
+            Renderer2D::DrawDirectionArrow(
+                transform.Position,
+                transform.GetForward(),
+                1.5f,  // 箭头长度
+                glm::vec4(1.0f, 1.0f, 0.0f, 1.0f),  // 黄色
+                3.0f   // 线条粗细
+            );
+        }
+    );
 
     // 渲染聚光灯图标
     if (m_SpotLightIcon) {
@@ -470,7 +473,7 @@ void EditorApp::RenderEditorVisuals() {
                 Renderer2D::DrawBillboard(
                     transform.Position,
                     glm::vec2(0.5f),
-                    m_SpotLightIcon.get(),
+                    m_SpotLightIcon,
                     glm::vec4(1.0f),
                     static_cast<int>(entity.GetHandle())
                 );
@@ -481,9 +484,9 @@ void EditorApp::RenderEditorVisuals() {
     // 渲染 SpriteComponent 实体（游戏中的 Billboard/Sprite）
     m_World->Each<ECS::TransformComponent, ECS::SpriteComponent>(
         [](ECS::Entity entity, ECS::TransformComponent& transform, ECS::SpriteComponent& sprite) {
-            Texture* tex = nullptr;
+            Ref<Texture2D> tex;
             if (sprite.TextureHandle.IsValid()) {
-                tex = AssetManager::Get().GetTexture(sprite.TextureHandle);
+                tex = AssetManager::Get().GetAsset<Texture2D>(sprite.TextureHandle);
             }
             if (!tex) return;
 
