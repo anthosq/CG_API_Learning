@@ -1,6 +1,5 @@
 #include "AssetManager.h"
 #include "graphics/Texture.h"
-#include "graphics/StaticMesh.h"
 #include "graphics/MeshSource.h"
 #include "AssimpMeshImporter.h"
 

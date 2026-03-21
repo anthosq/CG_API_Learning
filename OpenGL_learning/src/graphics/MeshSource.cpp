@@ -129,23 +129,23 @@ Ref<MeshSource> MeshSource::Create(const std::filesystem::path& path) {
     return importer.ImportToMeshSource();
 }
 
-StaticMeshAsset::StaticMeshAsset(AssetHandle meshSource)
+StaticMesh::StaticMesh(AssetHandle meshSource)
     : m_MeshSource(meshSource) {
     m_Materials = MaterialTable::Create();
 }
 
-StaticMeshAsset::StaticMeshAsset(AssetHandle meshSource, const std::vector<uint32_t>& submeshes)
+StaticMesh::StaticMesh(AssetHandle meshSource, const std::vector<uint32_t>& submeshes)
     : m_MeshSource(meshSource), m_Submeshes(submeshes) {
     m_Materials = MaterialTable::Create();
 }
 
-Ref<StaticMeshAsset> StaticMeshAsset::Create(AssetHandle meshSource) {
-    return Ref<StaticMeshAsset>(new StaticMeshAsset(meshSource));
+Ref<StaticMesh> StaticMesh::Create(AssetHandle meshSource) {
+    return Ref<StaticMesh>(new StaticMesh(meshSource));
 }
 
-Ref<StaticMeshAsset> StaticMeshAsset::Create(const Ref<MeshSource>& meshSource) {
+Ref<StaticMesh> StaticMesh::Create(const Ref<MeshSource>& meshSource) {
     if (!meshSource) return nullptr;
-    return Ref<StaticMeshAsset>(new StaticMeshAsset(meshSource->Handle));
+    return Ref<StaticMesh>(new StaticMesh(meshSource->Handle));
 }
 
 } // namespace GLRenderer

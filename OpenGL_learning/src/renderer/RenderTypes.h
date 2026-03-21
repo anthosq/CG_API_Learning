@@ -47,8 +47,7 @@ constexpr uint32_t UBO_BINDING_CAMERA = 0;
 constexpr uint32_t UBO_BINDING_LIGHTING = 1;
 constexpr uint32_t UBO_BINDING_MATERIAL = 2;  // 预留给材质 UBO
 
-class Model;
-class VertexArray;
+// 前向声明已移除 - 统一使用 MeshSource
 
 enum class BlendMode {
     None,
@@ -193,32 +192,19 @@ private:
     PipelineSpecification m_Spec;
 };
 
-enum class DrawCommandType {
-    Mesh,       // VertexArray (MeshComponent)
-    Model,      // Model (ModelComponent)
-    MeshSource  // MeshSource (导入的网格数据)
-};
-
+// 统一绘制命令 - 所有网格都通过 MeshSource 渲染
 struct DrawCommand {
-    DrawCommandType Type = DrawCommandType::Model;
-
-    // 几何数据 (根据 Type 选择)
-    Model* ModelPtr = nullptr;
-    Ref<VertexArray> MeshPtr;
-    Ref<MeshSource> MeshSourcePtr;
+    // 网格数据
+    Ref<MeshSource> MeshSource;
     uint32_t SubmeshIndex = 0;
-    uint32_t VertexCount = 0;
-    uint32_t IndexCount = 0;
-    bool UseIndices = false;
 
     // 变换
     glm::mat4 Transform = glm::mat4(1.0f);
     glm::mat3 NormalMatrix = glm::mat3(1.0f);
 
-    // 材质
+    // 材质 (可选覆盖)
     AssetHandle MaterialHandle;
-    bool HasDiffuseTexture = false;
-    bool HasSpecularTexture = false;
+    Ref<MaterialTable> Materials;
 
     // 实体 ID (用于拾取)
     int EntityID = -1;
@@ -230,14 +216,6 @@ struct DrawCommand {
     bool operator<(const DrawCommand& other) const {
         return DistanceToCamera > other.DistanceToCamera;
     }
-};
-
-struct MeshDrawCommand : DrawCommand {
-    MeshDrawCommand() { Type = DrawCommandType::Mesh; }
-};
-
-struct ModelDrawCommand : DrawCommand {
-    ModelDrawCommand() { Type = DrawCommandType::Model; }
 };
 
 } // namespace GLRenderer

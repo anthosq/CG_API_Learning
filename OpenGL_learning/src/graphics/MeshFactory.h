@@ -6,7 +6,7 @@
 // - 单例方法
 // - 基元几何体在初始化时注册到 AssetManager
 
-#include "StaticMesh.h"
+#include "MeshSource.h"
 #include "core/Ref.h"
 #include "asset/AssetTypes.h"
 #include <memory>

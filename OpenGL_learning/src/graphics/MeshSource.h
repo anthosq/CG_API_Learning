@@ -93,12 +93,12 @@ private:
     std::filesystem::path m_FilePath;
 };
 
-class StaticMeshAsset : public Asset {
+class StaticMesh : public Asset {
 public:
-    StaticMeshAsset() = default;
-    explicit StaticMeshAsset(AssetHandle meshSource);
-    StaticMeshAsset(AssetHandle meshSource, const std::vector<uint32_t>& submeshes);
-    ~StaticMeshAsset() = default;
+    StaticMesh() = default;
+    explicit StaticMesh(AssetHandle meshSource);
+    StaticMesh(AssetHandle meshSource, const std::vector<uint32_t>& submeshes);
+    ~StaticMesh() = default;
 
     AssetHandle GetMeshSource() const { return m_MeshSource; }
     void SetMeshSource(AssetHandle handle) { m_MeshSource = handle; }
@@ -112,8 +112,8 @@ public:
     static AssetType GetStaticType() { return AssetType::StaticMesh; }
     AssetType GetAssetType() const override { return GetStaticType(); }
 
-    static Ref<StaticMeshAsset> Create(AssetHandle meshSource);
-    static Ref<StaticMeshAsset> Create(const Ref<MeshSource>& meshSource);
+    static Ref<StaticMesh> Create(AssetHandle meshSource);
+    static Ref<StaticMesh> Create(const Ref<MeshSource>& meshSource);
 
 private:
     AssetHandle m_MeshSource = 0;

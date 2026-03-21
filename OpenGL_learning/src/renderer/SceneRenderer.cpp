@@ -153,48 +153,60 @@ void SceneRenderer::EndScene() {
 }
 
 
-void SceneRenderer::SubmitMesh(const Ref<VertexArray>& mesh, uint32_t vertexCount,
-                                const glm::mat4& transform, int entityID) {
-    SubmitMesh(mesh, vertexCount, 0, transform, entityID);
-}
+void SceneRenderer::SubmitMesh(Ref<MeshSource> meshSource,
+                                uint32_t submeshIndex,
+                                const glm::mat4& transform,
+                                const Ref<MaterialTable>& materials,
+                                int entityID) {
+    if (!meshSource) return;
 
-void SceneRenderer::SubmitMesh(const Ref<VertexArray>& mesh, uint32_t vertexCount, uint32_t indexCount,
-                                const glm::mat4& transform, int entityID) {
-    if (!mesh) return;
+    // 确保 GPU 缓冲区已创建
+    if (!meshSource->HasGPUBuffers()) {
+        meshSource->CreateGPUBuffers();
+    }
 
-    DrawCommand cmd;
-    cmd.Type = DrawCommandType::Mesh;
-    cmd.MeshPtr = mesh;
-    cmd.VertexCount = vertexCount;
-    cmd.IndexCount = indexCount;
-    cmd.UseIndices = (indexCount > 0);
-    cmd.Transform = transform;
-    cmd.NormalMatrix = glm::transpose(glm::inverse(glm::mat3(transform)));
-    cmd.EntityID = entityID;
+    const auto& submeshes = meshSource->GetSubmeshes();
+    if (submeshIndex >= submeshes.size()) return;
 
-    // TODO: 判断是否透明（目前全部作为不透明处理）
-    m_OpaqueDrawList.push_back(cmd);
-}
-
-void SceneRenderer::SubmitModel(Model* model, const glm::mat4& transform,
-                                 bool hasDiffuse, bool hasSpecular, int entityID) {
-    if (!model) return;
+    const auto& submesh = submeshes[submeshIndex];
 
     DrawCommand cmd;
-    cmd.Type = DrawCommandType::Model;
-    cmd.ModelPtr = model;
-    cmd.Transform = transform;
-    cmd.NormalMatrix = glm::transpose(glm::inverse(glm::mat3(transform)));
-    cmd.HasDiffuseTexture = hasDiffuse;
-    cmd.HasSpecularTexture = hasSpecular;
+    cmd.MeshSource = meshSource;
+    cmd.SubmeshIndex = submeshIndex;
+    cmd.Transform = transform * submesh.Transform;
+    cmd.NormalMatrix = glm::transpose(glm::inverse(glm::mat3(cmd.Transform)));
+    cmd.Materials = materials;
     cmd.EntityID = entityID;
 
     // 计算到相机的距离（用于透明排序）
-    glm::vec3 pos = glm::vec3(transform[3]);
+    glm::vec3 pos = glm::vec3(cmd.Transform[3]);
     cmd.DistanceToCamera = glm::distance(m_CameraPosition, pos);
 
     // TODO: 根据材质判断透明度，目前全部作为不透明
     m_OpaqueDrawList.push_back(cmd);
+}
+
+void SceneRenderer::SubmitStaticMesh(const Ref<StaticMesh>& staticMesh,
+                                      Ref<MeshSource> meshSource,
+                                      const glm::mat4& transform,
+                                      int entityID) {
+    if (!staticMesh || !meshSource) return;
+
+    // 获取要渲染的 submesh 列表
+    const auto& submeshIndices = staticMesh->GetSubmeshes();
+    auto materials = staticMesh->GetMaterials();
+
+    if (submeshIndices.empty()) {
+        // 如果没有指定 submesh，渲染所有
+        for (uint32_t i = 0; i < meshSource->GetSubmeshCount(); ++i) {
+            SubmitMesh(meshSource, i, transform, materials, entityID);
+        }
+    } else {
+        // 渲染指定的 submesh
+        for (uint32_t submeshIndex : submeshIndices) {
+            SubmitMesh(meshSource, submeshIndex, transform, materials, entityID);
+        }
+    }
 }
 
 void SceneRenderer::SortTransparentDrawList() {
@@ -203,20 +215,6 @@ void SceneRenderer::SortTransparentDrawList() {
 }
 
 void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
-    // TODO: 重构为使用 MeshSource/StaticMesh
-    // ModelComponent 暂时禁用，等待 MeshSourceComponent 替代
-    /*
-    world.Each<ECS::TransformComponent, ECS::ModelComponent>(
-        [this](ECS::Entity entity,
-               ECS::TransformComponent& transform,
-               ECS::ModelComponent& modelComp) {
-            if (!modelComp.Visible) return;
-            // Model* model = AssetManager::Get().GetModel(modelComp.Handle);
-            // ...
-        }
-    );
-    */
-
     // 收集 MeshComponent 实体
     world.Each<ECS::TransformComponent, ECS::MeshComponent>(
         [this](ECS::Entity entity,
@@ -224,49 +222,24 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
                ECS::MeshComponent& meshComp) {
             if (!meshComp.MeshHandle.IsValid()) return;
 
-            // 首先尝试获取 StaticMesh
+            // 尝试获取 StaticMesh
             auto staticMesh = AssetManager::Get().GetAsset<StaticMesh>(meshComp.MeshHandle);
             if (staticMesh) {
-                if (staticMesh->IsIndexed()) {
-                    SubmitMesh(staticMesh->GetVertexArray(),
-                              staticMesh->GetVertexCount(),
-                              staticMesh->GetIndexCount(),
-                              transform.WorldMatrix,
-                              static_cast<int>(entity.GetHandle()));
-                } else {
-                    SubmitMesh(staticMesh->GetVertexArray(),
-                              staticMesh->GetVertexCount(),
-                              transform.WorldMatrix,
-                              static_cast<int>(entity.GetHandle()));
+                auto meshSource = AssetManager::Get().GetAsset<MeshSource>(staticMesh->GetMeshSource());
+                if (meshSource) {
+                    SubmitStaticMesh(staticMesh, meshSource, transform.WorldMatrix,
+                                     static_cast<int>(entity.GetHandle()));
                 }
                 return;
             }
 
-            // 如果不是 StaticMesh，尝试获取 MeshSource 并渲染
+            // 尝试获取 MeshSource (直接引用)
             auto meshSource = AssetManager::Get().GetAsset<MeshSource>(meshComp.MeshHandle);
             if (meshSource) {
-                // 确保 GPU 缓冲区已创建
-                if (!meshSource->HasGPUBuffers()) {
-                    meshSource->CreateGPUBuffers();
-                }
-
-                auto vb = meshSource->GetVertexBuffer();
-                auto ib = meshSource->GetIndexBuffer();
-                if (!vb || !ib) return;
-
-                // 渲染每个 submesh
-                for (const auto& submesh : meshSource->GetSubmeshes()) {
-                    DrawCommand cmd;
-                    cmd.Type = DrawCommandType::MeshSource;
-                    cmd.MeshSourcePtr = meshSource;
-                    cmd.SubmeshIndex = static_cast<uint32_t>(&submesh - meshSource->GetSubmeshes().data());
-                    cmd.Transform = transform.WorldMatrix * submesh.Transform;
-                    cmd.NormalMatrix = glm::transpose(glm::inverse(glm::mat3(cmd.Transform)));
-                    cmd.EntityID = static_cast<int>(entity.GetHandle());
-                    cmd.VertexCount = submesh.VertexCount;
-                    cmd.IndexCount = submesh.IndexCount;
-                    cmd.UseIndices = true;
-                    m_OpaqueDrawList.push_back(cmd);
+                // 渲染所有 submesh
+                for (uint32_t i = 0; i < meshSource->GetSubmeshCount(); ++i) {
+                    SubmitMesh(meshSource, i, transform.WorldMatrix, nullptr,
+                               static_cast<int>(entity.GetHandle()));
                 }
             }
         }
@@ -355,7 +328,7 @@ void SceneRenderer::SkyboxPass() {
     auto skyboxShader = m_ShaderLibrary.Get("skybox");
     if (!skyboxShader) return;
 
-    if (!m_CubeMesh) return;
+    if (!m_CubeMesh || !m_CubeMesh->GetVertexArray()) return;
 
     // 去除平移部分
     glm::mat4 view = glm::mat4(glm::mat3(m_ViewMatrix));
@@ -363,20 +336,32 @@ void SceneRenderer::SkyboxPass() {
     // 天空盒渲染状态
     glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_FALSE);
-    glDisable(GL_CULL_FACE);  // 禁用背面剔除，天空盒从内部观看
+    glDisable(GL_CULL_FACE);
 
     skyboxShader->Bind();
     skyboxShader->SetInt("skybox", 0);
     skyboxShader->SetMat4("view", view);
     skyboxShader->SetMat4("projection", m_ProjectionMatrix);
 
-    m_CubeMesh->Bind();
+    auto vao = m_CubeMesh->GetVertexArray();
+    vao->Bind();
     m_Environment.Skybox->Bind(0);
-    RenderCommand::DrawArrays(GL_TRIANGLES, 0, m_CubeMesh->GetVertexCount());
-    m_CubeMesh->Unbind();
+
+    // 使用第一个 submesh 渲染
+    const auto& submeshes = m_CubeMesh->GetSubmeshes();
+    if (!submeshes.empty()) {
+        const auto& submesh = submeshes[0];
+        glDrawElementsBaseVertex(
+            GL_TRIANGLES,
+            submesh.IndexCount,
+            GL_UNSIGNED_INT,
+            (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+            submesh.BaseVertex
+        );
+    }
+    vao->Unbind();
 
     // 恢复状态
-    // glEnable(GL_CULL_FACE);
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
 }
@@ -384,130 +369,102 @@ void SceneRenderer::SkyboxPass() {
 void SceneRenderer::GeometryPass() {
     if (m_OpaqueDrawList.empty()) return;
 
-    auto modelShader = m_ShaderLibrary.Get("model");
     auto litShader = m_ShaderLibrary.Get("lit");
-    if (!modelShader && !litShader) return;
+    if (!litShader) return;
 
-    // 设置渲染状态（暂不使用 Pipeline，保持与原逻辑一致）
+    // 设置渲染状态
     RenderCommand::EnableDepthTest();
     RenderCommand::SetDepthMask(true);
-    glDisable(GL_CULL_FACE);  // 禁用背面剔除，某些 FBX 模型面法线可能有问题
+    glDisable(GL_CULL_FACE);
 
-    // Wireframe 模式
     if (m_Settings.Wireframe) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     }
 
-    if (modelShader) {
-        modelShader->Bind();
-        m_OpaquePipeline->SetShader(modelShader);
+    litShader->Bind();
+    m_OpaquePipeline->SetShader(litShader);
 
-        modelShader->SetMat4("u_View", m_ViewMatrix);
-        modelShader->SetMat4("u_Projection", m_ProjectionMatrix);
-        modelShader->SetVec3("u_ViewPos", m_CameraPosition);
-        modelShader->SetInt("u_PointLightCount", m_Environment.PointLightCount);
-        SetupLighting(*modelShader);
+    litShader->SetMat4("u_View", m_ViewMatrix);
+    litShader->SetMat4("u_Projection", m_ProjectionMatrix);
+    litShader->SetVec3("u_ViewPos", m_CameraPosition);
+    SetupLighting(*litShader);
 
-        for (const auto& cmd : m_OpaqueDrawList) {
-            if (cmd.Type != DrawCommandType::Model) continue;
-            if (!cmd.ModelPtr) continue;
-
-            modelShader->SetMat4("u_Model", cmd.Transform);
-            modelShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
-            modelShader->SetInt("u_EntityID", cmd.EntityID);
-            modelShader->SetBool("u_HasDiffuse", cmd.HasDiffuseTexture);
-            modelShader->SetBool("u_HasSpecular", cmd.HasSpecularTexture);
-
-            // 如果没有 diffuse 纹理，绑定默认纹理
-            if (!cmd.HasDiffuseTexture && m_DefaultDiffuse) {
-                glActiveTexture(GL_TEXTURE0);
-                m_DefaultDiffuse->Bind(0);
-                modelShader->SetInt("texture_diffuse1", 0);
-            }
-
-            cmd.ModelPtr->Draw(*modelShader);
-        }
+    // 绑定默认纹理
+    if (m_DefaultDiffuse) {
+        m_DefaultDiffuse->Bind(0);
+        litShader->SetInt("material.diffuse", 0);
     }
+    if (m_DefaultSpecular) {
+        m_DefaultSpecular->Bind(1);
+        litShader->SetInt("material.specular", 1);
+    }
+    litShader->SetFloat("material.shininess", 32.0f);
 
-    // 处理 Mesh 类型的绘制命令
-    if (litShader) {
-        litShader->Bind();
-        m_OpaquePipeline->SetShader(litShader);
+    // 统一渲染所有 MeshSource
+    for (const auto& cmd : m_OpaqueDrawList) {
+        if (!cmd.MeshSource) continue;
 
-        litShader->SetMat4("u_View", m_ViewMatrix);
-        litShader->SetMat4("u_Projection", m_ProjectionMatrix);
-        litShader->SetVec3("u_ViewPos", m_CameraPosition);
-        SetupLighting(*litShader);
+        auto vao = cmd.MeshSource->GetVertexArray();
+        if (!vao) continue;
 
-        // 绑定默认纹理
-        if (m_DefaultDiffuse) {
-            m_DefaultDiffuse->Bind(0);
-            litShader->SetInt("material.diffuse", 0);
-        }
-        if (m_DefaultSpecular) {
-            m_DefaultSpecular->Bind(1);
-            litShader->SetInt("material.specular", 1);
-        }
-        litShader->SetFloat("material.shininess", 32.0f);
+        litShader->SetMat4("u_Model", cmd.Transform);
+        litShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
+        litShader->SetInt("u_EntityID", cmd.EntityID);
 
-        // 处理 Mesh 类型 (基元几何体)
-        for (const auto& cmd : m_OpaqueDrawList) {
-            if (cmd.Type != DrawCommandType::Mesh) continue;
-            if (!cmd.MeshPtr) continue;
+        const auto& submeshes = cmd.MeshSource->GetSubmeshes();
+        if (cmd.SubmeshIndex >= submeshes.size()) continue;
 
-            litShader->SetMat4("u_Model", cmd.Transform);
-            litShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
-            litShader->SetInt("u_EntityID", cmd.EntityID);
+        const auto& submesh = submeshes[cmd.SubmeshIndex];
 
-            cmd.MeshPtr->Bind();
-            if (cmd.UseIndices && cmd.IndexCount > 0) {
-                RenderCommand::DrawIndexed(GL_TRIANGLES, cmd.IndexCount, GL_UNSIGNED_INT, nullptr);
-            } else {
-                RenderCommand::DrawArrays(GL_TRIANGLES, 0, cmd.VertexCount);
+        // 绑定纹理：优先使用 MaterialTable，否则使用 MeshSource 自带的材质
+        bool hasTexture = false;
+        if (cmd.Materials) {
+            AssetHandle matHandle = cmd.Materials->GetMaterial(submesh.MaterialIndex);
+            if (matHandle.IsValid()) {
+                auto matAsset = AssetManager::Get().GetAsset<MaterialAsset>(matHandle);
+                if (matAsset) {
+                    AssetHandle albedoHandle = matAsset->GetAlbedoMap();
+                    if (albedoHandle.IsValid()) {
+                        auto albedoTex = AssetManager::Get().GetAsset<Texture2D>(albedoHandle);
+                        if (albedoTex) {
+                            albedoTex->Bind(0);
+                            litShader->SetInt("material.diffuse", 0);
+                            hasTexture = true;
+                        }
+                    }
+                }
             }
-            cmd.MeshPtr->Unbind();
         }
 
-        // 处理 MeshSource 类型 (导入的模型)
-        for (const auto& cmd : m_OpaqueDrawList) {
-            if (cmd.Type != DrawCommandType::MeshSource) continue;
-            if (!cmd.MeshSourcePtr) continue;
-
-            auto vao = cmd.MeshSourcePtr->GetVertexArray();
-            if (!vao) continue;
-
-            litShader->SetMat4("u_Model", cmd.Transform);
-            litShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
-            litShader->SetInt("u_EntityID", cmd.EntityID);
-
-            const auto& submeshes = cmd.MeshSourcePtr->GetSubmeshes();
-            if (cmd.SubmeshIndex >= submeshes.size()) continue;
-
-            const auto& submesh = submeshes[cmd.SubmeshIndex];
-
-            // 绑定 submesh 对应的纹理
-            const auto& materials = cmd.MeshSourcePtr->GetMaterials();
-            if (submesh.MaterialIndex < materials.size()) {
-                AssetHandle texHandle = materials[submesh.MaterialIndex];
+        if (!hasTexture) {
+            const auto& meshMaterials = cmd.MeshSource->GetMaterials();
+            if (submesh.MaterialIndex < meshMaterials.size()) {
+                AssetHandle texHandle = meshMaterials[submesh.MaterialIndex];
                 if (texHandle.IsValid()) {
                     auto texture = AssetManager::Get().GetAsset<Texture2D>(texHandle);
                     if (texture) {
                         texture->Bind(0);
                         litShader->SetInt("material.diffuse", 0);
+                        hasTexture = true;
                     }
                 }
             }
-
-            vao->Bind();
-            glDrawElementsBaseVertex(
-                GL_TRIANGLES,
-                submesh.IndexCount,
-                GL_UNSIGNED_INT,
-                (void*)(submesh.BaseIndex * sizeof(uint32_t)),
-                submesh.BaseVertex
-            );
-            vao->Unbind();
         }
+
+        // 如果没有纹理，重新绑定默认纹理
+        if (!hasTexture && m_DefaultDiffuse) {
+            m_DefaultDiffuse->Bind(0);
+        }
+
+        vao->Bind();
+        glDrawElementsBaseVertex(
+            GL_TRIANGLES,
+            submesh.IndexCount,
+            GL_UNSIGNED_INT,
+            (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+            submesh.BaseVertex
+        );
+        vao->Unbind();
     }
 
     // 恢复渲染状态
@@ -515,7 +472,7 @@ void SceneRenderer::GeometryPass() {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
-    // 重置 OpenGL 状态，避免影响后续渲染 (如 Renderer2D)
+    // 重置 OpenGL 状态
     glBindVertexArray(0);
     glUseProgram(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -525,41 +482,53 @@ void SceneRenderer::GeometryPass() {
 void SceneRenderer::TransparentPass() {
     if (m_TransparentDrawList.empty()) return;
 
+    auto litShader = m_ShaderLibrary.Get("lit");
+    if (!litShader) return;
+
     // 透明渲染状态
     RenderCommand::EnableDepthTest();
-    RenderCommand::SetDepthMask(false);  // 禁用深度写入
+    RenderCommand::SetDepthMask(false);
     RenderCommand::EnableBlending();
     RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_CULL_FACE);
 
-    auto modelShader = m_ShaderLibrary.Get("model");
-    if (modelShader) {
-        modelShader->Bind();
-        m_TransparentPipeline->SetShader(modelShader);
+    litShader->Bind();
+    m_TransparentPipeline->SetShader(litShader);
 
-        modelShader->SetMat4("u_View", m_ViewMatrix);
-        modelShader->SetMat4("u_Projection", m_ProjectionMatrix);
-        modelShader->SetVec3("u_ViewPos", m_CameraPosition);
-        SetupLighting(*modelShader);
+    litShader->SetMat4("u_View", m_ViewMatrix);
+    litShader->SetMat4("u_Projection", m_ProjectionMatrix);
+    litShader->SetVec3("u_ViewPos", m_CameraPosition);
+    SetupLighting(*litShader);
 
-        for (const auto& cmd : m_TransparentDrawList) {
-            if (cmd.Type != DrawCommandType::Model) continue;
-            if (!cmd.ModelPtr) continue;
+    for (const auto& cmd : m_TransparentDrawList) {
+        if (!cmd.MeshSource) continue;
 
-            modelShader->SetMat4("u_Model", cmd.Transform);
-            modelShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
-            modelShader->SetInt("u_EntityID", cmd.EntityID);
-            modelShader->SetBool("u_HasDiffuse", cmd.HasDiffuseTexture);
-            modelShader->SetBool("u_HasSpecular", cmd.HasSpecularTexture);
+        auto vao = cmd.MeshSource->GetVertexArray();
+        if (!vao) continue;
 
-            cmd.ModelPtr->Draw(*modelShader);
-        }
+        litShader->SetMat4("u_Model", cmd.Transform);
+        litShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
+        litShader->SetInt("u_EntityID", cmd.EntityID);
+
+        const auto& submeshes = cmd.MeshSource->GetSubmeshes();
+        if (cmd.SubmeshIndex >= submeshes.size()) continue;
+
+        const auto& submesh = submeshes[cmd.SubmeshIndex];
+
+        vao->Bind();
+        glDrawElementsBaseVertex(
+            GL_TRIANGLES,
+            submesh.IndexCount,
+            GL_UNSIGNED_INT,
+            (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+            submesh.BaseVertex
+        );
+        vao->Unbind();
     }
 
     // 恢复状态
     RenderCommand::SetDepthMask(true);
     RenderCommand::DisableBlending();
-    glEnable(GL_CULL_FACE);
 }
 
 void SceneRenderer::SetupLighting(Shader& shader) {
@@ -582,7 +551,10 @@ void SceneRenderer::CreateDefaultResources() {
 
     // 创建立方体网格 (用于天空盒等)
     AssetHandle cubeHandle = MeshFactory::CreateCube();
-    m_CubeMesh = AssetManager::Get().GetAsset<StaticMesh>(cubeHandle);
+    auto staticMesh = AssetManager::Get().GetAsset<StaticMesh>(cubeHandle);
+    if (staticMesh) {
+        m_CubeMesh = AssetManager::Get().GetAsset<MeshSource>(staticMesh->GetMeshSource());
+    }
 }
 
 void SceneRenderer::SyncLightsFromECS(ECS::World& world) {

@@ -3,10 +3,10 @@
 // SceneRenderer - 场景渲染器
 //
 // 架构设计 (参考 Hazel Engine):
-// 1. Submit 阶段: BeginScene() -> SubmitMesh()/SubmitModel() -> EndScene()
+// 1. Submit 阶段: BeginScene() -> SubmitMesh() -> EndScene()
 // 2. Flush 阶段: FlushDrawList() 执行各个渲染 Pass
 //
-// Pass 是方法而非类，便于维护和扩展
+// 所有网格统一通过 MeshSource 渲染
 
 #include "Renderer.h"
 #include "RenderTypes.h"
@@ -16,8 +16,8 @@
 #include "graphics/Texture.h"
 #include "graphics/Buffer.h"
 #include "graphics/UniformBuffer.h"
+#include "graphics/MeshSource.h"
 #include "graphics/MeshFactory.h"
-#include "graphics/StaticMesh.h"
 #include "scene/ecs/ECS.h"
 #include "scene/Light.h"
 #include "scene/Grid.h"
@@ -80,17 +80,22 @@ public:
     void Initialize();
     void Shutdown();
 
-    // === 新 API: Submit 系统 ===
+    // === Submit API ===
     void BeginScene(const Camera& camera, float aspectRatio);
     void EndScene();
 
-    void SubmitMesh(const Ref<VertexArray>& mesh, uint32_t vertexCount,
-                    const glm::mat4& transform, int entityID = -1);
-    void SubmitMesh(const Ref<VertexArray>& mesh, uint32_t vertexCount, uint32_t indexCount,
-                    const glm::mat4& transform, int entityID = -1);
-    void SubmitModel(Model* model, const glm::mat4& transform,
-                     bool hasDiffuse = true, bool hasSpecular = false,
-                     int entityID = -1);
+    // 统一提交接口 - 所有网格通过 MeshSource 渲染
+    void SubmitMesh(Ref<MeshSource> meshSource,
+                    uint32_t submeshIndex,
+                    const glm::mat4& transform,
+                    const Ref<MaterialTable>& materials = nullptr,
+                    int entityID = -1);
+
+    // 提交 StaticMesh (会遍历所有 submesh)
+    void SubmitStaticMesh(const Ref<StaticMesh>& staticMesh,
+                          Ref<MeshSource> meshSource,
+                          const glm::mat4& transform,
+                          int entityID = -1);
 
     // === 旧 API: 兼容现有代码 ===
     void RenderScene(ECS::World& world,
@@ -145,7 +150,7 @@ private:
 
     // 默认资源
     std::unique_ptr<Grid> m_Grid;
-    Ref<StaticMesh> m_CubeMesh;  // 用于天空盒等
+    Ref<MeshSource> m_CubeMesh;  // 用于天空盒等
 
     Ref<Texture2D> m_DefaultDiffuse;
     Ref<Texture2D> m_DefaultSpecular;

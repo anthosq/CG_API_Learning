@@ -30,12 +30,14 @@ static const uint32_t s_MeshImportFlags =
     aiProcess_CalcTangentSpace |
     aiProcess_Triangulate |
     aiProcess_SortByPType |
-    aiProcess_GenSmoothNormals |
+    aiProcess_RemoveComponent |         // 配合 AI_CONFIG_PP_RVC_FLAGS 移除原始法线
+    aiProcess_GenSmoothNormals |        // 重新生成平滑法线
     aiProcess_GenUVCoords |
     aiProcess_OptimizeMeshes |
     aiProcess_JoinIdenticalVertices |
     aiProcess_LimitBoneWeights |
     aiProcess_ValidateDataStructure |
+    aiProcess_GlobalScale |             // 应用 FBX 内嵌的单位缩放
     aiProcess_FlipUVs;
 
 AssimpMeshImporter::AssimpMeshImporter(const std::filesystem::path& path)
@@ -49,6 +51,8 @@ Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource() {
     std::cout << "[AssimpMeshImporter] Loading mesh: " << m_Path.string() << std::endl;
 
     Assimp::Importer importer;
+
+    // 移除原始法线，强制重新生成平滑法线
     importer.SetPropertyInteger(AI_CONFIG_PP_RVC_FLAGS, aiComponent_NORMALS);
 
     const aiScene* scene = importer.ReadFile(m_Path.string(), s_MeshImportFlags);
