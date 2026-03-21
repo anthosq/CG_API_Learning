@@ -82,8 +82,20 @@ void EditorApp::OnInit() {
     m_SceneRenderer->SetDefaultDiffuse(Renderer::GetWhiteTexture());
     m_SceneRenderer->SetDefaultSpecular(Renderer::GetWhiteTexture());
 
-    // 设置天空盒
-    m_SceneRenderer->GetEnvironment().Skybox = m_SkyboxTexture;
+    // 启动时加载默认 HDR 环境 (IBL 天空盒), 优先使用 puresky
+    {
+        const char* defaultHDRs[] = {
+            "assets/EnvironmentMaps/puresky_4k.hdr",
+            "assets/EnvironmentMaps/meadow_2_2k.hdr",
+        };
+        for (const char* hdrPath : defaultHDRs) {
+            if (std::filesystem::exists(hdrPath)) {
+                std::cout << "[EditorApp] 加载默认环境: " << hdrPath << std::endl;
+                m_SceneRenderer->LoadEnvironment(hdrPath);
+                break;
+            }
+        }
+    }
 
     // 初始化编辑器
     std::cout << "[EditorApp] Initializing editor..." << std::endl;

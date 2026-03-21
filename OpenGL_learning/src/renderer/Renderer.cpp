@@ -6,7 +6,6 @@ struct RendererData {
     Ref<Texture2D> WhiteTexture;
     Ref<Texture2D> BlackTexture;
     Ref<Texture2D> NormalTexture;
-    Ref<Texture2D> BRDFLutTexture;
     Ref<TextureCube> BlackCubeTexture;
 
     Ref<VertexArray> FullscreenQuadVAO;
@@ -40,16 +39,6 @@ void Renderer::Init() {
     uint32_t normalData = 0xFFFF8080;
     s_Data.NormalTexture = Texture2D::Create(&normalData, 1, 1, GL_RGBA, GL_RGBA8, defaultSpec);
 
-    // 尝试加载 BRDF LUT 纹理
-    std::filesystem::path brdfPath = "assets/render/BRDF_LUT.png";
-    if (std::filesystem::exists(brdfPath)) {
-        TextureSpec brdfSpec;
-        brdfSpec.WrapS = GL_CLAMP_TO_EDGE;
-        brdfSpec.WrapT = GL_CLAMP_TO_EDGE;
-        brdfSpec.GenerateMipmaps = false;
-        s_Data.BRDFLutTexture = Texture2D::Create(brdfPath, brdfSpec);
-    }
-
     CreateFullscreenQuad();
 
     s_Initialized = true;
@@ -60,7 +49,6 @@ void Renderer::Shutdown() {
     s_Data.WhiteTexture = nullptr;
     s_Data.BlackTexture = nullptr;
     s_Data.NormalTexture = nullptr;
-    s_Data.BRDFLutTexture = nullptr;
     s_Data.BlackCubeTexture = nullptr;
     s_Data.FullscreenQuadVAO = nullptr;
 
@@ -79,10 +67,6 @@ Ref<Texture2D> Renderer::GetBlackTexture() {
 
 Ref<Texture2D> Renderer::GetNormalTexture() {
     return s_Data.NormalTexture;
-}
-
-Ref<Texture2D> Renderer::GetBRDFLutTexture() {
-    return s_Data.BRDFLutTexture;
 }
 
 Ref<TextureCube> Renderer::GetBlackCubeTexture() {

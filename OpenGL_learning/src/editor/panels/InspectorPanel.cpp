@@ -7,6 +7,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <functional>
 
 namespace GLRenderer {
 
@@ -231,10 +232,20 @@ void InspectorPanel::DrawMeshComponent(ECS::MeshComponent& mesh, ECS::Entity ent
     if (!mesh.Materials) {
         if (ImGui::Button("Create Material Overrides")) {
             mesh.Materials = MaterialTable::Create(submeshCount);
-            // 从 MeshSource 或 StaticMesh 复制默认材质
+            // 从 MeshSource 复制已有材质，没有的创建默认材质
             const auto& defaultMaterials = meshSource->GetMaterials();
-            for (uint32_t i = 0; i < std::min(submeshCount, static_cast<uint32_t>(defaultMaterials.size())); ++i) {
-                mesh.Materials->SetMaterial(i, defaultMaterials[i]);
+            for (uint32_t i = 0; i < submeshCount; ++i) {
+                if (i < defaultMaterials.size() && defaultMaterials[i].IsValid()) {
+                    mesh.Materials->SetMaterial(i, defaultMaterials[i]);
+                } else {
+                    // 创建默认 PBR 材质
+                    auto defaultMat = MaterialAsset::Create();
+                    defaultMat->SetAlbedoColor(glm::vec3(0.8f));
+                    defaultMat->SetMetallic(0.0f);
+                    defaultMat->SetRoughness(0.5f);
+                    AssetHandle matHandle = AssetManager::Get().AddMemoryOnlyAsset(defaultMat);
+                    mesh.Materials->SetMaterial(i, matHandle);
+                }
             }
         }
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Using default materials");
@@ -253,24 +264,7 @@ void InspectorPanel::DrawMeshComponent(ECS::MeshComponent& mesh, ECS::Entity ent
             auto matAsset = AssetManager::Get().GetAsset<MaterialAsset>(matHandle);
 
             if (matAsset) {
-                // 显示材质名称
-                ImGui::Text("Material: %s", matAsset->GetMaterial()->GetName().c_str());
-
-                // 编辑 PBR 参数
-                glm::vec3 albedo = matAsset->GetAlbedoColor();
-                if (ImGui::ColorEdit3("Albedo", &albedo[0])) {
-                    matAsset->SetAlbedoColor(albedo);
-                }
-
-                float metallic = matAsset->GetMetallic();
-                if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f)) {
-                    matAsset->SetMetallic(metallic);
-                }
-
-                float roughness = matAsset->GetRoughness();
-                if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f)) {
-                    matAsset->SetRoughness(roughness);
-                }
+                DrawMaterialEditor(matAsset);
             } else {
                 ImGui::TextColored(ImVec4(1, 0.5f, 0.5f, 1), "No material assigned");
             }
@@ -284,6 +278,143 @@ void InspectorPanel::DrawMeshComponent(ECS::MeshComponent& mesh, ECS::Entity ent
     // 清除覆盖按钮
     if (ImGui::Button("Clear Material Overrides")) {
         mesh.Materials = nullptr;
+    }
+}
+
+void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
+    if (!matAsset) return;
+
+    // 纹理槽绘制辅助 lambda
+    auto DrawTextureSlot = [](const char* label, AssetHandle handle,
+                              std::function<void(AssetHandle)> onChanged,
+                              std::function<void()> onClear) {
+        ImGui::PushID(label);
+
+        float textureSize = 64.0f;
+        auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
+        bool hasTexture = texture && texture->IsValid();
+
+        // 先绘制标签
+        ImGui::Text("%s", label);
+
+        // 保存纹理预览的位置（用于放置 X 按钮）
+        ImVec2 textureCursorPos = ImGui::GetCursorPos();
+
+        // 纹理预览
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 4));
+        if (hasTexture) {
+            ImGui::Image((ImTextureID)(intptr_t)texture->GetID(),
+                        ImVec2(textureSize, textureSize), ImVec2(0, 1), ImVec2(1, 0));
+        } else {
+            // 棋盘格占位符（用按钮模拟）
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+            ImGui::Button("Drop", ImVec2(textureSize, textureSize));
+            ImGui::PopStyleColor(2);
+        }
+        ImGui::PopStyleVar();
+
+        // 拖放接收
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                const char* path = static_cast<const char*>(payload->Data);
+                std::filesystem::path assetPath(path);
+                std::string ext = assetPath.extension().string();
+                if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".dds") {
+                    AssetHandle newHandle = AssetManager::Get().ImportTexture(assetPath);
+                    if (newHandle.IsValid() && onChanged) {
+                        onChanged(newHandle);
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        // 悬停时显示大图 tooltip
+        if (ImGui::IsItemHovered() && hasTexture) {
+            ImGui::BeginTooltip();
+            ImGui::Image((ImTextureID)(intptr_t)texture->GetID(),
+                        ImVec2(256, 256), ImVec2(0, 1), ImVec2(1, 0));
+            ImGui::Text("%dx%d", texture->GetWidth(), texture->GetHeight());
+            ImGui::EndTooltip();
+        }
+
+        // X 清除按钮（左上角）
+        ImVec2 nextRowPos = ImGui::GetCursorPos();
+        if (hasTexture) {
+            ImGui::SetCursorPos(textureCursorPos);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 0.8f));
+            if (ImGui::Button("X", ImVec2(18, 18))) {
+                if (onClear) onClear();
+            }
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            ImGui::SetCursorPos(nextRowPos);
+        }
+
+        ImGui::PopID();
+    };
+
+    // === Albedo ===
+    if (ImGui::CollapsingHeader("Albedo", ImGuiTreeNodeFlags_DefaultOpen)) {
+        DrawTextureSlot("Albedo Map", matAsset->GetAlbedoMap(),
+            [&](AssetHandle h) { matAsset->SetAlbedoMap(h); },
+            [&]() { matAsset->SetAlbedoMap(AssetHandle(0)); });
+
+        glm::vec3 albedo = matAsset->GetAlbedoColor();
+        if (ImGui::ColorEdit3("Color", &albedo[0])) {
+            matAsset->SetAlbedoColor(albedo);
+        }
+    }
+
+    // === Normal ===
+    if (ImGui::CollapsingHeader("Normal", ImGuiTreeNodeFlags_DefaultOpen)) {
+        DrawTextureSlot("Normal Map", matAsset->GetNormalMap(),
+            [&](AssetHandle h) {
+                matAsset->SetNormalMap(h);
+                matAsset->SetUseNormalMap(true);
+            },
+            [&]() {
+                matAsset->SetNormalMap(AssetHandle(0));
+                matAsset->SetUseNormalMap(false);
+            });
+
+        bool useNormalMap = matAsset->IsUsingNormalMap();
+        if (ImGui::Checkbox("Use Normal Map", &useNormalMap)) {
+            matAsset->SetUseNormalMap(useNormalMap);
+        }
+    }
+
+    // === Metallic ===
+    if (ImGui::CollapsingHeader("Metallic")) {
+        DrawTextureSlot("Metallic Map", matAsset->GetMetallicMap(),
+            [&](AssetHandle h) { matAsset->SetMetallicMap(h); },
+            [&]() { matAsset->SetMetallicMap(AssetHandle(0)); });
+
+        float metallic = matAsset->GetMetallic();
+        if (ImGui::SliderFloat("##MetallicValue", &metallic, 0.0f, 1.0f)) {
+            matAsset->SetMetallic(metallic);
+        }
+    }
+
+    // === Roughness ===
+    if (ImGui::CollapsingHeader("Roughness")) {
+        DrawTextureSlot("Roughness Map", matAsset->GetRoughnessMap(),
+            [&](AssetHandle h) { matAsset->SetRoughnessMap(h); },
+            [&]() { matAsset->SetRoughnessMap(AssetHandle(0)); });
+
+        float roughness = matAsset->GetRoughness();
+        if (ImGui::SliderFloat("##RoughnessValue", &roughness, 0.0f, 1.0f)) {
+            matAsset->SetRoughness(roughness);
+        }
+    }
+
+    // === AO ===
+    if (ImGui::CollapsingHeader("Ambient Occlusion")) {
+        DrawTextureSlot("AO Map", matAsset->GetAOMap(),
+            [&](AssetHandle h) { matAsset->SetAOMap(h); },
+            [&]() { matAsset->SetAOMap(AssetHandle(0)); });
     }
 }
 

@@ -2,6 +2,8 @@
 #include "RenderCommand.h"
 #include "asset/AssetManager.h"
 #include "graphics/MeshSource.h"
+#include "graphics/IBLProcessor.h"
+#include "renderer/Material.h"
 #include <algorithm>
 
 namespace GLRenderer {
@@ -274,15 +276,17 @@ void SceneRenderer::FlushDrawList() {
     // 2. 不透明几何 Pass
     GeometryPass();
 
-    // 3. 透明物体 Pass
+    // 3. 天空盒 Pass（深度 LEQUAL，在透明物体之前，避免覆盖透明物体）
+    bool hasSkybox = m_Environment.Skybox ||
+                     (m_Environment.IBLEnvironment && m_Environment.IBLEnvironment->EnvMap);
+    if (m_Settings.ShowSkybox && hasSkybox) {
+        SkyboxPass();
+    }
+
+    // 4. 透明物体 Pass
     if (!m_TransparentDrawList.empty()) {
         SortTransparentDrawList();
         TransparentPass();
-    }
-
-    // 4. 天空盒 Pass（深度 LEQUAL）
-    if (m_Settings.ShowSkybox && m_Environment.Skybox) {
-        SkyboxPass();
     }
 
     // 注：Billboard/Sprite 由 EditorApp::RenderEditorVisuals() 通过 Renderer2D 渲染
@@ -300,53 +304,62 @@ void SceneRenderer::GridPass() {
     m_Grid->SetGridSize(m_Settings.GridSize);
     m_Grid->SetGridCellSize(m_Settings.GridCellSize);
 
-    // 计算 near/far（使用默认值，因为 Pass 没有直接访问 Camera）
+    // FBO 含整型附件 (EntityID, GL_R32I): 开启混合时绘制到整型附件会触发 GL_INVALID_OPERATION
+    // 临时将 draw buffer 1 (整型) 设为 GL_NONE, 让 Grid 只写入 attachment 0 (float)
+    GLenum gridBufs[] = { GL_COLOR_ATTACHMENT0, GL_NONE };
+    glDrawBuffers(2, gridBufs);
+
     float nearPlane = 0.1f;
     float farPlane = 1000.0f;
-
     m_Grid->Draw(*gridShader, m_ViewMatrix, m_ProjectionMatrix, nearPlane, farPlane);
+
+    // 恢复所有 draw buffers
+    GLenum allBufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, allBufs);
 }
 
 void SceneRenderer::SkyboxPass() {
-    if (!m_Environment.Skybox) return;
+    // IBL 天空盒用 EnvMap (1024x1024, 清晰)，不用 RadianceMap (预过滤, 模糊)
+    Ref<TextureCube> skyboxTex;
+    if (m_Environment.IBLEnvironment && m_Environment.IBLEnvironment->EnvMap)
+        skyboxTex = m_Environment.IBLEnvironment->EnvMap;
+    else if (m_Environment.Skybox)
+        skyboxTex = m_Environment.Skybox;
+    else
+        return;
 
     auto skyboxShader = m_ShaderLibrary.Get("skybox");
     if (!skyboxShader) return;
-
     if (!m_CubeMesh || !m_CubeMesh->GetVertexArray()) return;
 
-    // 去除平移部分
+    // 去除平移部分，保留旋转
     glm::mat4 view = glm::mat4(glm::mat3(m_ViewMatrix));
 
-    // 天空盒渲染状态
     glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_FALSE);
     glDisable(GL_CULL_FACE);
 
     skyboxShader->Bind();
-    skyboxShader->SetInt("skybox", 0);
+    skyboxShader->SetInt("u_EnvironmentMap", 0);
     skyboxShader->SetMat4("view", view);
     skyboxShader->SetMat4("projection", m_ProjectionMatrix);
+    skyboxShader->SetFloat("u_Intensity", m_Environment.EnvironmentIntensity);
+    skyboxShader->SetFloat("u_Lod", m_Settings.SkyboxLOD);
 
+    skyboxTex->Bind(0);
     auto vao = m_CubeMesh->GetVertexArray();
     vao->Bind();
-    m_Environment.Skybox->Bind(0);
 
-    // 使用第一个 submesh 渲染
     const auto& submeshes = m_CubeMesh->GetSubmeshes();
     if (!submeshes.empty()) {
         const auto& submesh = submeshes[0];
-        glDrawElementsBaseVertex(
-            GL_TRIANGLES,
-            submesh.IndexCount,
-            GL_UNSIGNED_INT,
-            (void*)(submesh.BaseIndex * sizeof(uint32_t)),
-            submesh.BaseVertex
-        );
+        glDrawElementsBaseVertex(GL_TRIANGLES, submesh.IndexCount,
+                                  GL_UNSIGNED_INT,
+                                  (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+                                  submesh.BaseVertex);
     }
     vao->Unbind();
 
-    // 恢复状态
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
 }
@@ -373,7 +386,23 @@ void SceneRenderer::GeometryPass() {
     pbrShader->Bind();
     m_OpaquePipeline->SetShader(pbrShader);
 
-    pbrShader->SetFloat("u_EnvironmentIntensity", m_Environment.EnvironmentIntensity);
+    // IBL 纹理绑定 (slots 6, 7, 8 - 不与材质贴图 0~5 冲突)
+    if (m_Environment.IBLEnvironment && m_Environment.IBLEnvironment->IsValid()) {
+        m_Environment.IBLEnvironment->IrradianceMap->Bind(TextureSlot::Irradiance);
+        m_Environment.IBLEnvironment->RadianceMap->Bind(TextureSlot::Prefilter);
+        pbrShader->SetInt("u_IrradianceMap", static_cast<int>(TextureSlot::Irradiance));
+        pbrShader->SetInt("u_PrefilterMap",  static_cast<int>(TextureSlot::Prefilter));
+        pbrShader->SetFloat("u_EnvironmentIntensity", m_Environment.EnvironmentIntensity);
+    } else {
+        // 无 IBL 时关闭，PBR shader 会回退到简单环境光
+        pbrShader->SetFloat("u_EnvironmentIntensity", 0.0f);
+    }
+    // BRDF LUT 始终绑定 (使用预烘焙文件)
+    auto brdfLut = IBLProcessor::GetBRDFLUT();
+    if (brdfLut) {
+        brdfLut->Bind(TextureSlot::BrdfLUT);
+        pbrShader->SetInt("u_BrdfLUT", static_cast<int>(TextureSlot::BrdfLUT));
+    }
 
     for (const auto& cmd : m_OpaqueDrawList) {
         if (!cmd.MeshSource) continue;
@@ -565,12 +594,12 @@ void SceneRenderer::SyncLightsFromECS(ECS::World& world) {
         }
     );
 
-    // 如果没有方向光实体，使用默认的弱方向光（保证场景基本可见）
+    // 如果没有方向光实体，使用默认方向光（PBR 需要足够亮度，建议场景中设置 3-5 强度）
     if (!foundDirLight) {
         m_Environment.DirLight.Direction = glm::vec3(-0.2f, -1.0f, -0.3f);
         m_Environment.DirLight.Ambient = glm::vec3(0.1f);
-        m_Environment.DirLight.Diffuse = glm::vec3(0.3f);   // 默认漫反射光
-        m_Environment.DirLight.Specular = glm::vec3(0.3f);  // 默认镜面反射光
+        m_Environment.DirLight.Diffuse = glm::vec3(1.0f);   // 默认漫反射光
+        m_Environment.DirLight.Specular = glm::vec3(1.0f);  // 默认镜面反射光
     }
 
     // 同步点光源
@@ -592,6 +621,27 @@ void SceneRenderer::SyncLightsFromECS(ECS::World& world) {
             }
         }
     );
+}
+
+bool SceneRenderer::LoadEnvironment(const std::filesystem::path& hdrPath) {
+    auto processor = IBLProcessor::Create();
+    if (!processor->Load(hdrPath)) {
+        std::cerr << "[SceneRenderer] 环境贴图加载失败: " << hdrPath << std::endl;
+        return false;
+    }
+
+    m_Environment.IBLEnvironment = Ref<Environment>(new Environment(
+        processor->GetEnvMap(),
+        processor->GetRadianceMap(),
+        processor->GetIrradianceMap()
+    ));
+
+    // 启用天空盒并重置 LOD
+    m_Settings.ShowSkybox = true;
+    m_Settings.SkyboxLOD = 0.0f;
+
+    std::cout << "[SceneRenderer] 环境加载完成: " << hdrPath.filename().string() << std::endl;
+    return true;
 }
 
 } // namespace GLRenderer

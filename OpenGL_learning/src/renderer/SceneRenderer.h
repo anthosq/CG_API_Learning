@@ -22,6 +22,8 @@
 #include "scene/Light.h"
 #include "scene/Grid.h"
 #include "asset/MaterialAsset.h"
+#include "renderer/Environment.h"
+#include "graphics/IBLProcessor.h"
 
 #include <memory>
 #include <vector>
@@ -41,6 +43,9 @@ struct SceneRenderSettings {
 
     // 环境设置
     glm::vec3 AmbientColor = glm::vec3(0.1f);
+
+    // 天空盒
+    float SkyboxLOD = 0.0f;  // 0 = 清晰, 越高越模糊 (对应预滤波 mip 级别)
 };
 
 // 场景环境数据
@@ -53,7 +58,8 @@ struct SceneEnvironment {
     SpotLight Spotlight;
     bool SpotlightEnabled = false;
 
-    Ref<TextureCube> Skybox;
+    Ref<TextureCube> Skybox;          // 旧接口兼容, 优先使用 IBLEnvironment
+    Ref<Environment> IBLEnvironment;  // IBL 数据 (RadianceMap + IrradianceMap)
     float EnvironmentIntensity = 1.0f;
 };
 
@@ -122,6 +128,9 @@ public:
 
     // 设置目标 Framebuffer
     void SetTargetFramebuffer(Framebuffer* fbo) { m_TargetFramebuffer = fbo; }
+
+    // 环境贴图 - 从 HDR 文件加载并执行 IBL 预处理
+    bool LoadEnvironment(const std::filesystem::path& hdrPath);
 
 private:
     void FlushDrawList();

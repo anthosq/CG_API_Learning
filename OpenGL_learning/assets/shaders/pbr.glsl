@@ -2,7 +2,7 @@
 // Based on Cook-Torrance BRDF
 
 #type vertex
-#version 330 core
+#version 430 core
 
 layout (location = 0) in vec3 a_Position;
 layout (location = 1) in vec3 a_Normal;
@@ -48,7 +48,7 @@ void main() {
 }
 
 #type fragment
-#version 330 core
+#version 430 core
 
 layout (location = 0) out vec4 FragColor;
 layout (location = 1) out int EntityID;
@@ -167,6 +167,7 @@ vec3 CookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 F0, vec3 albed
     vec3 numerator = NDF * G * F;
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
     vec3 specular = numerator / denominator;
+    specular = min(specular, vec3(10.0));  // 限制高光峰值，防止低粗糙度时的爆光 (来自 Hazel)
 
     vec3 kS = F;
     vec3 kD = vec3(1.0) - kS;
@@ -248,25 +249,29 @@ vec3 CalculateSpotLight(vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, floa
     return CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness);
 }
 
-// IBL (for future use when environment maps are available)
+// IBL - Split-Sum 近似 (参考 Hazel IBL 函数)
 vec3 CalculateIBL(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness, float ao) {
     vec3 R = reflect(-V, N);
+    float NdotV = max(dot(N, V), 0.0);
 
-    vec3 F = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+    vec3 F = FresnelSchlickRoughness(NdotV, F0, roughness);
+    vec3 kD = (1.0 - F) * (1.0 - metallic);
 
-    vec3 kS = F;
-    vec3 kD = 1.0 - kS;
-    kD *= 1.0 - metallic;
-
+    // 漫反射 IBL: 从辐照度图采样
     vec3 irradiance = texture(u_IrradianceMap, N).rgb;
-    vec3 diffuse = irradiance * albedo;
+    vec3 diffuseIBL = kD * irradiance * albedo;
 
-    const float MAX_REFLECTION_LOD = 4.0;
-    vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2 brdf = texture(u_BrdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
-    vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
+    // 高光 IBL: 从预滤波环境图按粗糙度采样对应 mip 级别
+    int mipLevels = textureQueryLevels(u_PrefilterMap);
+    vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * float(mipLevels - 1)).rgb;
 
-    return (kD * diffuse + specular) * ao * u_EnvironmentIntensity;
+    // 从 BRDF LUT 读取 Fresnel 积分结果 (x = scale, y = bias)
+    // 使用 F (含视角 Fresnel) 而非 F0, 与 LearnOpenGL/Hazel 保持一致, 掠射角处更亮
+    vec2 brdf = texture(u_BrdfLUT, vec2(max(NdotV, 0.0), roughness)).rg;
+    vec3 specularIBL = prefilteredColor * (F0 * brdf.x + brdf.y);  // F0, not F (split-sum convention)
+
+    // AO 只影响间接漫反射, 不影响镜面反射 (Hazel 约定)
+    return (diffuseIBL * ao + specularIBL) * u_EnvironmentIntensity;
 }
 
 void main() {
@@ -307,8 +312,13 @@ void main() {
         Lo += CalculateSpotLight(fs_in.FragPos, N, V, F0, albedo, metallic, roughness);
     }
 
-    // Ambient (simple fallback, IBL can be added later)
-    vec3 ambient = u_AmbientColor.rgb * u_AmbientColor.w * albedo * ao;
+    // Ambient: IBL 优先, 无环境贴图时退回简单环境光
+    vec3 ambient;
+    if (u_EnvironmentIntensity > 0.0) {
+        ambient = CalculateIBL(N, V, F0, albedo, metallic, roughness, ao);
+    } else {
+        ambient = u_AmbientColor.rgb * u_AmbientColor.w * albedo * ao * (1.0 - metallic);
+    }
 
     vec3 color = ambient + Lo;
 
@@ -320,6 +330,47 @@ void main() {
     color = color / (color + vec3(1.0));
     // Gamma correction
     color = pow(color, vec3(1.0 / 2.2));
+
+    // Debug: 显示 prefilter mip0 采样 - 结果正常
+    // vec3 R = reflect(-V, N);
+    // vec3 debugPrefilter = textureLod(u_PrefilterMap, R, 0.0).rgb;
+    // FragColor = vec4(debugPrefilter, 1.0);
+
+    // Debug: 显示反射向量
+    // vec3 R = reflect(-V, N);
+    // FragColor = vec4(normalize(R) * 0.5 + 0.5, 1.0);
+
+    // int mipLevels = max(1, textureQueryLevels(u_PrefilterMap));
+    // float lod = roughness * float(mipLevels - 1);
+    // vec3 sampleLod = textureLod(u_PrefilterMap, R, lod).rgb;
+    // FragColor = vec4(sampleLod, 1.0);
+
+    // int mipLevels = textureQueryLevels(u_PrefilterMap);
+    // float v = clamp(float(mipLevels) / 12.0, 0.0, 1.0); // 假设最多 12 级用于可视化
+    // FragColor = vec4(vec3(v), 1.0);
+
+    // vec3 env = texture(u_IrradianceMap, R).rgb;
+    // vec3 pre0 = textureLod(u_PrefilterMap, R, 0.0).rgb;
+
+    // 左右对比：env 左半球，prefilter 右半球（用 x 分量决定）
+    // if (R.x > 0.0) FragColor = vec4(env, 1.0);
+    // else FragColor = vec4(pre0, 1.0);
+
+    // vec3 N = normalize(fs_in.TBN * vec3(0.0, 0.0, 1.0));
+    // vec3 V = normalize(u_CameraPos - fs_in.FragPos);
+    // vec3 R = reflect(-V, N);
+    // float NdotV = max(dot(N, V), 0.0);
+
+    // int mipLevels = max(1, textureQueryLevels(u_PrefilterMap));
+    // float maxMip = float(mipLevels - 1);
+    // float lod = (u_Roughness <= 0.0001) ? 0.0 : u_Roughness * maxMip;
+    // vec3 prefiltered = textureLod(u_PrefilterMap, R, lod).rgb;
+
+    // vec2 brdf = texture(u_BrdfLUT, vec2(NdotV, u_Roughness)).rg;
+    // vec3 specularIBL = prefiltered * (F0 * brdf.x + brdf.y);
+    // FragColor = vec4(specularIBL, 1.0);
+    // vec2 lut = texture(u_BrdfLUT, vec2(0.5, 0.5)).rg;
+    // FragColor = vec4(lut.r, lut.g, 0.0, 1.0);
 
     FragColor = vec4(color, 1.0);
     EntityID = fs_in.EntityID;

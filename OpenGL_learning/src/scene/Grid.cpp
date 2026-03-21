@@ -28,6 +28,9 @@ void Grid::Draw(const Shader& shader,
     const_cast<Shader&>(shader).SetFloat("near", nearPlane);
     const_cast<Shader&>(shader).SetFloat("far", farPlane);
 
+    // 注: draw buffer 重定向已在 SceneRenderer::GridPass() 中完成 (排除整型附件)
+    // 这里只需标准混合即可
+    glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     if (m_VAO) {
@@ -40,6 +43,7 @@ void Grid::Draw(const Shader& shader,
         glBindVertexArray(0);
     }
 
+    glDisable(GL_BLEND);
     GL_CHECK_ERROR();
 }
 

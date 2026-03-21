@@ -1,59 +1,96 @@
-// Irradiance Convolution Shader
-// Computes diffuse irradiance map from environment cubemap
+// Irradiance Map Compute Shader
+// 通过半球面蒙特卡罗积分计算漫反射辐照度图
+// 参考: Hazel EnvironmentIrradiance.glsl + EnvironmentMapping.glslh
+#version 430 core
 
-#type vertex
-#version 330 core
+layout(binding = 0, rgba16f) restrict writeonly uniform imageCube o_IrradianceMap;
+layout(binding = 1) uniform samplerCube u_RadianceMap;
 
-layout (location = 0) in vec3 a_Position;
+uniform int u_Samples;  // 采样数 (建议 64~512)
 
-uniform mat4 u_Projection;
-uniform mat4 u_View;
+// ----------- Common -----------
+const float PI     = 3.141592;
+const float TwoPI  = 2.0 * PI;
+const float Epsilon = 0.00001;
 
-out vec3 v_LocalPos;
+// ----------- EnvironmentMapping -----------
 
-void main() {
-    v_LocalPos = a_Position;
-    gl_Position = u_Projection * u_View * vec4(a_Position, 1.0);
+vec3 GetCubeMapTexCoord(vec2 imageSize) {
+    vec2 st = gl_GlobalInvocationID.xy / imageSize;
+    vec2 uv = 2.0 * vec2(st.x, 1.0 - st.y) - vec2(1.0);
+
+    vec3 ret;
+    if      (gl_GlobalInvocationID.z == 0u) ret = vec3( 1.0, uv.y, -uv.x);
+    else if (gl_GlobalInvocationID.z == 1u) ret = vec3(-1.0, uv.y,  uv.x);
+    else if (gl_GlobalInvocationID.z == 2u) ret = vec3( uv.x, 1.0, -uv.y);
+    else if (gl_GlobalInvocationID.z == 3u) ret = vec3( uv.x,-1.0,  uv.y);
+    else if (gl_GlobalInvocationID.z == 4u) ret = vec3( uv.x, uv.y,  1.0);
+    else                                    ret = vec3(-uv.x, uv.y, -1.0);
+    return normalize(ret);
 }
 
-#type fragment
-#version 330 core
+// 计算 TBN 基向量 (无分支版本, 来自 Hazel)
+void ComputeBasisVectors(const vec3 N, out vec3 S, out vec3 T) {
+    T = cross(N, vec3(0.0, 1.0, 0.0));
+    T = mix(cross(N, vec3(1.0, 0.0, 0.0)), T, step(Epsilon, dot(T, T)));
+    T = normalize(T);
+    S = normalize(cross(N, T));
+}
 
-out vec4 FragColor;
+// 切线空间 → 世界空间
+vec3 TangentToWorld(const vec3 v, const vec3 N, const vec3 S, const vec3 T) {
+    return S * v.x + T * v.y + N * v.z;
+}
 
-in vec3 v_LocalPos;
+// Hammersley 低差异序列 (来自 Hazel)
+float RadicalInverse_VdC(uint bits) {
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10;
+}
 
-uniform samplerCube u_EnvironmentMap;
+vec2 SampleHammersley(uint i, uint samples) {
+    float invSamples = 1.0 / float(samples);
+    return vec2(i * invSamples, RadicalInverse_VdC(i));
+}
 
-const float PI = 3.14159265359;
+// 均匀半球采样 (来自 Hazel SampleHemisphere)
+// u1 → z 轴分量, u2 → 方位角
+vec3 SampleHemisphere(float u1, float u2) {
+    const float u1p = sqrt(max(0.0, 1.0 - u1 * u1));
+    return vec3(cos(TwoPI * u2) * u1p, sin(TwoPI * u2) * u1p, u1);
+}
 
+// ----------- 主函数 -----------
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 void main() {
-    // The world vector acts as the normal of a tangent surface
-    // from the origin, aligned to v_LocalPos.
-    vec3 N = normalize(v_LocalPos);
+    ivec2 outputSize = imageSize(o_IrradianceMap);
+    if (gl_GlobalInvocationID.x >= uint(outputSize.x) ||
+        gl_GlobalInvocationID.y >= uint(outputSize.y)) return;
 
+    vec3 N = GetCubeMapTexCoord(vec2(outputSize));
+
+    vec3 S, T;
+    ComputeBasisVectors(N, S, T);
+
+    uint samples = uint(u_Samples);
     vec3 irradiance = vec3(0.0);
 
-    // Tangent space calculation from origin point
-    vec3 up    = vec3(0.0, 1.0, 0.0);
-    vec3 right = normalize(cross(up, N));
-    up         = normalize(cross(N, right));
+    for (uint i = 0u; i < samples; i++) {
+        vec2 u  = SampleHammersley(i, samples);
+        vec3 Li = TangentToWorld(SampleHemisphere(u.x, u.y), N, S, T);
+        float cosTheta = max(0.0, dot(Li, N));
 
-    float sampleDelta = 0.025;
-    float nrSamples = 0.0;
-
-    for (float phi = 0.0; phi < 2.0 * PI; phi += sampleDelta) {
-        for (float theta = 0.0; theta < 0.5 * PI; theta += sampleDelta) {
-            // Spherical to cartesian (in tangent space)
-            vec3 tangentSample = vec3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
-            // Tangent space to world
-            vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * N;
-
-            irradiance += texture(u_EnvironmentMap, sampleVec).rgb * cos(theta) * sin(theta);
-            nrSamples++;
-        }
+        // 2.0 来自 pdf 约分: pdf = 1/(2PI), dΩ·cosθ 积分后除以 PI 抵消
+        // 使用 mip 1 并截断极亮值，防止 HDR 太阳等强光源产生萤火虫白斑
+        vec3 sampleColor = min(textureLod(u_RadianceMap, Li, 1).rgb, vec3(10.0));
+        irradiance += 2.0 * sampleColor * cosTheta;
     }
-    irradiance = PI * irradiance * (1.0 / float(nrSamples));
+    irradiance /= float(samples);
 
-    FragColor = vec4(irradiance, 1.0);
+    imageStore(o_IrradianceMap, ivec3(gl_GlobalInvocationID), vec4(irradiance, 1.0));
 }

@@ -82,7 +82,6 @@ public:
     static Ref<Texture2D> GetWhiteTexture();
     static Ref<Texture2D> GetBlackTexture();
     static Ref<Texture2D> GetNormalTexture();
-    static Ref<Texture2D> GetBRDFLutTexture();
     static Ref<TextureCube> GetBlackCubeTexture();
 
     // 统计信息

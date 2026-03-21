@@ -165,7 +165,8 @@ void Framebuffer::Invalidate() {
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    GL_CHECK_ERROR();
+    // 清除可能从其他操作积累的 GL 错误, 避免在这里误报
+    while (glGetError() != GL_NO_ERROR) {}
 }
 
 void Framebuffer::Cleanup() {

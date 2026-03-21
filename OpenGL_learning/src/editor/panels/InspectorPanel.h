@@ -22,8 +22,8 @@ private:
     void DrawRotatorComponent(ECS::RotatorComponent& rotator);
     void DrawFloatingComponent(ECS::FloatingComponent& floating);
 
-    // 材质编辑辅助方法
-    void DrawMaterialSlot(uint32_t index, AssetHandle& materialHandle);
+    // 材质编辑器 (Hazel 风格)
+    void DrawMaterialEditor(Ref<MaterialAsset> matAsset);
 
     // 通用组件头部（带删除按钮）
     template<typename T>

@@ -17,9 +17,15 @@ MaterialAsset::MaterialAsset(bool transparent)
     m_Material->Set<glm::vec3>("u_EmissiveColor", glm::vec3(1.0f));
 
     // 默认纹理
+    // Albedo: 白色 (1,1,1) - 由 u_AlbedoColor 控制颜色
+    // Normal: 默认法线 (0.5, 0.5, 1.0) -> 转换后 (0,0,1)
+    // Metallic: 白色 (1) - 由 u_Metallic 控制
+    // Roughness: 白色 (1) - 由 u_Roughness 控制
+    // AO: 白色 (1) - 由 u_AO 控制
+    // Emissive: 黑色 (0) - 默认无自发光
     m_Material->SetTexture("u_AlbedoMap", TextureSlot::Albedo, Renderer::GetWhiteTexture());
     m_Material->SetTexture("u_NormalMap", TextureSlot::Normal, Renderer::GetNormalTexture());
-    m_Material->SetTexture("u_MetallicMap", TextureSlot::Metallic, Renderer::GetBlackTexture());
+    m_Material->SetTexture("u_MetallicMap", TextureSlot::Metallic, Renderer::GetWhiteTexture());
     m_Material->SetTexture("u_RoughnessMap", TextureSlot::Roughness, Renderer::GetWhiteTexture());
     m_Material->SetTexture("u_AOMap", TextureSlot::AO, Renderer::GetWhiteTexture());
     m_Material->SetTexture("u_EmissiveMap", TextureSlot::Emissive, Renderer::GetBlackTexture());
@@ -106,7 +112,7 @@ void MaterialAsset::SetMetallicMap(AssetHandle handle) {
 
     auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
     m_Material->SetTexture("u_MetallicMap", TextureSlot::Metallic,
-        texture ? texture : Renderer::GetBlackTexture());
+        texture ? texture : Renderer::GetWhiteTexture());
 }
 
 void MaterialAsset::SetRoughnessMap(AssetHandle handle) {

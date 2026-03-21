@@ -13,6 +13,9 @@ void RenderCommand::Init() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // CubeMap 无缝过滤: 采样跨面边界时插值相邻面, 消除接缝闪烁
+    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+
     // 面剔除（默认关闭，避免影响双面渲染如四边形）
     // 需要时可手动调用 RenderCommand::EnableFaceCulling()
     glDisable(GL_CULL_FACE);
