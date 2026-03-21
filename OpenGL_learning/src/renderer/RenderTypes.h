@@ -208,8 +208,7 @@ struct DrawCommand {
     glm::mat4 Transform = glm::mat4(1.0f);
     glm::mat3 NormalMatrix = glm::mat3(1.0f);
 
-    // 材质 (可选覆盖)
-    AssetHandle MaterialHandle;
+    // 材质表 (组件级覆盖，为空时使用 MeshSource/StaticMesh 默认材质)
     Ref<MaterialTable> Materials;
 
     // 实体 ID (用于拾取)

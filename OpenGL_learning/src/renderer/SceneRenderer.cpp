@@ -136,9 +136,8 @@ void SceneRenderer::EndScene() {
 void SceneRenderer::SubmitMesh(Ref<MeshSource> meshSource,
                                 uint32_t submeshIndex,
                                 const glm::mat4& transform,
-                                const Ref<MaterialTable>& materials,
-                                int entityID,
-                                AssetHandle overrideMaterial) {
+                                const Ref<MaterialTable>& materialTable,
+                                int entityID) {
     if (!meshSource) return;
 
     // 确保 GPU 缓冲区已创建
@@ -156,8 +155,7 @@ void SceneRenderer::SubmitMesh(Ref<MeshSource> meshSource,
     cmd.SubmeshIndex = submeshIndex;
     cmd.Transform = transform * submesh.Transform;
     cmd.NormalMatrix = glm::transpose(glm::inverse(glm::mat3(cmd.Transform)));
-    cmd.Materials = materials;
-    cmd.MaterialHandle = overrideMaterial;  // 实体级材质覆盖
+    cmd.Materials = materialTable;  // 组件级材质表
     cmd.EntityID = entityID;
 
     // 计算到相机的距离（用于透明排序）
@@ -170,23 +168,26 @@ void SceneRenderer::SubmitMesh(Ref<MeshSource> meshSource,
 
 void SceneRenderer::SubmitStaticMesh(const Ref<StaticMesh>& staticMesh,
                                       Ref<MeshSource> meshSource,
+                                      const Ref<MaterialTable>& materialTable,
                                       const glm::mat4& transform,
                                       int entityID) {
     if (!staticMesh || !meshSource) return;
 
     // 获取要渲染的 submesh 列表
     const auto& submeshIndices = staticMesh->GetSubmeshes();
-    auto materials = staticMesh->GetMaterials();
+
+    // 组件级材质优先，否则用 StaticMesh 默认材质
+    Ref<MaterialTable> effectiveMaterials = materialTable ? materialTable : staticMesh->GetMaterials();
 
     if (submeshIndices.empty()) {
         // 如果没有指定 submesh，渲染所有
         for (uint32_t i = 0; i < meshSource->GetSubmeshCount(); ++i) {
-            SubmitMesh(meshSource, i, transform, materials, entityID);
+            SubmitMesh(meshSource, i, transform, effectiveMaterials, entityID);
         }
     } else {
         // 渲染指定的 submesh
         for (uint32_t submeshIndex : submeshIndices) {
-            SubmitMesh(meshSource, submeshIndex, transform, materials, entityID);
+            SubmitMesh(meshSource, submeshIndex, transform, effectiveMaterials, entityID);
         }
     }
 }
@@ -203,21 +204,16 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
                ECS::TransformComponent& transform,
                ECS::MeshComponent& meshComp) {
             if (!meshComp.MeshHandle.IsValid()) return;
-
-            // 检查是否有 MaterialComponent，创建对应的 MaterialAsset
-            AssetHandle overrideMaterial;
-            if (entity.HasComponent<ECS::MaterialComponent>()) {
-                auto& matComp = entity.GetComponent<ECS::MaterialComponent>();
-                overrideMaterial = GetOrCreateMaterialFromComponent(matComp, entity.GetHandle());
-            }
+            if (!meshComp.Visible) return;
 
             // 尝试获取 StaticMesh
             auto staticMesh = AssetManager::Get().GetAsset<StaticMesh>(meshComp.MeshHandle);
             if (staticMesh) {
                 auto meshSource = AssetManager::Get().GetAsset<MeshSource>(staticMesh->GetMeshSource());
                 if (meshSource) {
-                    SubmitStaticMesh(staticMesh, meshSource, transform.WorldMatrix,
-                                     static_cast<int>(entity.GetHandle()), overrideMaterial);
+                    // 传入组件级 MaterialTable，材质选择逻辑在 SubmitStaticMesh 内部
+                    SubmitStaticMesh(staticMesh, meshSource, meshComp.Materials,
+                                     transform.WorldMatrix, static_cast<int>(entity.GetHandle()));
                 }
                 return;
             }
@@ -227,8 +223,8 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
             if (meshSource) {
                 // 渲染所有 submesh
                 for (uint32_t i = 0; i < meshSource->GetSubmeshCount(); ++i) {
-                    SubmitMesh(meshSource, i, transform.WorldMatrix, nullptr,
-                               static_cast<int>(entity.GetHandle()), overrideMaterial);
+                    SubmitMesh(meshSource, i, transform.WorldMatrix, meshComp.Materials,
+                               static_cast<int>(entity.GetHandle()));
                 }
             }
         }

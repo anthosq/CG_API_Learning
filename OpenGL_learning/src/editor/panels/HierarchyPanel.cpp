@@ -108,7 +108,6 @@ void HierarchyPanel::DrawContextMenu(EditorContext& context) {
             ECS::Entity entity = context.World->CreateEntity("Cube");
             entity.AddComponent<ECS::TransformComponent>();
             entity.AddComponent<ECS::MeshComponent>();
-            entity.AddComponent<ECS::MaterialComponent>();
             context.Select(entity);
         }
 

@@ -315,13 +315,8 @@ void EditorApp::CreateSceneEntities() {
         transform.SetEulerAngles(glm::vec3(angle * 1.0f, angle * 0.3f, angle * 0.5f));
 
         // Mesh - 引用共享的立方体 (通过 AssetHandle)
+        // 材质通过 MeshComponent.Materials 或 StaticMesh 默认材质处理
         cube.AddComponent<ECS::MeshComponent>(cubeMeshHandle);
-
-        // Material - 使用默认材质
-        auto& material = cube.AddComponent<ECS::MaterialComponent>();
-        material.DiffuseMapHandle = m_DiffuseMapHandle;
-        material.SpecularMapHandle = m_SpecularMapHandle;
-        material.Shininess = 32.0f;
     }
 
     // 点光源位置
@@ -350,29 +345,20 @@ void EditorApp::CreateSceneEntities() {
     // 创建带行为的示例实体
     {
         ECS::Entity rotatingCube = m_World->CreateEntity("RotatingCube");
-        auto& transform = rotatingCube.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f, 2.0f, 0.0f));
+        rotatingCube.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f, 2.0f, 0.0f));
         rotatingCube.AddComponent<ECS::MeshComponent>(cubeMeshHandle);
         rotatingCube.AddComponent<ECS::RotatorComponent>(glm::vec3(0, 1, 0), 45.0f);
-        auto& mat = rotatingCube.AddComponent<ECS::MaterialComponent>();
-        mat.DiffuseMapHandle = m_DiffuseMapHandle;
-        mat.SpecularMapHandle = m_SpecularMapHandle;
 
         ECS::Entity floatingCube = m_World->CreateEntity("FloatingCube");
         auto& floatTransform = floatingCube.AddComponent<ECS::TransformComponent>(glm::vec3(3.0f, 1.0f, 0.0f));
         floatingCube.AddComponent<ECS::MeshComponent>(cubeMeshHandle);
         auto& floating = floatingCube.AddComponent<ECS::FloatingComponent>(1.0f, 0.5f);
         floating.BasePosition = floatTransform.Position;
-        auto& floatMat = floatingCube.AddComponent<ECS::MaterialComponent>();
-        floatMat.DiffuseMapHandle = m_DiffuseMapHandle;
-        floatMat.SpecularMapHandle = m_SpecularMapHandle;
 
         ECS::Entity orbitingCube = m_World->CreateEntity("OrbitingCube");
         orbitingCube.AddComponent<ECS::TransformComponent>(glm::vec3(0.0f, 1.0f, 3.0f));
         orbitingCube.AddComponent<ECS::MeshComponent>(cubeMeshHandle);
         orbitingCube.AddComponent<ECS::OrbiterComponent>(glm::vec3(0.0f, 1.0f, 0.0f), 3.0f, 30.0f);
-        auto& orbitMat = orbitingCube.AddComponent<ECS::MaterialComponent>();
-        orbitMat.DiffuseMapHandle = m_DiffuseMapHandle;
-        orbitMat.SpecularMapHandle = m_SpecularMapHandle;
     }
 
     std::cout << "[EditorApp] Created " << m_World->GetEntityCount() << " entities" << std::endl;

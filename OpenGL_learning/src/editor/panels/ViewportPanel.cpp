@@ -91,20 +91,20 @@ void ViewportPanel::OnDraw(EditorContext& context) {
 
                     glm::vec3 spawnPosition = m_Camera.GetPosition() + m_Camera.GetFront() * 5.0f;
                     entity.AddComponent<ECS::TransformComponent>(spawnPosition);
-                    entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
-                    // 添加 MaterialComponent 并设置从模型加载的材质
-                    auto& matComp = entity.AddComponent<ECS::MaterialComponent>();
+                    // 添加 MeshComponent，材质使用 MeshSource 中的默认材质
+                    // (MaterialTable 为空时，渲染器会自动使用 MeshSource 的材质)
+                    auto& meshComp = entity.AddComponent<ECS::MeshComponent>(meshHandle);
+
+                    // 可选：从 MeshSource 复制材质到组件级 MaterialTable
                     auto meshSource = AssetManager::Get().GetAsset<MeshSource>(meshHandle);
-                    if (meshSource && !meshSource->GetMaterials().empty()) {
-                        AssetHandle matHandle = meshSource->GetMaterials()[0];
-                        auto matAsset = AssetManager::Get().GetAsset<MaterialAsset>(matHandle);
-                        if (matAsset) {
-                            matComp.Albedo = matAsset->GetAlbedoColor();
-                            matComp.Metallic = matAsset->GetMetallic();
-                            matComp.Roughness = matAsset->GetRoughness();
-                            matComp.AlbedoMap = matAsset->GetAlbedoMap();
-                            matComp.NormalMap = matAsset->GetNormalMap();
+                    if (meshSource) {
+                        const auto& defaultMaterials = meshSource->GetMaterials();
+                        if (!defaultMaterials.empty()) {
+                            meshComp.Materials = MaterialTable::Create(static_cast<uint32_t>(defaultMaterials.size()));
+                            for (uint32_t i = 0; i < defaultMaterials.size(); ++i) {
+                                meshComp.Materials->SetMaterial(i, defaultMaterials[i]);
+                            }
                         }
                     }
 

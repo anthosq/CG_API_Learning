@@ -16,12 +16,14 @@ private:
     // 组件绘制方法
     void DrawTagComponent(ECS::TagComponent& tag);
     void DrawTransformComponent(ECS::TransformComponent& transform);
-    void DrawMeshComponent(ECS::MeshComponent& mesh);
-    void DrawMaterialComponent(ECS::MaterialComponent& material);
+    void DrawMeshComponent(ECS::MeshComponent& mesh, ECS::Entity entity);
     void DrawPointLightComponent(ECS::PointLightComponent& light);
     void DrawDirectionalLightComponent(ECS::DirectionalLightComponent& light);
     void DrawRotatorComponent(ECS::RotatorComponent& rotator);
     void DrawFloatingComponent(ECS::FloatingComponent& floating);
+
+    // 材质编辑辅助方法
+    void DrawMaterialSlot(uint32_t index, AssetHandle& materialHandle);
 
     // 通用组件头部（带删除按钮）
     template<typename T>

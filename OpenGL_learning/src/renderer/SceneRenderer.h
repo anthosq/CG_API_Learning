@@ -86,12 +86,14 @@ public:
     void SubmitMesh(Ref<MeshSource> meshSource,
                     uint32_t submeshIndex,
                     const glm::mat4& transform,
-                    const Ref<MaterialTable>& materials = nullptr,
+                    const Ref<MaterialTable>& materialTable = nullptr,
                     int entityID = -1);
 
     // 提交 StaticMesh (会遍历所有 submesh)
+    // materialTable: 组件级材质覆盖，为空时使用 StaticMesh 默认材质
     void SubmitStaticMesh(const Ref<StaticMesh>& staticMesh,
                           Ref<MeshSource> meshSource,
+                          const Ref<MaterialTable>& materialTable,
                           const glm::mat4& transform,
                           int entityID = -1);
 

@@ -1,7 +1,9 @@
 #include "InspectorPanel.h"
 #include "editor/EditorContext.h"
 #include "asset/AssetManager.h"
+#include "asset/MaterialAsset.h"
 #include "graphics/Texture.h"
+#include "graphics/MeshSource.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -119,17 +121,10 @@ void InspectorPanel::OnDraw(EditorContext& context) {
         }
     }
 
-    // MeshComponent
+    // MeshComponent (包含材质编辑)
     if (entity.HasComponent<ECS::MeshComponent>()) {
         if (DrawComponentHeader<ECS::MeshComponent>(entity, "Mesh")) {
-            DrawMeshComponent(entity.GetComponent<ECS::MeshComponent>());
-        }
-    }
-
-    // MaterialComponent
-    if (entity.HasComponent<ECS::MaterialComponent>()) {
-        if (DrawComponentHeader<ECS::MaterialComponent>(entity, "Material")) {
-            DrawMaterialComponent(entity.GetComponent<ECS::MaterialComponent>());
+            DrawMeshComponent(entity.GetComponent<ECS::MeshComponent>(), entity);
         }
     }
 
@@ -208,94 +203,88 @@ void InspectorPanel::DrawTransformComponent(ECS::TransformComponent& transform) 
     }
 }
 
-void InspectorPanel::DrawMeshComponent(ECS::MeshComponent& mesh) {
+void InspectorPanel::DrawMeshComponent(ECS::MeshComponent& mesh, ECS::Entity entity) {
     ImGui::Text("Mesh Handle: %s", mesh.MeshHandle.IsValid() ? "Valid" : "None");
-    // TODO: 添加网格选择器
-}
+    ImGui::Checkbox("Visible", &mesh.Visible);
 
-void InspectorPanel::DrawMaterialComponent(ECS::MaterialComponent& material) {
-    // Albedo Color
-    DrawColorControl("Albedo", material.Albedo);
+    if (!mesh.MeshHandle.IsValid()) return;
 
-    ImGui::Spacing();
+    // 获取 MeshSource 以了解 submesh 数量
+    Ref<MeshSource> meshSource;
+    auto staticMesh = AssetManager::Get().GetAsset<StaticMesh>(mesh.MeshHandle);
+    if (staticMesh) {
+        meshSource = AssetManager::Get().GetAsset<MeshSource>(staticMesh->GetMeshSource());
+    } else {
+        meshSource = AssetManager::Get().GetAsset<MeshSource>(mesh.MeshHandle);
+    }
+
+    if (!meshSource) return;
+
+    uint32_t submeshCount = meshSource->GetSubmeshCount();
+    ImGui::Text("Submeshes: %u", submeshCount);
+
     ImGui::Separator();
+    ImGui::Text("Materials");
     ImGui::Spacing();
 
-    // PBR 参数
-    ImGui::Columns(2);
-    ImGui::SetColumnWidth(0, 100.0f);
-
-    ImGui::Text("Metallic");
-    ImGui::NextColumn();
-    ImGui::SliderFloat("##Metallic", &material.Metallic, 0.0f, 1.0f);
-    ImGui::NextColumn();
-
-    ImGui::Text("Roughness");
-    ImGui::NextColumn();
-    ImGui::SliderFloat("##Roughness", &material.Roughness, 0.0f, 1.0f);
-    ImGui::NextColumn();
-
-    ImGui::Text("AO");
-    ImGui::NextColumn();
-    ImGui::SliderFloat("##AO", &material.AO, 0.0f, 1.0f);
-
-    ImGui::Columns(1);
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Text("Textures (Drag from Asset Browser)");
-    ImGui::Spacing();
-
-    // 纹理槽辅助函数
-    auto DrawTextureSlot = [](const char* label, AssetHandle& handle) {
-        ImGui::PushID(label);
-
-        ImGui::Columns(2);
-        ImGui::SetColumnWidth(0, 100.0f);
-        ImGui::Text("%s", label);
-        ImGui::NextColumn();
-
-        // 显示纹理预览或空槽
-        float size = 64.0f;
-        auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
-
-        if (texture && texture->IsValid()) {
-            ImGui::Image((ImTextureID)(intptr_t)texture->GetID(),
-                        ImVec2(size, size), ImVec2(0, 1), ImVec2(1, 0));
-        } else {
-            ImGui::Button("None", ImVec2(size, size));
+    // 确保 MaterialTable 存在
+    if (!mesh.Materials) {
+        if (ImGui::Button("Create Material Overrides")) {
+            mesh.Materials = MaterialTable::Create(submeshCount);
+            // 从 MeshSource 或 StaticMesh 复制默认材质
+            const auto& defaultMaterials = meshSource->GetMaterials();
+            for (uint32_t i = 0; i < std::min(submeshCount, static_cast<uint32_t>(defaultMaterials.size())); ++i) {
+                mesh.Materials->SetMaterial(i, defaultMaterials[i]);
+            }
         }
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Using default materials");
+        return;
+    }
 
-        // 接受拖放
-        if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                const char* path = static_cast<const char*>(payload->Data);
-                std::filesystem::path assetPath(path);
-                std::string ext = assetPath.extension().string();
-                if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".dds") {
-                    handle = AssetManager::Get().ImportTexture(assetPath);
+    // 绘制每个材质槽
+    for (uint32_t i = 0; i < submeshCount; ++i) {
+        ImGui::PushID(static_cast<int>(i));
+
+        const auto& submeshes = meshSource->GetSubmeshes();
+        const char* submeshName = i < submeshes.size() ? submeshes[i].MeshName.c_str() : "Unknown";
+
+        if (ImGui::TreeNode("Material", "Slot %u: %s", i, submeshName)) {
+            AssetHandle matHandle = mesh.Materials->GetMaterial(i);
+            auto matAsset = AssetManager::Get().GetAsset<MaterialAsset>(matHandle);
+
+            if (matAsset) {
+                // 显示材质名称
+                ImGui::Text("Material: %s", matAsset->GetMaterial()->GetName().c_str());
+
+                // 编辑 PBR 参数
+                glm::vec3 albedo = matAsset->GetAlbedoColor();
+                if (ImGui::ColorEdit3("Albedo", &albedo[0])) {
+                    matAsset->SetAlbedoColor(albedo);
                 }
+
+                float metallic = matAsset->GetMetallic();
+                if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f)) {
+                    matAsset->SetMetallic(metallic);
+                }
+
+                float roughness = matAsset->GetRoughness();
+                if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f)) {
+                    matAsset->SetRoughness(roughness);
+                }
+            } else {
+                ImGui::TextColored(ImVec4(1, 0.5f, 0.5f, 1), "No material assigned");
             }
-            ImGui::EndDragDropTarget();
+
+            ImGui::TreePop();
         }
 
-        // 清除按钮
-        ImGui::SameLine();
-        if (handle.IsValid()) {
-            if (ImGui::Button("X")) {
-                handle = AssetHandle(0);
-            }
-        }
-
-        ImGui::Columns(1);
         ImGui::PopID();
-    };
+    }
 
-    DrawTextureSlot("Albedo Map", material.AlbedoMap);
-    DrawTextureSlot("Normal Map", material.NormalMap);
-    DrawTextureSlot("Metallic Map", material.MetallicMap);
-    DrawTextureSlot("Roughness Map", material.RoughnessMap);
-    DrawTextureSlot("AO Map", material.AOMap);
+    // 清除覆盖按钮
+    if (ImGui::Button("Clear Material Overrides")) {
+        mesh.Materials = nullptr;
+    }
 }
 
 void InspectorPanel::DrawPointLightComponent(ECS::PointLightComponent& light) {
@@ -440,13 +429,6 @@ void InspectorPanel::DrawAddComponentButton(ECS::Entity entity) {
             }
         }
 
-        if (!entity.HasComponent<ECS::MaterialComponent>()) {
-            if (ImGui::MenuItem("Material")) {
-                entity.AddComponent<ECS::MaterialComponent>();
-                ImGui::CloseCurrentPopup();
-            }
-        }
-
         // 注: 光源组件通过 PrimitivesPanel 或专用面板创建，不在此处添加
 
         if (!entity.HasComponent<ECS::RotatorComponent>()) {
@@ -471,7 +453,6 @@ void InspectorPanel::DrawAddComponentButton(ECS::Entity entity) {
 template bool InspectorPanel::DrawComponentHeader<ECS::TagComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::TransformComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::MeshComponent>(ECS::Entity, const char*);
-template bool InspectorPanel::DrawComponentHeader<ECS::MaterialComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::PointLightComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::DirectionalLightComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::RotatorComponent>(ECS::Entity, const char*);

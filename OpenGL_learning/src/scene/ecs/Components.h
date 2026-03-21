@@ -21,7 +21,9 @@
 #include <vector>
 #include <entt/entt.hpp>
 #include "core/UUID.h"
+#include "core/Ref.h"
 #include "asset/AssetTypes.h"
+#include "asset/MaterialAsset.h"  // MaterialTable 完整定义
 
 namespace GLRenderer {
 
@@ -123,12 +125,12 @@ struct HierarchyComponent {
 // 渲染组件
 
 struct MeshComponent {
-    AssetHandle MeshHandle;  // 引用 StaticMesh 资产
-    uint32_t SubmeshIndex = 0;  // TODO: 后续移至 SubmeshComponent
+    AssetHandle MeshHandle;  // 引用 MeshSource 或 StaticMesh 资产
+    Ref<MaterialTable> Materials;  // 组件级材质覆盖 (可选)
+    bool Visible = true;
 
     MeshComponent() = default;
-    MeshComponent(AssetHandle handle, uint32_t submeshIndex = 0)
-        : MeshHandle(handle), SubmeshIndex(submeshIndex) {}
+    MeshComponent(AssetHandle handle) : MeshHandle(handle) {}
 };
 
 // [DEPRECATED] 使用 MeshComponent 替代
@@ -144,33 +146,9 @@ struct ModelComponent {
         : Handle(handle), AssetPath(path) {}
 };
 
-struct MaterialComponent {
-    // PBR 纹理 (AssetHandle)
-    AssetHandle AlbedoMap;
-    AssetHandle NormalMap;
-    AssetHandle MetallicMap;
-    AssetHandle RoughnessMap;
-    AssetHandle AOMap;
-
-    // 标量属性
-    glm::vec3 Albedo = glm::vec3(1.0f);
-    float Metallic = 0.0f;
-    float Roughness = 0.5f;
-    float AO = 1.0f;
-
-    // Phong 着色 (AssetHandle)
-    AssetHandle DiffuseMapHandle;
-    AssetHandle SpecularMapHandle;
-    float Shininess = 32.0f;
-
-    // 着色器
-    AssetHandle ShaderHandle;
-
-    bool HasDiffuseMap() const { return DiffuseMapHandle.IsValid(); }
-    bool HasSpecularMap() const { return SpecularMapHandle.IsValid(); }
-
-    MaterialComponent() = default;
-};
+// [DEPRECATED] 使用 MeshComponent.Materials (MaterialTable) 替代
+// 材质信息现在存储在 MeshComponent 的 MaterialTable 中
+// struct MaterialComponent { ... };
 
 struct VisibilityComponent {
     bool Visible = true;

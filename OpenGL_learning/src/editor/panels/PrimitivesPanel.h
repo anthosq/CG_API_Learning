@@ -8,7 +8,7 @@
 // - Plane (平面)
 // - Cylinder (圆柱体)
 //
-// 创建的实体会自动添加 TransformComponent, MeshComponent, MaterialComponent
+// 创建的实体会自动添加 TransformComponent, MeshComponent
 
 #include "Panel.h"
 #include "graphics/MeshFactory.h"

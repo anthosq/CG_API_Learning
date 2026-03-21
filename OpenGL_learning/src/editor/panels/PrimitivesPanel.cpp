@@ -85,7 +85,7 @@ void PrimitivesPanel::CreateCube(EditorContext& context) {
     entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
     // Material (使用默认值)
-    entity.AddComponent<ECS::MaterialComponent>();
+    // 材质通过 MeshComponent.Materials 或 StaticMesh 默认材质处理
 
     // 选中新创建的实体
     context.Select(entity);
@@ -106,7 +106,7 @@ void PrimitivesPanel::CreateSphere(EditorContext& context) {
     entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
     // Material
-    entity.AddComponent<ECS::MaterialComponent>();
+    // 材质通过 MeshComponent.Materials 或 StaticMesh 默认材质处理
 
     context.Select(entity);
 
@@ -126,7 +126,7 @@ void PrimitivesPanel::CreatePlane(EditorContext& context) {
     entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
     // Material
-    entity.AddComponent<ECS::MaterialComponent>();
+    // 材质通过 MeshComponent.Materials 或 StaticMesh 默认材质处理
 
     context.Select(entity);
 
@@ -146,7 +146,7 @@ void PrimitivesPanel::CreateCylinder(EditorContext& context) {
     entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
     // Material
-    entity.AddComponent<ECS::MaterialComponent>();
+    // 材质通过 MeshComponent.Materials 或 StaticMesh 默认材质处理
 
     context.Select(entity);
 

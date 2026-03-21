@@ -148,7 +148,6 @@ void Editor::DrawMenuBar() {
                         auto entity = m_Context.World->CreateEntity("Cube");
                         entity.AddComponent<ECS::TransformComponent>();
                         entity.AddComponent<ECS::MeshComponent>();
-                        entity.AddComponent<ECS::MaterialComponent>();
                         m_Context.Select(entity);
                     }
                 }
