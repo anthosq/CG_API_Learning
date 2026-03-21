@@ -40,6 +40,7 @@ public:
     // 获取资产 (模板方法)
     template<typename T>
     Ref<T> GetAsset(AssetHandle handle) {
+        if (!handle.IsValid()) return nullptr;
         auto it = m_LoadedAssets.find(handle);
         if (it != m_LoadedAssets.end()) {
             return it->second.As<T>();

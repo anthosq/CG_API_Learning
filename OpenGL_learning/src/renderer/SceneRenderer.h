@@ -21,6 +21,7 @@
 #include "scene/ecs/ECS.h"
 #include "scene/Light.h"
 #include "scene/Grid.h"
+#include "asset/MaterialAsset.h"
 
 #include <memory>
 #include <vector>
@@ -44,19 +45,16 @@ struct SceneRenderSettings {
 
 // 场景环境数据
 struct SceneEnvironment {
-    // 方向光
     DirectionalLight DirLight;
 
-    // 点光源（最多 4 个）
-    PointLight PointLights[4];
+    PointLight PointLights[MAX_POINT_LIGHTS];
     int PointLightCount = 0;
 
-    // 聚光灯（可选）
     SpotLight Spotlight;
     bool SpotlightEnabled = false;
 
-    // 天空盒
     Ref<TextureCube> Skybox;
+    float EnvironmentIntensity = 1.0f;
 };
 
 // 光源实体信息（用于可视化和拾取）
@@ -131,12 +129,15 @@ private:
     void GeometryPass();         // 不透明物体
     void TransparentPass();      // 透明物体
 
-    // === 辅助方法 ===
-    void SetupLighting(Shader& shader);
     void SyncLightsFromECS(ECS::World& world);
     void CollectDrawCommandsFromECS(ECS::World& world);
     void SortTransparentDrawList();
     void CreateDefaultResources();
+    void UpdateLightingUBO();
+
+    // PBR 渲染
+    void BindPBRMaterial(Shader& shader, const Ref<MaterialAsset>& material);
+    Ref<MaterialAsset> GetMaterialForDrawCommand(const DrawCommand& cmd);
 
 private:
     bool m_Initialized = false;
@@ -154,6 +155,7 @@ private:
 
     Ref<Texture2D> m_DefaultDiffuse;
     Ref<Texture2D> m_DefaultSpecular;
+    Ref<MaterialAsset> m_DefaultMaterial;
 
     // === 绘制列表 ===
     std::vector<DrawCommand> m_OpaqueDrawList;

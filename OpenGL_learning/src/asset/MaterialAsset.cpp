@@ -1,15 +1,28 @@
 #include "MaterialAsset.h"
+#include "AssetManager.h"
+#include "renderer/Renderer.h"
 
 namespace GLRenderer {
 
 MaterialAsset::MaterialAsset(bool transparent)
     : m_Transparent(transparent) {
-    m_Material = Material::Create(nullptr, "DefaultMaterial");
+    m_Material = Material::Create("DefaultMaterial");
 
+    // 标量参数
     m_Material->Set<glm::vec3>("u_AlbedoColor", glm::vec3(1.0f));
     m_Material->Set<float>("u_Metallic", 0.0f);
     m_Material->Set<float>("u_Roughness", 0.5f);
-    m_Material->Set<float>("u_Emission", 0.0f);
+    m_Material->Set<float>("u_AO", 1.0f);
+    m_Material->Set<float>("u_EmissiveIntensity", 0.0f);
+    m_Material->Set<glm::vec3>("u_EmissiveColor", glm::vec3(1.0f));
+
+    // 默认纹理
+    m_Material->SetTexture("u_AlbedoMap", TextureSlot::Albedo, Renderer::GetWhiteTexture());
+    m_Material->SetTexture("u_NormalMap", TextureSlot::Normal, Renderer::GetNormalTexture());
+    m_Material->SetTexture("u_MetallicMap", TextureSlot::Metallic, Renderer::GetBlackTexture());
+    m_Material->SetTexture("u_RoughnessMap", TextureSlot::Roughness, Renderer::GetWhiteTexture());
+    m_Material->SetTexture("u_AOMap", TextureSlot::AO, Renderer::GetWhiteTexture());
+    m_Material->SetTexture("u_EmissiveMap", TextureSlot::Emissive, Renderer::GetBlackTexture());
 }
 
 MaterialAsset::MaterialAsset(const Ref<Material>& material)
@@ -57,40 +70,70 @@ void MaterialAsset::SetRoughness(float value) {
 
 float MaterialAsset::GetEmission() const {
     if (m_Material) {
-        return m_Material->Get<float>("u_Emission", 0.0f);
+        return m_Material->Get<float>("u_EmissiveIntensity", 0.0f);
     }
     return 0.0f;
 }
 
 void MaterialAsset::SetEmission(float value) {
     if (m_Material) {
-        m_Material->Set<float>("u_Emission", value);
+        m_Material->Set<float>("u_EmissiveIntensity", value);
     }
 }
 
 void MaterialAsset::SetAlbedoMap(AssetHandle handle) {
     m_AlbedoMap = handle;
+    if (!m_Material) return;
+
+    auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
+    m_Material->SetTexture("u_AlbedoMap", TextureSlot::Albedo,
+        texture ? texture : Renderer::GetWhiteTexture());
 }
 
 void MaterialAsset::SetNormalMap(AssetHandle handle) {
     m_NormalMap = handle;
     m_UseNormalMap = handle.IsValid();
+    if (!m_Material) return;
+
+    auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
+    m_Material->SetTexture("u_NormalMap", TextureSlot::Normal,
+        texture ? texture : Renderer::GetNormalTexture());
 }
 
 void MaterialAsset::SetMetallicMap(AssetHandle handle) {
     m_MetallicMap = handle;
+    if (!m_Material) return;
+
+    auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
+    m_Material->SetTexture("u_MetallicMap", TextureSlot::Metallic,
+        texture ? texture : Renderer::GetBlackTexture());
 }
 
 void MaterialAsset::SetRoughnessMap(AssetHandle handle) {
     m_RoughnessMap = handle;
+    if (!m_Material) return;
+
+    auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
+    m_Material->SetTexture("u_RoughnessMap", TextureSlot::Roughness,
+        texture ? texture : Renderer::GetWhiteTexture());
 }
 
 void MaterialAsset::SetAOMap(AssetHandle handle) {
     m_AOMap = handle;
+    if (!m_Material) return;
+
+    auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
+    m_Material->SetTexture("u_AOMap", TextureSlot::AO,
+        texture ? texture : Renderer::GetWhiteTexture());
 }
 
 void MaterialAsset::SetEmissiveMap(AssetHandle handle) {
     m_EmissiveMap = handle;
+    if (!m_Material) return;
+
+    auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
+    m_Material->SetTexture("u_EmissiveMap", TextureSlot::Emissive,
+        texture ? texture : Renderer::GetBlackTexture());
 }
 
 Ref<MaterialAsset> MaterialAsset::Create(bool transparent) {

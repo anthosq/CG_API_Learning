@@ -1,5 +1,7 @@
 #include "InspectorPanel.h"
 #include "editor/EditorContext.h"
+#include "asset/AssetManager.h"
+#include "graphics/Texture.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -212,10 +214,14 @@ void InspectorPanel::DrawMeshComponent(ECS::MeshComponent& mesh) {
 }
 
 void InspectorPanel::DrawMaterialComponent(ECS::MaterialComponent& material) {
-    // Albedo
+    // Albedo Color
     DrawColorControl("Albedo", material.Albedo);
 
-    // 金属度和粗糙度
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // PBR 参数
     ImGui::Columns(2);
     ImGui::SetColumnWidth(0, 100.0f);
 
@@ -235,7 +241,61 @@ void InspectorPanel::DrawMaterialComponent(ECS::MaterialComponent& material) {
 
     ImGui::Columns(1);
 
-    // TODO: 纹理选择器
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("Textures (Drag from Asset Browser)");
+    ImGui::Spacing();
+
+    // 纹理槽辅助函数
+    auto DrawTextureSlot = [](const char* label, AssetHandle& handle) {
+        ImGui::PushID(label);
+
+        ImGui::Columns(2);
+        ImGui::SetColumnWidth(0, 100.0f);
+        ImGui::Text("%s", label);
+        ImGui::NextColumn();
+
+        // 显示纹理预览或空槽
+        float size = 64.0f;
+        auto texture = AssetManager::Get().GetAsset<Texture2D>(handle);
+
+        if (texture && texture->IsValid()) {
+            ImGui::Image((ImTextureID)(intptr_t)texture->GetID(),
+                        ImVec2(size, size), ImVec2(0, 1), ImVec2(1, 0));
+        } else {
+            ImGui::Button("None", ImVec2(size, size));
+        }
+
+        // 接受拖放
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                const char* path = static_cast<const char*>(payload->Data);
+                std::filesystem::path assetPath(path);
+                std::string ext = assetPath.extension().string();
+                if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".dds") {
+                    handle = AssetManager::Get().ImportTexture(assetPath);
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        // 清除按钮
+        ImGui::SameLine();
+        if (handle.IsValid()) {
+            if (ImGui::Button("X")) {
+                handle = AssetHandle(0);
+            }
+        }
+
+        ImGui::Columns(1);
+        ImGui::PopID();
+    };
+
+    DrawTextureSlot("Albedo Map", material.AlbedoMap);
+    DrawTextureSlot("Normal Map", material.NormalMap);
+    DrawTextureSlot("Metallic Map", material.MetallicMap);
+    DrawTextureSlot("Roughness Map", material.RoughnessMap);
+    DrawTextureSlot("AO Map", material.AOMap);
 }
 
 void InspectorPanel::DrawPointLightComponent(ECS::PointLightComponent& light) {

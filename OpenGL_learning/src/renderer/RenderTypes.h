@@ -5,6 +5,7 @@
 #include "graphics/MeshSource.h"
 #include "RenderCommand.h"
 #include "asset/AssetTypes.h"
+#include "asset/MaterialAsset.h"
 #include "core/Ref.h"
 #include <glm/glm.hpp>
 
@@ -23,24 +24,29 @@ struct CameraUBO {
     glm::vec4 Position;        // offset 192, size 16 (w 分量未使用，用于对齐)
 };  // Total: 208 bytes
 
-// 最大点光源数量
-constexpr int MAX_POINT_LIGHTS = 4;
+constexpr int MAX_POINT_LIGHTS = 16;
 
-// 光照 UBO (绑定点 1)
+// 光照 UBO (绑定点 1), std140 布局
 struct LightingUBO {
     // 方向光
-    glm::vec4 DirLightDirection;  // offset 0,   xyz = 方向, w = 强度
-    glm::vec4 DirLightColor;      // offset 16,  xyz = 颜色, w = ambient 强度
+    glm::vec4 DirLightDirection;      // xyz = 方向, w = 强度
+    glm::vec4 DirLightColor;          // xyz = 颜色, w = shadowAmount
 
-    // 点光源 (最多 4 个)
-    glm::vec4 PointLightPositions[MAX_POINT_LIGHTS];  // offset 32,  xyz = 位置, w = 未使用
-    glm::vec4 PointLightColors[MAX_POINT_LIGHTS];     // offset 96,  xyz = 颜色, w = 强度
-    glm::vec4 PointLightParams[MAX_POINT_LIGHTS];     // offset 160, x = constant, y = linear, z = quadratic, w = radius
+    // 点光源 (最多16个)
+    glm::vec4 PointLightPosRadius[MAX_POINT_LIGHTS];      // xyz = 位置, w = 半径
+    glm::vec4 PointLightColorIntensity[MAX_POINT_LIGHTS]; // xyz = 颜色, w = 强度
+    glm::vec4 PointLightParams[MAX_POINT_LIGHTS];         // x = falloff
 
-    // 点光源数量和全局环境光
-    glm::ivec4 LightCounts;       // offset 224, x = 点光源数量, yzw = 保留
-    glm::vec4 AmbientColor;       // offset 240, xyz = 环境光颜色, w = 强度
-};  // Total: 256 bytes
+    // 聚光灯 (单个)
+    glm::vec4 SpotLightPosRange;          // xyz = 位置, w = 范围
+    glm::vec4 SpotLightDirAngle;          // xyz = 方向, w = 角度(度)
+    glm::vec4 SpotLightColorIntensity;    // xyz = 颜色, w = 强度
+    glm::vec4 SpotLightParams;            // x = falloff, y = angleAttenuation
+
+    // 元数据
+    glm::ivec4 LightCounts;           // x = 点光源数量, y = 聚光灯启用(0/1)
+    glm::vec4 AmbientColor;           // xyz = 环境光颜色, w = 强度
+};
 
 // UBO 绑定点常量
 constexpr uint32_t UBO_BINDING_CAMERA = 0;

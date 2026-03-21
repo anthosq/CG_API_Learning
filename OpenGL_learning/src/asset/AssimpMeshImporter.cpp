@@ -1,5 +1,6 @@
 #include "AssimpMeshImporter.h"
 #include "AssetManager.h"
+#include "MaterialAsset.h"
 #include "graphics/Texture.h"
 #include "utils/DDSLoader.h"
 
@@ -192,15 +193,67 @@ std::vector<AssetHandle> AssimpMeshImporter::LoadMaterials(const aiScene* scene)
     materials.reserve(scene->mNumMaterials);
 
     for (unsigned int i = 0; i < scene->mNumMaterials; i++) {
-        aiMaterial* material = scene->mMaterials[i];
+        aiMaterial* aiMat = scene->mMaterials[i];
 
-        // 尝试加载漫反射贴图
-        AssetHandle diffuseHandle = LoadMaterialTexture(material, aiTextureType_DIFFUSE, scene);
-        materials.push_back(diffuseHandle);
+        // 创建 MaterialAsset
+        auto materialAsset = MaterialAsset::Create(false);
 
-        // TODO: 创建 MaterialAsset 并设置其他贴图
-        // AssetHandle normalHandle = LoadMaterialTexture(material, aiTextureType_NORMALS, scene);
-        // AssetHandle specularHandle = LoadMaterialTexture(material, aiTextureType_SPECULAR, scene);
+        // 获取材质名称
+        aiString matName;
+        if (aiMat->Get(AI_MATKEY_NAME, matName) == AI_SUCCESS) {
+            materialAsset->GetMaterial()->SetName(matName.C_Str());
+        }
+
+        // 获取基础颜色
+        aiColor3D diffuseColor(1.0f, 1.0f, 1.0f);
+        if (aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, diffuseColor) == AI_SUCCESS) {
+            materialAsset->SetAlbedoColor(glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b));
+        }
+
+        // 加载 Albedo/Diffuse 贴图
+        AssetHandle albedoHandle = LoadMaterialTexture(aiMat, aiTextureType_DIFFUSE, scene);
+        if (!albedoHandle.IsValid()) {
+            albedoHandle = LoadMaterialTexture(aiMat, aiTextureType_BASE_COLOR, scene);
+        }
+        if (albedoHandle.IsValid()) {
+            materialAsset->SetAlbedoMap(albedoHandle);
+        }
+
+        // 加载 Normal 贴图
+        AssetHandle normalHandle = LoadMaterialTexture(aiMat, aiTextureType_NORMALS, scene);
+        if (!normalHandle.IsValid()) {
+            normalHandle = LoadMaterialTexture(aiMat, aiTextureType_HEIGHT, scene);
+        }
+        if (normalHandle.IsValid()) {
+            materialAsset->SetNormalMap(normalHandle);
+        }
+
+        // 加载 Metallic 贴图
+        AssetHandle metallicHandle = LoadMaterialTexture(aiMat, aiTextureType_METALNESS, scene);
+        if (metallicHandle.IsValid()) {
+            materialAsset->SetMetallicMap(metallicHandle);
+        }
+
+        // 加载 Roughness 贴图
+        AssetHandle roughnessHandle = LoadMaterialTexture(aiMat, aiTextureType_DIFFUSE_ROUGHNESS, scene);
+        if (roughnessHandle.IsValid()) {
+            materialAsset->SetRoughnessMap(roughnessHandle);
+        }
+
+        // 加载 AO 贴图
+        AssetHandle aoHandle = LoadMaterialTexture(aiMat, aiTextureType_AMBIENT_OCCLUSION, scene);
+        if (!aoHandle.IsValid()) {
+            aoHandle = LoadMaterialTexture(aiMat, aiTextureType_LIGHTMAP, scene);
+        }
+        if (aoHandle.IsValid()) {
+            materialAsset->SetAOMap(aoHandle);
+        }
+
+        // 注册到 AssetManager
+        AssetHandle matHandle = AssetManager::Get().AddMemoryOnlyAsset(materialAsset);
+        materials.push_back(matHandle);
+
+        std::cout << "[AssimpMeshImporter] Created material: " << materialAsset->GetMaterial()->GetName() << std::endl;
     }
 
     return materials;

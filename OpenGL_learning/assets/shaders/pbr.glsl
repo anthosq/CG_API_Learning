@@ -1,6 +1,5 @@
 // PBR Shader - Metallic-Roughness Workflow
 // Based on Cook-Torrance BRDF
-// Reference: Hazel Engine, LearnOpenGL PBR Tutorial
 
 #type vertex
 #version 330 core
@@ -11,15 +10,13 @@ layout (location = 2) in vec2 a_TexCoord;
 layout (location = 3) in vec3 a_Tangent;
 layout (location = 4) in vec3 a_Bitangent;
 
-// Camera UBO (binding = 0)
 layout (std140) uniform CameraData {
     mat4 u_ViewProjection;
     mat4 u_View;
     mat4 u_Projection;
-    vec4 u_CameraPos;  // xyz = position, w = unused
+    vec4 u_CameraPos;
 };
 
-// Per-object uniforms
 uniform mat4 u_Model;
 uniform mat3 u_NormalMatrix;
 uniform int u_EntityID;
@@ -38,16 +35,12 @@ void main() {
     vs_out.TexCoord = a_TexCoord;
     vs_out.EntityID = u_EntityID;
 
-    // Normal in world space
     vec3 N = normalize(u_NormalMatrix * a_Normal);
     vs_out.Normal = N;
 
-    // TBN matrix for normal mapping
     vec3 T = normalize(u_NormalMatrix * a_Tangent);
     vec3 B = normalize(u_NormalMatrix * a_Bitangent);
-    // Re-orthogonalize T with respect to N
     T = normalize(T - dot(T, N) * N);
-    // Recalculate B
     B = cross(N, T);
     vs_out.TBN = mat3(T, B, N);
 
@@ -68,7 +61,6 @@ in VS_OUT {
     flat int EntityID;
 } fs_in;
 
-// Camera UBO (binding = 0)
 layout (std140) uniform CameraData {
     mat4 u_ViewProjection;
     mat4 u_View;
@@ -76,15 +68,23 @@ layout (std140) uniform CameraData {
     vec4 u_CameraPos;
 };
 
-// Lighting UBO (binding = 1)
+#define MAX_POINT_LIGHTS 16
+
 layout (std140) uniform LightingData {
-    vec4 u_DirLightDirection;  // xyz = direction, w = intensity
-    vec4 u_DirLightColor;      // xyz = color, w = ambient intensity
-    vec4 u_PointLightPositions[4];
-    vec4 u_PointLightColors[4];    // xyz = color, w = intensity
-    vec4 u_PointLightParams[4];    // x = constant, y = linear, z = quadratic, w = radius
-    ivec4 u_LightCounts;           // x = point light count
-    vec4 u_AmbientColor;           // xyz = color, w = intensity
+    vec4 u_DirLightDirection;      // xyz = direction, w = intensity
+    vec4 u_DirLightColor;          // xyz = color, w = shadowAmount
+
+    vec4 u_PointLightPosRadius[MAX_POINT_LIGHTS];      // xyz = position, w = radius
+    vec4 u_PointLightColorIntensity[MAX_POINT_LIGHTS]; // xyz = color, w = intensity
+    vec4 u_PointLightParams[MAX_POINT_LIGHTS];         // x = falloff
+
+    vec4 u_SpotLightPosRange;          // xyz = position, w = range
+    vec4 u_SpotLightDirAngle;          // xyz = direction, w = angle (degrees)
+    vec4 u_SpotLightColorIntensity;    // xyz = color, w = intensity
+    vec4 u_SpotLightParams;            // x = falloff, y = angleAttenuation
+
+    ivec4 u_LightCounts;               // x = point light count, y = spotlight enabled (0/1)
+    vec4 u_AmbientColor;               // xyz = color, w = intensity
 };
 
 // Material properties
@@ -95,7 +95,7 @@ uniform float u_AO;
 uniform vec3 u_EmissiveColor;
 uniform float u_EmissiveIntensity;
 
-// Material textures
+// Material textures (always bound with defaults)
 uniform sampler2D u_AlbedoMap;
 uniform sampler2D u_NormalMap;
 uniform sampler2D u_MetallicMap;
@@ -103,26 +103,13 @@ uniform sampler2D u_RoughnessMap;
 uniform sampler2D u_AOMap;
 uniform sampler2D u_EmissiveMap;
 
-// Texture flags
-uniform bool u_UseAlbedoMap;
-uniform bool u_UseNormalMap;
-uniform bool u_UseMetallicMap;
-uniform bool u_UseRoughnessMap;
-uniform bool u_UseAOMap;
-uniform bool u_UseEmissiveMap;
-
-// IBL textures (optional)
+// IBL textures (for future use)
 uniform samplerCube u_IrradianceMap;
 uniform samplerCube u_PrefilterMap;
 uniform sampler2D u_BrdfLUT;
-uniform bool u_UseIBL;
 uniform float u_EnvironmentIntensity;
 
 const float PI = 3.14159265359;
-
-// ============================================================================
-// PBR Functions
-// ============================================================================
 
 // GGX/Trowbridge-Reitz Normal Distribution Function
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
@@ -138,10 +125,10 @@ float DistributionGGX(vec3 N, vec3 H, float roughness) {
     return nom / max(denom, 0.0001);
 }
 
-// Schlick-GGX Geometry Function (single direction)
+// Schlick-GGX Geometry Function
 float GeometrySchlickGGX(float NdotV, float roughness) {
     float r = (roughness + 1.0);
-    float k = (r * r) / 8.0;  // Direct lighting
+    float k = (r * r) / 8.0;
 
     float nom = NdotV;
     float denom = NdotV * (1.0 - k) + k;
@@ -149,7 +136,7 @@ float GeometrySchlickGGX(float NdotV, float roughness) {
     return nom / max(denom, 0.0001);
 }
 
-// Smith's Geometry Function (combines view and light directions)
+// Smith's Geometry Function
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);
@@ -169,134 +156,139 @@ vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// ============================================================================
-// Light Calculations
-// ============================================================================
+// Cook-Torrance BRDF calculation
+vec3 CookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 F0, vec3 albedo, float metallic, float roughness) {
+    vec3 H = normalize(V + L);
+
+    float NDF = DistributionGGX(N, H, roughness);
+    float G = GeometrySmith(N, V, L, roughness);
+    vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+    vec3 numerator = NDF * G * F;
+    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+    vec3 specular = numerator / denominator;
+
+    vec3 kS = F;
+    vec3 kD = vec3(1.0) - kS;
+    kD *= 1.0 - metallic;
+
+    float NdotL = max(dot(N, L), 0.0);
+
+    return (kD * albedo / PI + specular) * radiance * NdotL;
+}
 
 vec3 CalculateDirectionalLight(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
     vec3 L = normalize(-u_DirLightDirection.xyz);
-    vec3 H = normalize(V + L);
-
     float intensity = u_DirLightDirection.w;
     vec3 radiance = u_DirLightColor.rgb * intensity;
 
-    // Cook-Torrance BRDF
-    float NDF = DistributionGGX(N, H, roughness);
-    float G = GeometrySmith(N, V, L, roughness);
-    vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
-
-    vec3 numerator = NDF * G * F;
-    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
-    vec3 specular = numerator / denominator;
-
-    // kS is equal to Fresnel
-    vec3 kS = F;
-    // For energy conservation, diffuse and specular can't be above 1.0
-    vec3 kD = vec3(1.0) - kS;
-    // Metallic surfaces don't have diffuse
-    kD *= 1.0 - metallic;
-
-    float NdotL = max(dot(N, L), 0.0);
-
-    return (kD * albedo / PI + specular) * radiance * NdotL;
+    return CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness);
 }
 
 vec3 CalculatePointLight(int index, vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
-    vec3 lightPos = u_PointLightPositions[index].xyz;
-    vec3 lightColor = u_PointLightColors[index].rgb;
-    float lightIntensity = u_PointLightColors[index].w;
+    vec3 lightPos = u_PointLightPosRadius[index].xyz;
+    float radius = u_PointLightPosRadius[index].w;
+    vec3 lightColor = u_PointLightColorIntensity[index].rgb;
+    float lightIntensity = u_PointLightColorIntensity[index].w;
+    float falloff = u_PointLightParams[index].x;
 
-    vec3 L = normalize(lightPos - fragPos);
-    vec3 H = normalize(V + L);
+    vec3 L = lightPos - fragPos;
+    float distance = length(L);
+    L = normalize(L);
 
-    // Attenuation
-    float distance = length(lightPos - fragPos);
-    float constant = u_PointLightParams[index].x;
-    float linear = u_PointLightParams[index].y;
-    float quadratic = u_PointLightParams[index].z;
-    float attenuation = 1.0 / (constant + linear * distance + quadratic * distance * distance);
+    // Distance attenuation with radius-based falloff
+    float attenuation = 1.0;
+    if (radius > 0.0) {
+        float distRatio = distance / radius;
+        attenuation = max(1.0 - distRatio * distRatio, 0.0);
+        attenuation *= attenuation;
+    } else {
+        attenuation = 1.0 / (1.0 + falloff * distance * distance);
+    }
 
     vec3 radiance = lightColor * lightIntensity * attenuation;
 
-    // Cook-Torrance BRDF
-    float NDF = DistributionGGX(N, H, roughness);
-    float G = GeometrySmith(N, V, L, roughness);
-    vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
-
-    vec3 numerator = NDF * G * F;
-    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
-    vec3 specular = numerator / denominator;
-
-    vec3 kS = F;
-    vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - metallic;
-
-    float NdotL = max(dot(N, L), 0.0);
-
-    return (kD * albedo / PI + specular) * radiance * NdotL;
+    return CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness);
 }
 
-// ============================================================================
-// IBL Functions
-// ============================================================================
+vec3 CalculateSpotLight(vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
+    vec3 lightPos = u_SpotLightPosRange.xyz;
+    float range = u_SpotLightPosRange.w;
+    vec3 spotDir = normalize(u_SpotLightDirAngle.xyz);
+    float cutoffAngle = radians(u_SpotLightDirAngle.w);
+    vec3 lightColor = u_SpotLightColorIntensity.rgb;
+    float lightIntensity = u_SpotLightColorIntensity.w;
+    float falloff = u_SpotLightParams.x;
+    float angleAttenuation = u_SpotLightParams.y;
 
+    vec3 L = lightPos - fragPos;
+    float distance = length(L);
+    L = normalize(L);
+
+    // Angle attenuation (spotlight cone)
+    float theta = dot(L, -spotDir);
+    float outerCutoff = cos(cutoffAngle);
+    float innerCutoff = cos(cutoffAngle * 0.8);
+    float epsilon = innerCutoff - outerCutoff;
+    float spotEffect = clamp((theta - outerCutoff) / epsilon, 0.0, 1.0);
+    spotEffect = pow(spotEffect, angleAttenuation);
+
+    // Distance attenuation
+    float distanceAttenuation = 1.0;
+    if (range > 0.0) {
+        float distRatio = distance / range;
+        distanceAttenuation = max(1.0 - distRatio, 0.0);
+        distanceAttenuation *= distanceAttenuation;
+    } else {
+        distanceAttenuation = 1.0 / (1.0 + falloff * distance * distance);
+    }
+
+    vec3 radiance = lightColor * lightIntensity * spotEffect * distanceAttenuation;
+
+    return CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness);
+}
+
+// IBL (for future use when environment maps are available)
 vec3 CalculateIBL(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness, float ao) {
     vec3 R = reflect(-V, N);
 
-    // Fresnel with roughness for IBL
     vec3 F = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
 
     vec3 kS = F;
     vec3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;
 
-    // Diffuse IBL (irradiance map)
     vec3 irradiance = texture(u_IrradianceMap, N).rgb;
     vec3 diffuse = irradiance * albedo;
 
-    // Specular IBL (prefiltered environment map + BRDF LUT)
     const float MAX_REFLECTION_LOD = 4.0;
     vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
     vec2 brdf = texture(u_BrdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
     vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-    vec3 ambient = (kD * diffuse + specular) * ao * u_EnvironmentIntensity;
-
-    return ambient;
+    return (kD * diffuse + specular) * ao * u_EnvironmentIntensity;
 }
 
-// ============================================================================
-// Main
-// ============================================================================
-
 void main() {
-    // Sample material properties
-    vec3 albedo = u_UseAlbedoMap ? texture(u_AlbedoMap, fs_in.TexCoord).rgb * u_AlbedoColor : u_AlbedoColor;
-    float metallic = u_UseMetallicMap ? texture(u_MetallicMap, fs_in.TexCoord).r * u_Metallic : u_Metallic;
-    float roughness = u_UseRoughnessMap ? texture(u_RoughnessMap, fs_in.TexCoord).r * u_Roughness : u_Roughness;
-    float ao = u_UseAOMap ? texture(u_AOMap, fs_in.TexCoord).r * u_AO : u_AO;
+    // Sample textures (defaults are bound when no texture specified)
+    vec3 albedo = texture(u_AlbedoMap, fs_in.TexCoord).rgb * u_AlbedoColor;
+    float metallic = texture(u_MetallicMap, fs_in.TexCoord).r * u_Metallic;
+    float roughness = texture(u_RoughnessMap, fs_in.TexCoord).r * u_Roughness;
+    float ao = texture(u_AOMap, fs_in.TexCoord).r * u_AO;
 
-    // Clamp roughness to prevent division issues
     roughness = clamp(roughness, 0.04, 1.0);
 
     // Normal mapping
-    vec3 N;
-    if (u_UseNormalMap) {
-        vec3 normalMap = texture(u_NormalMap, fs_in.TexCoord).rgb;
-        normalMap = normalMap * 2.0 - 1.0;  // [0,1] -> [-1,1]
-        N = normalize(fs_in.TBN * normalMap);
-    } else {
-        N = normalize(fs_in.Normal);
-    }
+    vec3 normalMap = texture(u_NormalMap, fs_in.TexCoord).rgb;
+    normalMap = normalMap * 2.0 - 1.0;
+    vec3 N = normalize(fs_in.TBN * normalMap);
 
     vec3 V = normalize(u_CameraPos.xyz - fs_in.FragPos);
 
-    // Calculate F0 (reflectance at normal incidence)
-    // For dielectrics: 0.04, for metals: albedo color
+    // F0 (reflectance at normal incidence)
     vec3 F0 = vec3(0.04);
     F0 = mix(F0, albedo, metallic);
 
-    // Reflectance equation
     vec3 Lo = vec3(0.0);
 
     // Directional light
@@ -305,29 +297,23 @@ void main() {
     }
 
     // Point lights
-    int pointLightCount = u_LightCounts.x;
-    for (int i = 0; i < pointLightCount && i < 4; i++) {
+    int pointLightCount = min(u_LightCounts.x, MAX_POINT_LIGHTS);
+    for (int i = 0; i < pointLightCount; i++) {
         Lo += CalculatePointLight(i, fs_in.FragPos, N, V, F0, albedo, metallic, roughness);
     }
 
-    // Ambient / IBL
-    vec3 ambient;
-    if (u_UseIBL) {
-        ambient = CalculateIBL(N, V, F0, albedo, metallic, roughness, ao);
-    } else {
-        // Simple ambient fallback
-        ambient = u_AmbientColor.rgb * u_AmbientColor.w * albedo * ao;
+    // Spotlight
+    if (u_LightCounts.y > 0) {
+        Lo += CalculateSpotLight(fs_in.FragPos, N, V, F0, albedo, metallic, roughness);
     }
+
+    // Ambient (simple fallback, IBL can be added later)
+    vec3 ambient = u_AmbientColor.rgb * u_AmbientColor.w * albedo * ao;
 
     vec3 color = ambient + Lo;
 
     // Emissive
-    vec3 emissive = vec3(0.0);
-    if (u_UseEmissiveMap) {
-        emissive = texture(u_EmissiveMap, fs_in.TexCoord).rgb * u_EmissiveColor * u_EmissiveIntensity;
-    } else if (u_EmissiveIntensity > 0.0) {
-        emissive = u_EmissiveColor * u_EmissiveIntensity;
-    }
+    vec3 emissive = texture(u_EmissiveMap, fs_in.TexCoord).rgb * u_EmissiveColor * u_EmissiveIntensity;
     color += emissive;
 
     // HDR tonemapping (Reinhard)

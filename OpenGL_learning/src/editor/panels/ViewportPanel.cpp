@@ -2,6 +2,8 @@
 #include "editor/EditorContext.h"
 #include "core/Input.h"
 #include "asset/AssetManager.h"
+#include "asset/MaterialAsset.h"
+#include "graphics/MeshSource.h"
 #include "scene/ecs/Components.h"
 
 #include <imgui.h>
@@ -82,17 +84,29 @@ void ViewportPanel::OnDraw(EditorContext& context) {
 
             AssetType type = GetAssetTypeFromExtension(assetPath);
             if (type == AssetType::MeshSource) {
-                AssetHandle handle = AssetManager::Get().ImportMeshSource(assetPath);
-                if (handle.IsValid() && context.World) {
+                AssetHandle meshHandle = AssetManager::Get().ImportMeshSource(assetPath);
+                if (meshHandle.IsValid() && context.World) {
                     std::string entityName = assetPath.stem().string();
                     ECS::Entity entity = context.World->CreateEntity(entityName);
 
                     glm::vec3 spawnPosition = m_Camera.GetPosition() + m_Camera.GetFront() * 5.0f;
                     entity.AddComponent<ECS::TransformComponent>(spawnPosition);
+                    entity.AddComponent<ECS::MeshComponent>(meshHandle);
 
-                    // TODO: MeshSource 需要转换为 StaticMesh 才能用于 MeshComponent
-                    // 目前暂时使用 MeshComponent 存储 MeshSource handle
-                    entity.AddComponent<ECS::MeshComponent>(handle);
+                    // 添加 MaterialComponent 并设置从模型加载的材质
+                    auto& matComp = entity.AddComponent<ECS::MaterialComponent>();
+                    auto meshSource = AssetManager::Get().GetAsset<MeshSource>(meshHandle);
+                    if (meshSource && !meshSource->GetMaterials().empty()) {
+                        AssetHandle matHandle = meshSource->GetMaterials()[0];
+                        auto matAsset = AssetManager::Get().GetAsset<MaterialAsset>(matHandle);
+                        if (matAsset) {
+                            matComp.Albedo = matAsset->GetAlbedoColor();
+                            matComp.Metallic = matAsset->GetMetallic();
+                            matComp.Roughness = matAsset->GetRoughness();
+                            matComp.AlbedoMap = matAsset->GetAlbedoMap();
+                            matComp.NormalMap = matAsset->GetNormalMap();
+                        }
+                    }
 
                     context.Select(entity);
 

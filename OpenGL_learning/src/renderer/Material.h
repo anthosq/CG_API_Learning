@@ -30,6 +30,8 @@ using UniformValue = std::variant<
     glm::mat3, glm::mat4
 >;
 
+// Material 是纯数据容器，不持有 Shader
+// Shader 由 Pipeline 管理，渲染时由 SceneRenderer 组合使用
 class Material : public RefCounter {
 public:
     enum class Flag : uint32_t {
@@ -41,12 +43,8 @@ public:
     };
 
     Material() = default;
-    explicit Material(const Ref<Shader>& shader, const std::string& name = "");
+    explicit Material(const std::string& name);
     ~Material() = default;
-
-    Ref<Shader> GetShader() const { return m_Shader; }
-    void SetShader(const Ref<Shader>& shader) { m_Shader = shader; }
-    bool HasShader() const { return m_Shader && m_Shader->IsValid(); }
 
     const std::string& GetName() const { return m_Name; }
     void SetName(const std::string& name) { m_Name = name; }
@@ -90,20 +88,26 @@ public:
         return m_Textures;
     }
 
+    const std::unordered_map<uint32_t, Ref<TextureCube>>& GetTexturesCube() const {
+        return m_TexturesCube;
+    }
+
+    const std::unordered_map<std::string, uint32_t>& GetTextureSlotNames() const {
+        return m_TextureSlotNames;
+    }
+
     void SetFlag(Flag flag, bool value = true);
     bool GetFlag(Flag flag) const;
     uint32_t GetFlags() const { return m_Flags; }
 
-    void Bind() const;
-    void Unbind() const;
-    void UploadUniforms() const;
+    // 应用材质数据到指定 Shader
+    void Apply(Shader& shader) const;
     void BindTextures() const;
 
-    static Ref<Material> Create(const Ref<Shader>& shader, const std::string& name = "");
+    static Ref<Material> Create(const std::string& name = "");
     static Ref<Material> Copy(const Ref<Material>& other);
 
 private:
-    Ref<Shader> m_Shader;
     std::string m_Name;
     std::unordered_map<std::string, UniformValue> m_Uniforms;
     std::unordered_map<uint32_t, Ref<Texture2D>> m_Textures;

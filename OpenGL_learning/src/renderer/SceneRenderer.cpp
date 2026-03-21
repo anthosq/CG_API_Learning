@@ -122,27 +122,7 @@ void SceneRenderer::BeginScene(const Camera& camera, float aspectRatio) {
     }
 
     if (m_LightingUBO) {
-        LightingUBO lightData = {};
-
-        // 方向光
-        lightData.DirLightDirection = glm::vec4(m_Environment.DirLight.Direction, 1.0f);
-        lightData.DirLightColor = glm::vec4(m_Environment.DirLight.Diffuse, 1.0f);
-
-        // 点光源
-        lightData.LightCounts.x = m_Environment.PointLightCount;
-        for (int i = 0; i < m_Environment.PointLightCount && i < MAX_POINT_LIGHTS; ++i) {
-            const auto& light = m_Environment.PointLights[i];
-            lightData.PointLightPositions[i] = glm::vec4(light.Position, 1.0f);
-            lightData.PointLightColors[i] = glm::vec4(light.Diffuse, 1.0f);
-            lightData.PointLightParams[i] = glm::vec4(
-                light.Constant, light.Linear, light.Quadratic, 0.0f
-            );
-        }
-
-        // 环境光
-        lightData.AmbientColor = glm::vec4(m_Settings.AmbientColor, 1.0f);
-
-        m_LightingUBO->SetData(&lightData, sizeof(lightData));
+        UpdateLightingUBO();
     }
 
     Renderer::BeginFrame(camera, aspectRatio);
@@ -157,7 +137,8 @@ void SceneRenderer::SubmitMesh(Ref<MeshSource> meshSource,
                                 uint32_t submeshIndex,
                                 const glm::mat4& transform,
                                 const Ref<MaterialTable>& materials,
-                                int entityID) {
+                                int entityID,
+                                AssetHandle overrideMaterial) {
     if (!meshSource) return;
 
     // 确保 GPU 缓冲区已创建
@@ -176,6 +157,7 @@ void SceneRenderer::SubmitMesh(Ref<MeshSource> meshSource,
     cmd.Transform = transform * submesh.Transform;
     cmd.NormalMatrix = glm::transpose(glm::inverse(glm::mat3(cmd.Transform)));
     cmd.Materials = materials;
+    cmd.MaterialHandle = overrideMaterial;  // 实体级材质覆盖
     cmd.EntityID = entityID;
 
     // 计算到相机的距离（用于透明排序）
@@ -222,13 +204,20 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
                ECS::MeshComponent& meshComp) {
             if (!meshComp.MeshHandle.IsValid()) return;
 
+            // 检查是否有 MaterialComponent，创建对应的 MaterialAsset
+            AssetHandle overrideMaterial;
+            if (entity.HasComponent<ECS::MaterialComponent>()) {
+                auto& matComp = entity.GetComponent<ECS::MaterialComponent>();
+                overrideMaterial = GetOrCreateMaterialFromComponent(matComp, entity.GetHandle());
+            }
+
             // 尝试获取 StaticMesh
             auto staticMesh = AssetManager::Get().GetAsset<StaticMesh>(meshComp.MeshHandle);
             if (staticMesh) {
                 auto meshSource = AssetManager::Get().GetAsset<MeshSource>(staticMesh->GetMeshSource());
                 if (meshSource) {
                     SubmitStaticMesh(staticMesh, meshSource, transform.WorldMatrix,
-                                     static_cast<int>(entity.GetHandle()));
+                                     static_cast<int>(entity.GetHandle()), overrideMaterial);
                 }
                 return;
             }
@@ -239,7 +228,7 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
                 // 渲染所有 submesh
                 for (uint32_t i = 0; i < meshSource->GetSubmeshCount(); ++i) {
                     SubmitMesh(meshSource, i, transform.WorldMatrix, nullptr,
-                               static_cast<int>(entity.GetHandle()));
+                               static_cast<int>(entity.GetHandle()), overrideMaterial);
                 }
             }
         }
@@ -369,8 +358,12 @@ void SceneRenderer::SkyboxPass() {
 void SceneRenderer::GeometryPass() {
     if (m_OpaqueDrawList.empty()) return;
 
-    auto litShader = m_ShaderLibrary.Get("lit");
-    if (!litShader) return;
+    auto pbrShader = m_ShaderLibrary.Get("pbr");
+    if (!pbrShader) {
+        // fallback to lit shader
+        pbrShader = m_ShaderLibrary.Get("lit");
+        if (!pbrShader) return;
+    }
 
     // 设置渲染状态
     RenderCommand::EnableDepthTest();
@@ -381,80 +374,29 @@ void SceneRenderer::GeometryPass() {
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     }
 
-    litShader->Bind();
-    m_OpaquePipeline->SetShader(litShader);
+    pbrShader->Bind();
+    m_OpaquePipeline->SetShader(pbrShader);
 
-    litShader->SetMat4("u_View", m_ViewMatrix);
-    litShader->SetMat4("u_Projection", m_ProjectionMatrix);
-    litShader->SetVec3("u_ViewPos", m_CameraPosition);
-    SetupLighting(*litShader);
+    pbrShader->SetFloat("u_EnvironmentIntensity", m_Environment.EnvironmentIntensity);
 
-    // 绑定默认纹理
-    if (m_DefaultDiffuse) {
-        m_DefaultDiffuse->Bind(0);
-        litShader->SetInt("material.diffuse", 0);
-    }
-    if (m_DefaultSpecular) {
-        m_DefaultSpecular->Bind(1);
-        litShader->SetInt("material.specular", 1);
-    }
-    litShader->SetFloat("material.shininess", 32.0f);
-
-    // 统一渲染所有 MeshSource
     for (const auto& cmd : m_OpaqueDrawList) {
         if (!cmd.MeshSource) continue;
 
         auto vao = cmd.MeshSource->GetVertexArray();
         if (!vao) continue;
 
-        litShader->SetMat4("u_Model", cmd.Transform);
-        litShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
-        litShader->SetInt("u_EntityID", cmd.EntityID);
+        // 获取并绑定材质
+        auto material = GetMaterialForDrawCommand(cmd);
+        BindPBRMaterial(*pbrShader, material);
+
+        // 设置变换
+        pbrShader->SetMat4("u_Model", cmd.Transform);
+        pbrShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
+        pbrShader->SetInt("u_EntityID", cmd.EntityID);
 
         const auto& submeshes = cmd.MeshSource->GetSubmeshes();
         if (cmd.SubmeshIndex >= submeshes.size()) continue;
-
         const auto& submesh = submeshes[cmd.SubmeshIndex];
-
-        // 绑定纹理：优先使用 MaterialTable，否则使用 MeshSource 自带的材质
-        bool hasTexture = false;
-        if (cmd.Materials) {
-            AssetHandle matHandle = cmd.Materials->GetMaterial(submesh.MaterialIndex);
-            if (matHandle.IsValid()) {
-                auto matAsset = AssetManager::Get().GetAsset<MaterialAsset>(matHandle);
-                if (matAsset) {
-                    AssetHandle albedoHandle = matAsset->GetAlbedoMap();
-                    if (albedoHandle.IsValid()) {
-                        auto albedoTex = AssetManager::Get().GetAsset<Texture2D>(albedoHandle);
-                        if (albedoTex) {
-                            albedoTex->Bind(0);
-                            litShader->SetInt("material.diffuse", 0);
-                            hasTexture = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!hasTexture) {
-            const auto& meshMaterials = cmd.MeshSource->GetMaterials();
-            if (submesh.MaterialIndex < meshMaterials.size()) {
-                AssetHandle texHandle = meshMaterials[submesh.MaterialIndex];
-                if (texHandle.IsValid()) {
-                    auto texture = AssetManager::Get().GetAsset<Texture2D>(texHandle);
-                    if (texture) {
-                        texture->Bind(0);
-                        litShader->SetInt("material.diffuse", 0);
-                        hasTexture = true;
-                    }
-                }
-            }
-        }
-
-        // 如果没有纹理，重新绑定默认纹理
-        if (!hasTexture && m_DefaultDiffuse) {
-            m_DefaultDiffuse->Bind(0);
-        }
 
         vao->Bind();
         glDrawElementsBaseVertex(
@@ -495,10 +437,7 @@ void SceneRenderer::TransparentPass() {
     litShader->Bind();
     m_TransparentPipeline->SetShader(litShader);
 
-    litShader->SetMat4("u_View", m_ViewMatrix);
-    litShader->SetMat4("u_Projection", m_ProjectionMatrix);
-    litShader->SetVec3("u_ViewPos", m_CameraPosition);
-    SetupLighting(*litShader);
+    // UBO 已经在 BeginScene 中更新，无需单独设置光照 uniform
 
     for (const auto& cmd : m_TransparentDrawList) {
         if (!cmd.MeshSource) continue;
@@ -531,19 +470,67 @@ void SceneRenderer::TransparentPass() {
     RenderCommand::DisableBlending();
 }
 
-void SceneRenderer::SetupLighting(Shader& shader) {
+void SceneRenderer::UpdateLightingUBO() {
+    LightingUBO lightData = {};
+
     // 方向光
-    Renderer::SetupDirectionalLight(shader, m_Environment.DirLight);
+    lightData.DirLightDirection = glm::vec4(m_Environment.DirLight.Direction, 1.0f);
+    lightData.DirLightColor = glm::vec4(m_Environment.DirLight.Diffuse, 0.0f);
 
     // 点光源
-    Renderer::SetupPointLights(shader, m_Environment.PointLights, m_Environment.PointLightCount);
+    int count = std::min(m_Environment.PointLightCount, MAX_POINT_LIGHTS);
+    lightData.LightCounts.x = count;
+    for (int i = 0; i < count; ++i) {
+        const auto& light = m_Environment.PointLights[i];
+        float radius = 1.0f / (light.Quadratic > 0.0f ? sqrt(light.Quadratic) : 1.0f);
+        lightData.PointLightPosRadius[i] = glm::vec4(light.Position, radius);
+        lightData.PointLightColorIntensity[i] = glm::vec4(light.Diffuse, 1.0f);
+        lightData.PointLightParams[i] = glm::vec4(0.5f, 0.0f, 0.0f, 0.0f);
+    }
 
     // 聚光灯
+    lightData.LightCounts.y = m_Environment.SpotlightEnabled ? 1 : 0;
     if (m_Environment.SpotlightEnabled) {
-        Renderer::SetupSpotLight(shader, m_Environment.Spotlight);
-    } else {
-        Renderer::DisableSpotLight(shader);
+        const auto& spot = m_Environment.Spotlight;
+        float range = 1.0f / (spot.Quadratic > 0.0f ? sqrt(spot.Quadratic) : 1.0f);
+        lightData.SpotLightPosRange = glm::vec4(spot.Position, range);
+        lightData.SpotLightDirAngle = glm::vec4(spot.Direction, spot.OuterCutOff);
+        lightData.SpotLightColorIntensity = glm::vec4(spot.Diffuse, 1.0f);
+        lightData.SpotLightParams = glm::vec4(0.5f, 2.0f, 0.0f, 0.0f);
     }
+
+    // 环境光
+    lightData.AmbientColor = glm::vec4(m_Settings.AmbientColor, 0.3f);
+
+    m_LightingUBO->SetData(&lightData, sizeof(lightData));
+}
+
+void SceneRenderer::BindPBRMaterial(Shader& shader, const Ref<MaterialAsset>& material) {
+    if (!material) return;
+
+    auto mat = material->GetMaterial();
+    if (!mat) return;
+
+    // Material::Apply 上传 uniform 并绑定纹理
+    mat->Apply(shader);
+}
+
+Ref<MaterialAsset> SceneRenderer::GetMaterialForDrawCommand(const DrawCommand& cmd) {
+    // 优先使用 MaterialTable
+    if (cmd.Materials) {
+        const auto& submeshes = cmd.MeshSource->GetSubmeshes();
+        if (cmd.SubmeshIndex < submeshes.size()) {
+            uint32_t matIndex = submeshes[cmd.SubmeshIndex].MaterialIndex;
+            if (cmd.Materials->HasMaterial(matIndex)) {
+                auto mat = AssetManager::Get().GetAsset<MaterialAsset>(
+                    cmd.Materials->GetMaterial(matIndex));
+                if (mat) return mat;
+            }
+        }
+    }
+
+    // 返回默认材质
+    return m_DefaultMaterial;
 }
 
 void SceneRenderer::CreateDefaultResources() {
@@ -555,6 +542,12 @@ void SceneRenderer::CreateDefaultResources() {
     if (staticMesh) {
         m_CubeMesh = AssetManager::Get().GetAsset<MeshSource>(staticMesh->GetMeshSource());
     }
+
+    // 创建默认 PBR 材质
+    m_DefaultMaterial = MaterialAsset::Create(false);
+    m_DefaultMaterial->SetAlbedoColor(glm::vec3(0.8f));
+    m_DefaultMaterial->SetMetallic(0.0f);
+    m_DefaultMaterial->SetRoughness(0.5f);
 }
 
 void SceneRenderer::SyncLightsFromECS(ECS::World& world) {
@@ -591,7 +584,7 @@ void SceneRenderer::SyncLightsFromECS(ECS::World& world) {
         [this](ECS::Entity entity,
                ECS::TransformComponent& transform,
                ECS::PointLightComponent& light) {
-            if (m_Environment.PointLightCount < 4) {
+            if (m_Environment.PointLightCount < MAX_POINT_LIGHTS) {
                 int idx = m_Environment.PointLightCount++;
                 m_Environment.PointLights[idx].Position = transform.Position;
                 m_Environment.PointLights[idx].Ambient = glm::vec3(0.05f) * light.Intensity;
