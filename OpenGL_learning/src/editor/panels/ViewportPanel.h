@@ -25,8 +25,8 @@ public:
     ~ViewportPanel() override = default;
 
     // 获取视口 Framebuffer（供外部渲染使用）
-    Framebuffer* GetFramebuffer() { return m_Framebuffer.get(); }
-    const Framebuffer* GetFramebuffer() const { return m_Framebuffer.get(); }
+    Ref<Framebuffer> GetFramebuffer() { return m_Framebuffer; }
+    const Ref<Framebuffer> GetFramebuffer() const { return m_Framebuffer; }
 
     // 获取视口相机
     Camera& GetCamera() { return m_Camera; }
@@ -60,7 +60,7 @@ private:
     void ResizeFramebufferIfNeeded(float width, float height);
     void DrawGizmo(EditorContext& context);
 
-    std::unique_ptr<Framebuffer> m_Framebuffer;
+    Ref<Framebuffer> m_Framebuffer;
     Camera m_Camera;
 
     glm::vec2 m_ViewportSize = {1280.0f, 720.0f};

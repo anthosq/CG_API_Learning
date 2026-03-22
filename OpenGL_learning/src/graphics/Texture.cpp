@@ -8,24 +8,26 @@ namespace GLRenderer {
 namespace Utils {
 
 // 根据通道数获取 LDR 纹理格式
-inline void GetLDRTextureFormat(int channels, GLenum& outFormat, GLenum& outInternalFormat) {
+// sRGB=true 时使用 GL_SRGB8/GL_SRGB8_ALPHA8，GPU 采样时自动线性化（用于颜色贴图 / albedo）
+// sRGB=false 时使用普通线性格式（用于 normal / metallic / roughness / AO 等数据贴图）
+inline void GetLDRTextureFormat(int channels, GLenum& outFormat, GLenum& outInternalFormat, bool srgb = false) {
     switch (channels) {
         case 1:
             outFormat = GL_RED;
-            outInternalFormat = GL_R8;
+            outInternalFormat = GL_R8;   // 单通道无 sRGB 变体
             break;
         case 2:
             outFormat = GL_RG;
-            outInternalFormat = GL_RG8;
+            outInternalFormat = GL_RG8;  // 双通道无 sRGB 变体
             break;
         case 3:
             outFormat = GL_RGB;
-            outInternalFormat = GL_RGB8;
+            outInternalFormat = srgb ? GL_SRGB8 : GL_RGB8;
             break;
         case 4:
         default:
             outFormat = GL_RGBA;
-            outInternalFormat = GL_RGBA8;
+            outInternalFormat = srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
             break;
     }
 }
@@ -164,7 +166,7 @@ bool Texture2D::LoadFromImage(const std::filesystem::path& path, const TextureSp
     }
 
     GLenum format, internalFormat;
-    Utils::GetLDRTextureFormat(m_Channels, format, internalFormat);
+    Utils::GetLDRTextureFormat(m_Channels, format, internalFormat, spec.SRGB);
 
     glGenTextures(1, &m_ID);
     glBindTexture(GL_TEXTURE_2D, m_ID);
@@ -234,6 +236,39 @@ bool Texture2D::LoadFromDDS(const std::filesystem::path& path) {
     glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &m_Height);
 
     return true;
+}
+
+Ref<Texture2D> Texture2D::CreateFromMemory(const unsigned char* compressedData, int dataSize,
+                                            const TextureSpec& spec) {
+    stbi_set_flip_vertically_on_load(spec.FlipVertically);
+
+    int width, height, channels;
+    unsigned char* pixels = stbi_load_from_memory(compressedData, dataSize,
+                                                   &width, &height, &channels, 0);
+    if (!pixels) {
+        std::cerr << "[Texture2D] CreateFromMemory: stbi_load_from_memory 失败" << std::endl;
+        return nullptr;
+    }
+
+    GLenum format, internalFormat;
+    Utils::GetLDRTextureFormat(channels, format, internalFormat, spec.SRGB);
+
+    auto texture = Ref<Texture2D>(new Texture2D());
+    texture->m_Width    = width;
+    texture->m_Height   = height;
+    texture->m_Channels = channels;
+
+    glGenTextures(1, &texture->m_ID);
+    glBindTexture(GL_TEXTURE_2D, texture->m_ID);
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0,
+                 format, GL_UNSIGNED_BYTE, pixels);
+    texture->ApplyParameters(spec);
+    if (spec.GenerateMipmaps)
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+    stbi_image_free(pixels);
+    GL_CHECK_ERROR();
+    return texture;
 }
 
 Ref<Texture2D> Texture2D::CreateHDR(const float* data, int width, int height,

@@ -15,6 +15,7 @@
 #include "AssetTypes.h"
 #include "utils/GLCommon.h"
 #include "core/Ref.h"
+#include "graphics/Texture.h"
 
 #include <unordered_map>
 #include <filesystem>
@@ -69,7 +70,8 @@ public:
     }
 
     // === 文件导入 API ===
-    AssetHandle ImportTexture(const std::filesystem::path& path);
+    AssetHandle ImportTexture(const std::filesystem::path& path,
+                              const TextureSpec& spec = TextureSpec());
     AssetHandle ImportMeshSource(const std::filesystem::path& path);
 
     // === 资产查询 ===

@@ -16,6 +16,7 @@ struct TextureSpec {
     bool GenerateMipmaps = true;
     bool FlipVertically = true;
     bool IsHDR = false;  // 自动检测, 通常不需要手动设置
+    bool SRGB = false;   // 颜色纹理(albedo)设为 true, 让 GPU 自动线性化采样值
 };
 
 struct TextureCubeSpec {
@@ -66,6 +67,9 @@ public:
     // 从浮点数据创建 HDR 纹理
     static Ref<Texture2D> CreateHDR(const float* data, int width, int height,
                                      int channels, const TextureSpec& spec = TextureSpec());
+    // 从嵌入的压缩图像数据（PNG/JPG 字节流）创建纹理
+    static Ref<Texture2D> CreateFromMemory(const unsigned char* compressedData, int dataSize,
+                                            const TextureSpec& spec = TextureSpec());
     static Ref<Texture2D> CreateDefault();
 
     static bool IsDDSFile(const std::filesystem::path& path);

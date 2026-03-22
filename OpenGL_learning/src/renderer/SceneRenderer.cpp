@@ -43,6 +43,9 @@ void SceneRenderer::Initialize() {
 
     m_ShadowPipeline = std::make_unique<Pipeline>(PipelineSpecification::Shadow());
 
+    // HDR FBO 在首次 FlushDrawList 时根据 TargetFramebuffer 尺寸懒创建
+    // （此时尚不知道目标大小）
+
     m_Initialized = true;
     std::cout << "[SceneRenderer] Initialized" << std::endl;
 }
@@ -110,7 +113,7 @@ void SceneRenderer::RenderScene(ECS::World& world,
     // 3. 结束场景
     EndScene();
 
-    // 4. 执行绘制列表
+    // 4. 执行绘制列表（内部创建/调整 HDR FBO，最后调用 CompositePass 输出到 targetFBO）
     FlushDrawList();
 }
 
@@ -275,16 +278,19 @@ void SceneRenderer::FlushDrawList() {
         return;
     }
 
-    // 绑定目标 FBO
-    m_TargetFramebuffer->Bind();
-    RenderCommand::SetViewport(0, 0, m_TargetFramebuffer->GetWidth(),
-                                      m_TargetFramebuffer->GetHeight());
-    RenderCommand::SetClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    // 确保 HDR FBO 尺寸与目标一致
+    EnsureHDRFramebuffer(m_TargetFramebuffer->GetWidth(), m_TargetFramebuffer->GetHeight());
+
+    // 所有几何 Pass 渲染到内部 HDR FBO（GL_RGBA16F，保留 >1.0 的 HDR 值）
+    m_HDRFramebuffer->Bind();
+    RenderCommand::SetViewport(0, 0, m_HDRFramebuffer->GetWidth(),
+                                      m_HDRFramebuffer->GetHeight());
+    RenderCommand::SetClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     RenderCommand::Clear();
     RenderCommand::EnableDepthTest();
 
-    // 清除实体 ID 附件
-    m_TargetFramebuffer->ClearEntityID(-1);
+    // 清除实体 ID 附件（-1 表示无实体）
+    m_HDRFramebuffer->ClearEntityID(-1);
 
     // 提取相机视锥，构建 BVH（当帧绘制列表已确定）
     m_CameraFrustum = Frustum::FromViewProjection(m_ProjectionMatrix * m_ViewMatrix);
@@ -295,10 +301,10 @@ void SceneRenderer::FlushDrawList() {
     UpdateShadowUBO();
     ShadowPass();
 
-    // 恢复目标 FBO（ShadowPass 会切换 FBO）
-    m_TargetFramebuffer->Bind();
-    RenderCommand::SetViewport(0, 0, m_TargetFramebuffer->GetWidth(),
-                                      m_TargetFramebuffer->GetHeight());
+    // 恢复 HDR FBO（ShadowPass 会切换 FBO）
+    m_HDRFramebuffer->Bind();
+    RenderCommand::SetViewport(0, 0, m_HDRFramebuffer->GetWidth(),
+                                      m_HDRFramebuffer->GetHeight());
 
     // 1. 网格 Pass
     if (m_Settings.ShowGrid) {
@@ -321,10 +327,20 @@ void SceneRenderer::FlushDrawList() {
         TransparentPass();
     }
 
-    // 注：Billboard/Sprite 由 EditorApp::RenderEditorVisuals() 通过 Renderer2D 渲染
+    m_HDRFramebuffer->Unbind();
 
-    // 解绑 FBO
-    m_TargetFramebuffer->Unbind();
+    // Bloom 三阶段（仅在 EnableBloom 时执行）
+    if (m_Settings.EnableBloom) {
+        uint32_t hw = m_TargetFramebuffer->GetWidth()  / 2;
+        uint32_t hh = m_TargetFramebuffer->GetHeight() / 2;
+        EnsureBloomTextures(hw, hh);
+        BloomPrefilterPass();   // 提取亮部 → m_BloomPrefilterFBO
+        BloomDownsamplePass();  // 下采样链 → m_BloomMips[0..N-1]
+        BloomUpsamplePass();    // 上采样叠加 → 最终结果回到 m_BloomPrefilterFBO
+    }
+
+    // Tonemap HDR → target FBO（LDR，ImGui 显示用）
+    CompositePass();
 }
 
 void SceneRenderer::GridPass() {
@@ -829,6 +845,211 @@ bool SceneRenderer::LoadEnvironment(const std::filesystem::path& hdrPath) {
 
     std::cout << "[SceneRenderer] 环境加载完成: " << hdrPath.filename().string() << std::endl;
     return true;
+}
+
+void SceneRenderer::EnsureHDRFramebuffer(uint32_t width, uint32_t height) {
+    if (m_HDRFramebuffer &&
+        m_HDRFramebuffer->GetWidth()  == width &&
+        m_HDRFramebuffer->GetHeight() == height) {
+        return;  // 尺寸未变，无需重建
+    }
+
+    FramebufferSpec spec;
+    spec.Width                = width;
+    spec.Height               = height;
+    spec.ColorFormat          = GL_RGBA16F;   // HDR，存储 >1.0 的线性值
+    spec.HasColorAttachment   = true;
+    spec.HasDepthAttachment   = true;
+    spec.DepthAsTexture       = false;
+    spec.HasEntityIDAttachment = true;        // 鼠标拾取用
+    spec.Samples              = 1;
+
+    m_HDRFramebuffer = Framebuffer::Create(spec);
+    std::cout << "[SceneRenderer] HDR Framebuffer created: " << width << "x" << height << std::endl;
+}
+
+void SceneRenderer::EnsureBloomTextures(uint32_t width, uint32_t height) {
+    if (m_BloomPrefilterFBO &&
+        m_BloomPrefilterFBO->GetWidth()  == width &&
+        m_BloomPrefilterFBO->GetHeight() == height)
+        return;
+
+    auto makeBloomFBO = [](uint32_t w, uint32_t h) -> Ref<Framebuffer> {
+        FramebufferSpec spec;
+        spec.Width                 = std::max(w, 1u);
+        spec.Height                = std::max(h, 1u);
+        spec.ColorFormat           = GL_RGBA16F;
+        spec.HasColorAttachment    = true;
+        spec.HasDepthAttachment    = false;
+        spec.HasEntityIDAttachment = false;
+        return Framebuffer::Create(spec);
+    };
+
+    // Prefilter FBO（W/2 × H/2）
+    m_BloomPrefilterFBO = makeBloomFBO(width, height);
+
+    // Downsample mip 链（从 W/4 × H/4 开始，每级减半）
+    m_BloomMips.clear();
+    uint32_t w = width  / 2;
+    uint32_t h = height / 2;
+    for (int i = 0; i < MAX_BLOOM_MIPS && w >= 2 && h >= 2; ++i) {
+        m_BloomMips.push_back(makeBloomFBO(w, h));
+        w /= 2;
+        h /= 2;
+    }
+}
+
+void SceneRenderer::BloomPrefilterPass() {
+    auto shader = m_ShaderLibrary.Get("bloom_prefilter");
+    if (!shader || !m_BloomPrefilterFBO || !m_HDRFramebuffer) return;
+
+    m_BloomPrefilterFBO->Bind();
+    RenderCommand::SetViewport(0, 0,
+        m_BloomPrefilterFBO->GetWidth(),
+        m_BloomPrefilterFBO->GetHeight());
+
+    glDisable(GL_DEPTH_TEST);
+
+    shader->Bind();
+    shader->SetInt  ("u_Texture",   0);
+    shader->SetFloat("u_Threshold", m_Settings.BloomThreshold);
+    shader->SetFloat("u_Knee",      m_Settings.BloomKnee);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetColorAttachment());
+
+    Renderer::DrawFullscreenQuad();
+
+    shader->Unbind();
+    glEnable(GL_DEPTH_TEST);
+
+    m_BloomPrefilterFBO->Unbind();
+}
+
+void SceneRenderer::BloomDownsamplePass() {
+    auto shader = m_ShaderLibrary.Get("bloom_downsample");
+    if (!shader || m_BloomMips.empty()) return;
+
+    glDisable(GL_DEPTH_TEST);
+    shader->Bind();
+    shader->SetInt("u_Texture", 0);
+    glActiveTexture(GL_TEXTURE0);
+
+    // Prefilter → mip[0] → mip[1] → ... → mip[N-1]
+    GLuint srcTex = m_BloomPrefilterFBO->GetColorAttachment();
+    for (auto& mipFBO : m_BloomMips) {
+        mipFBO->Bind();
+        RenderCommand::SetViewport(0, 0, mipFBO->GetWidth(), mipFBO->GetHeight());
+        glBindTexture(GL_TEXTURE_2D, srcTex);
+        Renderer::DrawFullscreenQuad();
+        srcTex = mipFBO->GetColorAttachment();
+        mipFBO->Unbind();
+    }
+
+    shader->Unbind();
+    glEnable(GL_DEPTH_TEST);
+}
+
+void SceneRenderer::BloomUpsamplePass() {
+    auto shader = m_ShaderLibrary.Get("bloom_upsample");
+    if (!shader || m_BloomMips.size() < 2) return;
+
+    glDisable(GL_DEPTH_TEST);
+
+    // 加法混合：将上采样结果叠加到目标 mip 已有的下采样内容上
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glBlendEquation(GL_FUNC_ADD);
+
+    shader->Bind();
+    shader->SetInt  ("u_Texture",      0);
+    shader->SetFloat("u_FilterRadius", 1.0f);
+    glActiveTexture(GL_TEXTURE0);
+
+    // 从最小 mip 反向上采样叠加到较大 mip
+    // mip[N-1] → 叠加到 mip[N-2]
+    // mip[N-2] → 叠加到 mip[N-3]
+    // ...
+    // mip[0]   → 叠加到 prefilter
+    int n = static_cast<int>(m_BloomMips.size());
+    for (int i = n - 1; i >= 0; --i) {
+        // 源：较小的 mip
+        GLuint srcTex = m_BloomMips[i]->GetColorAttachment();
+        // 目标：较大的 mip 或 prefilter
+        Ref<Framebuffer>& dstFBO = (i == 0) ? m_BloomPrefilterFBO : m_BloomMips[i - 1];
+
+        dstFBO->Bind();
+        RenderCommand::SetViewport(0, 0, dstFBO->GetWidth(), dstFBO->GetHeight());
+        glBindTexture(GL_TEXTURE_2D, srcTex);
+        Renderer::DrawFullscreenQuad();
+        dstFBO->Unbind();
+    }
+
+    shader->Unbind();
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+}
+
+void SceneRenderer::CopyDepthToTarget(Framebuffer& target) {
+    if (!m_HDRFramebuffer) return;
+
+    uint32_t w = target.GetWidth();
+    uint32_t h = target.GetHeight();
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_HDRFramebuffer->GetID());
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target.GetID());
+    glBlitFramebuffer(0, 0, m_HDRFramebuffer->GetWidth(), m_HDRFramebuffer->GetHeight(),
+                      0, 0, w, h,
+                      GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void SceneRenderer::CompositePass() {
+    auto compositeShader = m_ShaderLibrary.Get("scene_composite");
+    if (!compositeShader) {
+        std::cerr << "[SceneRenderer] scene_composite shader not found!" << std::endl;
+        return;
+    }
+
+    // 写到外部 TargetFramebuffer（GL_RGBA8，ImGui 显示用）
+    m_TargetFramebuffer->Bind();
+    RenderCommand::SetViewport(0, 0, m_TargetFramebuffer->GetWidth(),
+                                      m_TargetFramebuffer->GetHeight());
+
+    // 禁用深度测试（全屏四边形不需要）
+    glDisable(GL_DEPTH_TEST);
+
+    compositeShader->Bind();
+    compositeShader->SetInt  ("u_Texture",    0);
+    compositeShader->SetInt  ("u_EntityIDTex", 1);
+    compositeShader->SetFloat("u_Exposure",   m_Settings.Exposure);
+
+    // Bloom
+    bool bloomReady = m_Settings.EnableBloom && m_BloomPrefilterFBO;
+    compositeShader->SetBool ("u_EnableBloom",    bloomReady);
+    compositeShader->SetInt  ("u_BloomTex",        2);
+    compositeShader->SetFloat("u_BloomIntensity",  m_Settings.BloomIntensity);
+
+    // 描边
+    compositeShader->SetInt  ("u_SelectedEntityID",
+        m_Settings.EnableOutline ? m_SelectedEntityID : -1);
+    compositeShader->SetVec4 ("u_OutlineColor",  m_Settings.OutlineColor);
+    compositeShader->SetFloat("u_OutlineWidth",
+        static_cast<float>(m_Settings.OutlineWidth));
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetColorAttachment());
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetEntityIDAttachment());
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, bloomReady ? m_BloomPrefilterFBO->GetColorAttachment() : 0);
+
+    Renderer::DrawFullscreenQuad();
+
+    compositeShader->Unbind();
+    glEnable(GL_DEPTH_TEST);
+
+    m_TargetFramebuffer->Unbind();
 }
 
 } // namespace GLRenderer

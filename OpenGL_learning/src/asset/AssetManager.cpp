@@ -41,8 +41,10 @@ void AssetManager::Shutdown() {
     std::cout << "[AssetManager] Shutdown complete" << std::endl;
 }
 
-AssetHandle AssetManager::ImportTexture(const std::filesystem::path& path) {
-    std::string pathStr = path.string();
+AssetHandle AssetManager::ImportTexture(const std::filesystem::path& path,
+                                         const TextureSpec& spec) {
+    // 缓存键：路径 + sRGB 标志，同一文件作为颜色贴图和数据贴图时分开缓存
+    std::string pathStr = path.string() + (spec.SRGB ? ":srgb" : "");
 
     // 检查是否已导入
     auto it = m_PathToHandle.find(pathStr);
@@ -56,7 +58,7 @@ AssetHandle AssetManager::ImportTexture(const std::filesystem::path& path) {
     }
 
     try {
-        auto texture = Texture2D::Create(path);
+        auto texture = Texture2D::Create(path, spec);
         texture->Handle = AssetHandle();  // 生成新 Handle
 
         AssetMetadata metadata;

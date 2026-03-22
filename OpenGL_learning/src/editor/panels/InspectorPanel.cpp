@@ -285,9 +285,11 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
     if (!matAsset) return;
 
     // 纹理槽绘制辅助 lambda
+    // srgb=true 用于颜色贴图(albedo)，加载时使用 GL_SRGB8 让 GPU 自动线性化采样值
     auto DrawTextureSlot = [](const char* label, AssetHandle handle,
                               std::function<void(AssetHandle)> onChanged,
-                              std::function<void()> onClear) {
+                              std::function<void()> onClear,
+                              bool srgb = false) {
         ImGui::PushID(label);
 
         float textureSize = 64.0f;
@@ -321,7 +323,9 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
                 std::filesystem::path assetPath(path);
                 std::string ext = assetPath.extension().string();
                 if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".dds") {
-                    AssetHandle newHandle = AssetManager::Get().ImportTexture(assetPath);
+                    TextureSpec spec;
+                    spec.SRGB = srgb;
+                    AssetHandle newHandle = AssetManager::Get().ImportTexture(assetPath, spec);
                     if (newHandle.IsValid() && onChanged) {
                         onChanged(newHandle);
                     }
@@ -360,7 +364,8 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
     if (ImGui::CollapsingHeader("Albedo", ImGuiTreeNodeFlags_DefaultOpen)) {
         DrawTextureSlot("Albedo Map", matAsset->GetAlbedoMap(),
             [&](AssetHandle h) { matAsset->SetAlbedoMap(h); },
-            [&]() { matAsset->SetAlbedoMap(AssetHandle(0)); });
+            [&]() { matAsset->SetAlbedoMap(AssetHandle(0)); },
+            true);  // sRGB: 颜色贴图需要 GPU 自动线性化
 
         glm::vec3 albedo = matAsset->GetAlbedoColor();
         if (ImGui::ColorEdit3("Color", &albedo[0])) {

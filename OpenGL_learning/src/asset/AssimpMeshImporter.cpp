@@ -2,16 +2,13 @@
 #include "AssetManager.h"
 #include "MaterialAsset.h"
 #include "graphics/Texture.h"
-#include "utils/DDSLoader.h"
 
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 #include <assimp/Importer.hpp>
 #include <assimp/config.h>
 
-#include <stb_image.h>
 #include <iostream>
-#include <algorithm>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace GLRenderer {
@@ -38,8 +35,10 @@ static const uint32_t s_MeshImportFlags =
     aiProcess_JoinIdenticalVertices |
     aiProcess_LimitBoneWeights |
     aiProcess_ValidateDataStructure |
-    aiProcess_GlobalScale |             // 应用 FBX 内嵌的单位缩放
-    aiProcess_FlipUVs;
+    aiProcess_GlobalScale;              // 应用 FBX 内嵌的单位缩放
+    // 注意: 不使用 aiProcess_FlipUVs。
+    // 纹理加载已通过 stbi_set_flip_vertically_on_load(true) 翻转图像行序。
+    // 若同时翻转 UV 和图像会造成双重翻转，导致纹理上下颠倒。
 
 AssimpMeshImporter::AssimpMeshImporter(const std::filesystem::path& path)
     : m_Path(path) {
@@ -210,13 +209,15 @@ std::vector<AssetHandle> AssimpMeshImporter::LoadMaterials(const aiScene* scene)
             materialAsset->SetAlbedoColor(glm::vec3(diffuseColor.r, diffuseColor.g, diffuseColor.b));
         }
 
-        // 加载 Albedo/Diffuse 贴图
-        AssetHandle albedoHandle = LoadMaterialTexture(aiMat, aiTextureType_DIFFUSE, scene);
+        // 加载 Albedo/Diffuse 贴图（颜色贴图，sRGB 编码，需 GPU 自动线性化）
+        AssetHandle albedoHandle = LoadMaterialTexture(aiMat, aiTextureType_DIFFUSE, scene, true);
         if (!albedoHandle.IsValid()) {
-            albedoHandle = LoadMaterialTexture(aiMat, aiTextureType_BASE_COLOR, scene);
+            albedoHandle = LoadMaterialTexture(aiMat, aiTextureType_BASE_COLOR, scene, true);
         }
         if (albedoHandle.IsValid()) {
             materialAsset->SetAlbedoMap(albedoHandle);
+            // 有贴图时重置颜色为白色，避免 Assimp 读出的 diffuse color 与贴图相乘产生色偏
+            materialAsset->SetAlbedoColor(glm::vec3(1.0f));
         }
 
         // 加载 Normal 贴图
@@ -232,12 +233,15 @@ std::vector<AssetHandle> AssimpMeshImporter::LoadMaterials(const aiScene* scene)
         AssetHandle metallicHandle = LoadMaterialTexture(aiMat, aiTextureType_METALNESS, scene);
         if (metallicHandle.IsValid()) {
             materialAsset->SetMetallicMap(metallicHandle);
+            // 有贴图时将标量设为 1.0，让贴图原值生效（标量为乘数）
+            materialAsset->SetMetallic(1.0f);
         }
 
         // 加载 Roughness 贴图
         AssetHandle roughnessHandle = LoadMaterialTexture(aiMat, aiTextureType_DIFFUSE_ROUGHNESS, scene);
         if (roughnessHandle.IsValid()) {
             materialAsset->SetRoughnessMap(roughnessHandle);
+            materialAsset->SetRoughness(1.0f);
         }
 
         // 加载 AO 贴图
@@ -259,7 +263,8 @@ std::vector<AssetHandle> AssimpMeshImporter::LoadMaterials(const aiScene* scene)
     return materials;
 }
 
-AssetHandle AssimpMeshImporter::LoadMaterialTexture(aiMaterial* mat, aiTextureType type, const aiScene* scene) {
+AssetHandle AssimpMeshImporter::LoadMaterialTexture(aiMaterial* mat, aiTextureType type,
+                                                    const aiScene* scene, bool srgb) {
     if (mat->GetTextureCount(type) == 0) {
         return AssetHandle(0);
     }
@@ -269,128 +274,46 @@ AssetHandle AssimpMeshImporter::LoadMaterialTexture(aiMaterial* mat, aiTextureTy
 
     std::string pathStr = path.C_Str();
 
-    // 检查是否已加载
-    auto it = m_LoadedTextures.find(pathStr);
+    // 检查是否已加载（同一文件 sRGB 与非 sRGB 分开缓存）
+    std::string cacheKey = pathStr + (srgb ? ":srgb" : "");
+    auto it = m_LoadedTextures.find(cacheKey);
     if (it != m_LoadedTextures.end()) {
         return it->second;
     }
 
-    // 检查是否是嵌入纹理
+    // 嵌入纹理（FBX/glTF 内嵌，pcData 为压缩字节流）
     auto embedTex = scene->GetEmbeddedTexture(path.C_Str());
     if (embedTex) {
-        unsigned int texId = TextureFromAssimp(embedTex);
-        if (texId != 0) {
-            // 直接使用 OpenGL 纹理 ID 创建 Texture2D（这里需要特殊处理）
-            // 目前简化处理，返回空句柄
-            return AssetHandle(0);
+        if (embedTex->mHeight == 0) {
+            // mHeight==0 表示压缩格式（PNG/JPG），mWidth 是字节数
+            TextureSpec spec;
+            spec.SRGB = srgb;
+            auto texture = Texture2D::CreateFromMemory(
+                reinterpret_cast<const unsigned char*>(embedTex->pcData),
+                static_cast<int>(embedTex->mWidth), spec);
+            if (texture) {
+                texture->Handle = AssetHandle();
+                AssetHandle handle = AssetManager::Get().AddMemoryOnlyAsset(texture);
+                m_LoadedTextures[cacheKey] = handle;
+                return handle;
+            }
         }
-    } else {
-        // 从文件加载
-        std::filesystem::path texPath = std::filesystem::path(m_Directory) / pathStr;
-        if (std::filesystem::exists(texPath)) {
-            AssetHandle handle = AssetManager::Get().ImportTexture(texPath);
-            m_LoadedTextures[pathStr] = handle;
-            return handle;
-        }
+        // 未压缩格式（ARGB8888 原始像素）暂不支持，回退到文件加载
+        return AssetHandle(0);
+    }
+
+    // 从文件加载
+    std::filesystem::path texPath = std::filesystem::path(m_Directory) / pathStr;
+    if (std::filesystem::exists(texPath)) {
+        TextureSpec spec;
+        spec.SRGB = srgb;
+        AssetHandle handle = AssetManager::Get().ImportTexture(texPath, spec);
+        m_LoadedTextures[cacheKey] = handle;
+        return handle;
     }
 
     return AssetHandle(0);
 }
 
-unsigned int AssimpMeshImporter::TextureFromFile(const char* path) {
-    std::string filename = m_Directory + '/' + std::string(path);
-
-    std::string extension = filename.substr(filename.find_last_of('.') + 1);
-    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-
-    if (extension == "dds") {
-        return DDSLoader::LoadDDS(filename);
-    }
-
-    stbi_set_flip_vertically_on_load(true);
-
-    unsigned int textureID;
-    glGenTextures(1, &textureID);
-
-    int width, height, nrComponents;
-    unsigned char* data = stbi_load(filename.c_str(), &width, &height, &nrComponents, 0);
-
-    if (data) {
-        GLenum format = GL_RGBA;
-        if (nrComponents == 1)
-            format = GL_RED;
-        else if (nrComponents == 3)
-            format = GL_RGB;
-        else if (nrComponents == 4)
-            format = GL_RGBA;
-
-        glBindTexture(GL_TEXTURE_2D, textureID);
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        stbi_image_free(data);
-    } else {
-        std::cerr << "[AssimpMeshImporter] Failed to load texture: " << filename << std::endl;
-        stbi_image_free(data);
-        return 0;
-    }
-
-    return textureID;
-}
-
-unsigned int AssimpMeshImporter::TextureFromAssimp(const void* texturePtr) {
-    const aiTexture* texture = static_cast<const aiTexture*>(texturePtr);
-
-    unsigned int textureID;
-    glGenTextures(1, &textureID);
-
-    int width = texture->mWidth;
-    int height = texture->mHeight;
-
-    glBindTexture(GL_TEXTURE_2D, textureID);
-
-    if (height == 0) {
-        // 压缩格式 (PNG/JPG 等嵌入数据)
-        stbi_set_flip_vertically_on_load(true);
-        int nrComponents;
-        unsigned char* data = stbi_load_from_memory(
-            reinterpret_cast<unsigned char*>(texture->pcData),
-            width,
-            &width, &height, &nrComponents, 0);
-
-        if (data) {
-            GLenum format = GL_RGBA;
-            if (nrComponents == 1)
-                format = GL_RED;
-            else if (nrComponents == 3)
-                format = GL_RGB;
-            else if (nrComponents == 4)
-                format = GL_RGBA;
-
-            glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-            glGenerateMipmap(GL_TEXTURE_2D);
-            stbi_image_free(data);
-        } else {
-            std::cerr << "[AssimpMeshImporter] Failed to load embedded compressed texture" << std::endl;
-            return 0;
-        }
-    } else {
-        // 未压缩格式 (ARGB8888)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, texture->pcData);
-        glGenerateMipmap(GL_TEXTURE_2D);
-    }
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    return textureID;
-}
 
 } // namespace GLRenderer

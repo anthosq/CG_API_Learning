@@ -35,10 +35,8 @@ private:
                      uint32_t& baseIndex);
 
     std::vector<AssetHandle> LoadMaterials(const aiScene* scene);
-    AssetHandle LoadMaterialTexture(aiMaterial* mat, aiTextureType type, const aiScene* scene);
-
-    unsigned int TextureFromFile(const char* path);
-    unsigned int TextureFromAssimp(const void* texture);
+    AssetHandle LoadMaterialTexture(aiMaterial* mat, aiTextureType type, const aiScene* scene,
+                                    bool srgb = false);
 
     const std::filesystem::path m_Path;
     std::string m_Directory;

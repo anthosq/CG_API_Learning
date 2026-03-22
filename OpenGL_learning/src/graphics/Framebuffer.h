@@ -23,6 +23,11 @@ struct FramebufferSpec {
     // 采样数（用于 MSAA，1 表示不使用）
     uint32_t Samples = 1;
 
+    // 颜色附件的内部格式
+    // GL_RGBA8  → LDR（0~1，用于最终显示 FBO）
+    // GL_RGBA16F → HDR（用于中间渲染 FBO，避免截断 >1 的值）
+    GLenum ColorFormat = GL_RGBA8;
+
     // 是否为交换链目标（屏幕帧缓冲）
     bool SwapChainTarget = false;
 };
@@ -52,6 +57,10 @@ public:
     const FramebufferSpec& GetSpec() const { return m_Spec; }
 
     bool IsValid() const { return m_ID != 0; }
+
+    static Ref<Framebuffer> Create(const FramebufferSpec& spec) {
+        return Ref<Framebuffer>(new Framebuffer(spec));
+    }
 
     // 鼠标拾取相关
     int ReadPixel(int x, int y) const;  // 读取实体 ID 附件的像素值

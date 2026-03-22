@@ -49,6 +49,20 @@ struct SceneRenderSettings {
     // 天空盒
     float SkyboxLOD = 0.0f;
 
+    // 后处理
+    float Exposure = 1.0f;  // 曝光值，传给 CompositePass
+
+    // Bloom
+    bool  EnableBloom     = true;
+    float BloomThreshold  = 1.0f;   // 亮度阈值
+    float BloomKnee       = 0.1f;   // 软过渡宽度（相对于 threshold 的比例）
+    float BloomIntensity  = 0.8f;   // 最终叠加强度（CompositePass 使用）
+
+    // 描边
+    bool      EnableOutline = true;
+    glm::vec4 OutlineColor  = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
+    int       OutlineWidth  = 2;
+
     // 阴影设置
     uint32_t ShadowCascadeCount  = 4;
     uint32_t ShadowResolution    = 2048;
@@ -138,11 +152,17 @@ public:
     void SetDefaultDiffuse(Ref<Texture2D> texture) { m_DefaultDiffuse = texture; }
     void SetDefaultSpecular(Ref<Texture2D> texture) { m_DefaultSpecular = texture; }
 
-    // 设置目标 Framebuffer
+    // 设置目标 Framebuffer（接收最终 tonemapped LDR 输出）
     void SetTargetFramebuffer(Framebuffer* fbo) { m_TargetFramebuffer = fbo; }
+
+    // 选中实体（用于描边）
+    void SetSelectedEntityID(int id) { m_SelectedEntityID = id; }
 
     // 环境贴图 - 从 HDR 文件加载并执行 IBL 预处理
     bool LoadEnvironment(const std::filesystem::path& hdrPath);
+
+    // 将 HDR FBO 的深度缓冲 blit 到目标 FBO（供 editor overlay 使用，使 billboard 受场景深度遮挡）
+    void CopyDepthToTarget(Framebuffer& target);
 
 private:
     void FlushDrawList();
@@ -151,6 +171,11 @@ private:
     void SkyboxPass();
     void GeometryPass();         // 不透明物体
     void TransparentPass();      // 透明物体
+
+    void BloomPrefilterPass();   // Bloom 第一步：提取亮部
+    void BloomDownsamplePass();  // Bloom 第二步：逐级下采样
+    void BloomUpsamplePass();    // Bloom 第三步：逐级上采样并叠加
+    void CompositePass();
 
     void SyncLightsFromECS(ECS::World& world);
     void CollectDrawCommandsFromECS(ECS::World& world);
@@ -162,6 +187,9 @@ private:
     void ShadowPass();
     void UpdateShadowUBO();
     void CalculateCascades(CascadeData* outCascades);
+
+    void EnsureHDRFramebuffer(uint32_t width, uint32_t height);
+    void EnsureBloomTextures(uint32_t width, uint32_t height);
 
     // PBR 渲染
     void BindPBRMaterial(Shader& shader, const Ref<MaterialAsset>& material);
@@ -217,6 +245,22 @@ private:
     Frustum                    m_CameraFrustum;
 
     BVH                        m_SceneBVH;
+
+    // === 后处理 ===
+    // 所有几何/天空盒/网格 Pass 均渲染到此 HDR FBO（GL_RGBA16F + EntityID + Depth）
+    // CompositePass 从此处读取并写到 m_TargetFramebuffer（GL_RGBA8，ImGui 显示）
+    Ref<Framebuffer>           m_HDRFramebuffer;
+
+    // Bloom FBO 链（GL_RGBA16F，无深度/EntityID）
+    // [0] = Prefilter 输出（W/2 × H/2）
+    // [1] = W/4 × H/4
+    // [2] = W/8 × H/8  ...最多 MAX_BLOOM_MIPS 级
+    // Upsample 反向叠加后，[0] 即为最终 Bloom 贴图
+    static constexpr int MAX_BLOOM_MIPS = 8;
+    Ref<Framebuffer>           m_BloomPrefilterFBO;
+    std::vector<Ref<Framebuffer>> m_BloomMips;
+
+    int                        m_SelectedEntityID = -1;
 };
 
 } // namespace GLRenderer

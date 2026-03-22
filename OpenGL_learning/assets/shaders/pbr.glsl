@@ -367,8 +367,11 @@ vec3 CalculateIBL(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float ro
 }
 
 void main() {
-    // Sample textures (defaults are bound when no texture specified)
-    vec3 albedo = texture(u_AlbedoMap, fs_in.TexCoord).rgb * u_AlbedoColor;
+    // albedo 贴图以 GL_SRGB8 加载，GPU 采样时已自动线性化。
+    // u_AlbedoColor 是面板输入的 sRGB 感知颜色，需手动转换到线性空间再相乘。
+    // 参考 Hazel: m_Params.Albedo = albedoTexColor.rgb * ToLinear(AlbedoColor)
+    vec3 albedo = texture(u_AlbedoMap, fs_in.TexCoord).rgb
+                  * pow(max(u_AlbedoColor, vec3(0.0)), vec3(2.2));
     float metallic = texture(u_MetallicMap, fs_in.TexCoord).r * u_Metallic;
     float roughness = texture(u_RoughnessMap, fs_in.TexCoord).r * u_Roughness;
     float ao = texture(u_AOMap, fs_in.TexCoord).r * u_AO;
@@ -423,10 +426,8 @@ void main() {
     vec3 emissive = texture(u_EmissiveMap, fs_in.TexCoord).rgb * u_EmissiveColor * u_EmissiveIntensity;
     color += emissive;
 
-    // HDR tonemapping (Reinhard)
-    color = color / (color + vec3(1.0));
-    // Gamma correction
-    color = pow(color, vec3(1.0 / 2.2));
+    // 注: Tone Mapping 和 Gamma 校正由 CompositePass (scene_composite.glsl) 统一处理。
+    // 此处输出 linear HDR 值写入 GL_RGBA16F FBO，不做截断。
 
     // Debug: 显示 prefilter mip0 采样 - 结果正常
     // vec3 R = reflect(-V, N);

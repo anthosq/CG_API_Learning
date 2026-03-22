@@ -3,6 +3,7 @@
 #include "scene/ecs/Components.h"
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <glm/gtc/type_ptr.hpp>
 #include <filesystem>
 
 namespace GLRenderer {
@@ -186,6 +187,23 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         ImGui::SliderFloat("Split Lambda", &settings.CascadeSplitLambda,  0.0f,   1.0f, "%.2f");
         ImGui::Checkbox("Soft Shadows",    &settings.SoftShadows);
         ImGui::Checkbox("Show Cascades",   &settings.ShowCascades);
+    }
+
+    // Bloom 设置
+    if (ImGui::CollapsingHeader("Bloom")) {
+        ImGui::Checkbox("Enable",            &settings.EnableBloom);
+        if (settings.EnableBloom) {
+            ImGui::SliderFloat("Threshold",  &settings.BloomThreshold, 0.1f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Knee",       &settings.BloomKnee,      0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Intensity",  &settings.BloomIntensity, 0.0f, 3.0f, "%.2f");
+        }
+    }
+
+    // 描边设置
+    if (ImGui::CollapsingHeader("Outline")) {
+        ImGui::Checkbox("Enable",         &settings.EnableOutline);
+        ImGui::ColorEdit4("Color",        glm::value_ptr(settings.OutlineColor));
+        ImGui::SliderInt("Width (px)",    &settings.OutlineWidth, 1, 5);
     }
 }
 

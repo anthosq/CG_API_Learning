@@ -82,9 +82,12 @@ void Framebuffer::Invalidate() {
         glGenTextures(1, &m_ColorAttachment);
         glBindTexture(GL_TEXTURE_2D, m_ColorAttachment);
 
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+        // 根据 ColorFormat 选择数据类型：HDR 格式用浮点，LDR 用 UNSIGNED_BYTE
+        GLenum dataType = (m_Spec.ColorFormat == GL_RGBA16F || m_Spec.ColorFormat == GL_RGB16F)
+                          ? GL_FLOAT : GL_UNSIGNED_BYTE;
+        glTexImage2D(GL_TEXTURE_2D, 0, m_Spec.ColorFormat,
                      m_Spec.Width, m_Spec.Height, 0,
-                     GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                     GL_RGBA, dataType, nullptr);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);

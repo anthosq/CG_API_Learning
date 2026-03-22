@@ -33,7 +33,7 @@ ViewportPanel::ViewportPanel()
     spec.HasEntityIDAttachment = true;  // 启用实体 ID 附件用于鼠标拾取
     spec.Samples = 1;
 
-    m_Framebuffer = std::make_unique<Framebuffer>(spec);
+    m_Framebuffer = Framebuffer::Create(spec);
 }
 
 void ViewportPanel::OnDraw(EditorContext& context) {
@@ -257,22 +257,25 @@ bool ViewportPanel::ProcessMousePicking(int& outEntityID) {
 
         // 检查是否在视口范围内
         if (mx >= 0 && my >= 0 && mx < m_ViewportSize.x && my < m_ViewportSize.y) {
-            // 将视口坐标映射到 Framebuffer 坐标（可能大小不同）
-            float scaleX = static_cast<float>(m_Framebuffer->GetWidth()) / m_ViewportSize.x;
-            float scaleY = static_cast<float>(m_Framebuffer->GetHeight()) / m_ViewportSize.y;
+            // viewport FBO 的 EntityID attachment 包含完整数据：
+            // CompositePass 复制了几何体 EntityID，billboard 覆盖写入了自身 EntityID
+            Framebuffer& entityFBO = *m_Framebuffer;
+
+            float scaleX = static_cast<float>(entityFBO.GetWidth()) / m_ViewportSize.x;
+            float scaleY = static_cast<float>(entityFBO.GetHeight()) / m_ViewportSize.y;
 
             int fbX = static_cast<int>(mx * scaleX);
             int fbY = static_cast<int>(my * scaleY);
 
             // 翻转 Y 坐标（OpenGL 原点在左下角）
-            fbY = m_Framebuffer->GetHeight() - fbY - 1;
+            fbY = entityFBO.GetHeight() - fbY - 1;
 
             // 确保坐标在有效范围内
-            fbX = glm::clamp(fbX, 0, static_cast<int>(m_Framebuffer->GetWidth()) - 1);
-            fbY = glm::clamp(fbY, 0, static_cast<int>(m_Framebuffer->GetHeight()) - 1);
+            fbX = glm::clamp(fbX, 0, static_cast<int>(entityFBO.GetWidth()) - 1);
+            fbY = glm::clamp(fbY, 0, static_cast<int>(entityFBO.GetHeight()) - 1);
 
             // 读取实体 ID（仅在点击时读取）
-            int pixelData = m_Framebuffer->ReadPixel(fbX, fbY);
+            int pixelData = entityFBO.ReadPixel(fbX, fbY);
             m_HoveredEntityID = pixelData;
             outEntityID = pixelData;
             hasNewPick = true;

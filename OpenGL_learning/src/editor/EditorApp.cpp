@@ -274,7 +274,7 @@ void EditorApp::SetupDockSpace() {
 void EditorApp::RenderSceneToViewport() {
     if (!m_ViewportPanel || !m_SceneRenderer) return;
 
-    Framebuffer* fbo = m_ViewportPanel->GetFramebuffer();
+    Ref<Framebuffer> fbo = m_ViewportPanel->GetFramebuffer();
     if (!fbo || !fbo->IsValid()) return;
 
     // 处理视口大小变化
@@ -286,10 +286,20 @@ void EditorApp::RenderSceneToViewport() {
     Camera& camera = m_ViewportPanel->GetCamera();
     float aspectRatio = m_ViewportPanel->GetAspectRatio();
 
-    // 使用 SceneRenderer 渲染场景
+    // 传递选中实体（用于描边）
+    {
+        int selectedID = -1;
+        if (m_Editor->GetContext().HasSelection())
+            selectedID = static_cast<int>(
+                m_Editor->GetContext().SelectedEntity.GetHandle());
+        m_SceneRenderer->SetSelectedEntityID(selectedID);
+    }
+
+    // 渲染场景：HDR FBO → CompositePass（同时复制 EntityID）→ viewport FBO
     m_SceneRenderer->RenderScene(*m_World, *fbo, camera, aspectRatio);
 
-    // 渲染编辑器可视化 (光源图标等)
+    // 渲染编辑器 overlay（billboard），EntityID 覆盖写入 viewport FBO attachment 1
+    // picking 直接读 viewport FBO，同时包含几何体和 billboard 的 EntityID
     RenderEditorVisuals();
 }
 
@@ -409,16 +419,16 @@ void EditorApp::LoadEditorIcons() {
 void EditorApp::RenderEditorVisuals() {
     if (!m_ViewportPanel || !m_World) return;
 
-    Framebuffer* fbo = m_ViewportPanel->GetFramebuffer();
+    Ref<Framebuffer> fbo = m_ViewportPanel->GetFramebuffer();
     if (!fbo || !fbo->IsValid()) return;
 
     Camera& camera = m_ViewportPanel->GetCamera();
     float aspectRatio = m_ViewportPanel->GetAspectRatio();
 
-    // 绑定 FBO (场景渲染后继续在同一 FBO 上绘制)
-    fbo->Bind();
+    // 将 HDR FBO 深度 blit 到 viewport FBO，使 billboard 受场景几何体遮挡
+    m_SceneRenderer->CopyDepthToTarget(*fbo);
 
-    // 重置视口（确保正确）
+    fbo->Bind();
     glViewport(0, 0, fbo->GetWidth(), fbo->GetHeight());
 
     // 使用 Renderer2D 渲染编辑器可视化
