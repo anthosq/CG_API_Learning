@@ -7,6 +7,7 @@
 #include "asset/AssetTypes.h"
 #include "asset/MaterialAsset.h"
 #include "core/Ref.h"
+#include "core/Frustum.h"
 #include <glm/glm.hpp>
 
 namespace GLRenderer {
@@ -48,10 +49,32 @@ struct LightingUBO {
     glm::vec4 AmbientColor;           // xyz = 环境光颜色, w = 强度
 };
 
+// Shadow UBO (绑定点 3), std140 布局
+// 注意 std140 规则: mat4=64B, vec4=16B, float/int=4B, 结构体末尾须 16B 对齐
+struct ShadowUBO {
+    glm::mat4 LightSpaceMatrices[4];  // offset   0, size 256 (4×64)
+    glm::vec4 CascadeSplits;          // offset 256, size  16 (xyzw = split[0..3])
+    float     MaxShadowDistance;      // offset 272, size   4
+    float     ShadowFade;             // offset 276, size   4
+    int       CascadeCount;           // offset 280, size   4
+    float     CascadeTransitionFade;  // offset 284, size   4  (cascade 过渡区宽度，世界单位)
+};  // 总计 288 bytes
+
 // UBO 绑定点常量
-constexpr uint32_t UBO_BINDING_CAMERA = 0;
+constexpr uint32_t UBO_BINDING_CAMERA   = 0;
 constexpr uint32_t UBO_BINDING_LIGHTING = 1;
 constexpr uint32_t UBO_BINDING_MATERIAL = 2;  // 预留给材质 UBO
+constexpr uint32_t UBO_BINDING_SHADOW   = 3;  // 阴影数据
+
+// 阴影贴图纹理槽（sampler2DArray，4 个 cascade 共用）
+constexpr uint32_t SHADOW_MAP_SLOT = 9;
+
+// 单个 cascade 的 CPU 端数据（CalculateCascades 输出，不上传 GPU）
+struct CascadeData {
+    glm::mat4 ViewProj;         // 光源空间 view-projection（写入 ShadowUBO）
+    Frustum   CascadeFrustum;   // 该 cascade 的裁剪视锥（BVH Query 用）
+    float     SplitDepth;       // 相机空间切分深度（写入 ShadowUBO::CascadeSplits）
+};
 
 // 前向声明已移除 - 统一使用 MeshSource
 
@@ -106,7 +129,7 @@ struct PipelineSpecification {
         PipelineSpecification spec;
         spec.DepthTest = true;
         spec.DepthWrite = true;
-        spec.BackfaceCulling = true;  // 阴影可以启用
+        spec.BackfaceCulling = false;
         spec.Blend = BlendMode::None;
         return spec;
     }

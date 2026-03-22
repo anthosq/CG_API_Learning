@@ -103,11 +103,24 @@ uniform sampler2D u_RoughnessMap;
 uniform sampler2D u_AOMap;
 uniform sampler2D u_EmissiveMap;
 
-// IBL textures (for future use)
+// IBL textures
 uniform samplerCube u_IrradianceMap;
 uniform samplerCube u_PrefilterMap;
 uniform sampler2D u_BrdfLUT;
 uniform float u_EnvironmentIntensity;
+
+// Shadow
+layout(std140, binding = 3) uniform ShadowData {
+    mat4  u_LightSpaceMatrices[4];
+    vec4  u_CascadeSplits;       // xyzw = split[0..3]（相机空间深度）
+    float u_MaxShadowDistance;
+    float u_ShadowFade;
+    int   u_CascadeCount;
+    float u_CascadeTransitionFade;
+};
+uniform sampler2DArrayShadow u_ShadowMap;
+uniform bool u_SoftShadows;
+uniform bool u_ShowCascades;
 
 const float PI = 3.14159265359;
 
@@ -249,6 +262,85 @@ vec3 CalculateSpotLight(vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, floa
     return CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness);
 }
 
+// Poisson disk 16 样本（PCF 软阴影偏移）
+const vec2 g_PoissonDisk[16] = vec2[](
+    vec2(-0.94201624, -0.39906216), vec2( 0.94558609, -0.76890725),
+    vec2(-0.09418410, -0.92938870), vec2( 0.34495938,  0.29387760),
+    vec2(-0.91588581,  0.45771432), vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543,  0.27676845), vec2( 0.97484398,  0.75648379),
+    vec2( 0.44323325, -0.97511554), vec2( 0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023), vec2( 0.79197514,  0.19090188),
+    vec2(-0.24188840,  0.99706507), vec2(-0.81409955,  0.91437590),
+    vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790)
+);
+
+// 选择 cascade：用相机空间深度与切分点比较
+// splits 存储从近到远的切分深度，越近的片元匹配编号越小的 cascade（分辨率更高）
+uint SelectCascade(float viewDepth) {
+    for (int i = 0; i < u_CascadeCount - 1; i++) {
+        if (viewDepth < u_CascadeSplits[i])
+            return uint(i);
+    }
+    return uint(u_CascadeCount - 1);
+}
+
+// 单个 cascade 采样（PCF 或硬阴影）
+float SampleShadow(uint cascade, vec3 worldPos, float bias) {
+    vec4 lightSpacePos = u_LightSpaceMatrices[cascade] * vec4(worldPos, 1.0);
+    vec3 projCoords    = lightSpacePos.xyz / lightSpacePos.w;
+    vec2 shadowUV      = projCoords.xy * 0.5 + 0.5;
+    float depth        = projCoords.z * 0.5 + 0.5;
+
+    if (any(lessThan(shadowUV, vec2(0.0))) || any(greaterThan(shadowUV, vec2(1.0))))
+        return 1.0;
+
+    float layer = float(cascade);
+    if (u_SoftShadows) {
+        float shadow = 0.0;
+        float texelSize = 1.0 / float(textureSize(u_ShadowMap, 0).x);
+        for (int i = 0; i < 16; i++) {
+            vec2 offset = g_PoissonDisk[i] * texelSize * 1.5;
+            shadow += texture(u_ShadowMap, vec4(shadowUV + offset, layer, depth - bias));
+        }
+        return shadow / 16.0;
+    } else {
+        return texture(u_ShadowMap, vec4(shadowUV, layer, depth - bias));
+    }
+}
+
+// 阴影计算：带 cascade 间平滑过渡（参考 Hazel HazelPBR_Static.glsl）
+float ShadowCalculation(vec3 worldPos, float viewDepth, vec3 normal, vec3 lightDir) {
+    float distFade = clamp(1.0 - (viewDepth - (u_MaxShadowDistance - u_ShadowFade))
+                                 / u_ShadowFade, 0.0, 1.0);
+    if (distFade <= 0.0) return 1.0;
+
+    float NdotL = max(dot(normal, lightDir), 0.0);
+    float bias  = max(0.002 * (1.0 - NdotL), 0.0005);
+
+    uint  cascade = SelectCascade(viewDepth);
+    float shadow;
+
+    float half_fade = u_CascadeTransitionFade * 0.5;
+
+    // 在每条 cascade 分界线附近用 smoothstep 计算混合权重（参考 Hazel）
+    // c=1 → 完全在当前 cascade，c=0 → 完全在下一个 cascade
+    float c0 = smoothstep(u_CascadeSplits[0] + half_fade, u_CascadeSplits[0] - half_fade, viewDepth);
+    float c1 = smoothstep(u_CascadeSplits[1] + half_fade, u_CascadeSplits[1] - half_fade, viewDepth);
+    float c2 = smoothstep(u_CascadeSplits[2] + half_fade, u_CascadeSplits[2] - half_fade, viewDepth);
+
+    if (c0 > 0.0 && c0 < 1.0) {
+        shadow = mix(SampleShadow(1u, worldPos, bias), SampleShadow(0u, worldPos, bias), c0);
+    } else if (c1 > 0.0 && c1 < 1.0 && u_CascadeCount > 2) {
+        shadow = mix(SampleShadow(2u, worldPos, bias), SampleShadow(1u, worldPos, bias), c1);
+    } else if (c2 > 0.0 && c2 < 1.0 && u_CascadeCount > 3) {
+        shadow = mix(SampleShadow(3u, worldPos, bias), SampleShadow(2u, worldPos, bias), c2);
+    } else {
+        shadow = SampleShadow(cascade, worldPos, bias);
+    }
+
+    return mix(1.0, shadow, distFade);
+}
+
 // IBL - Split-Sum 近似 (参考 Hazel IBL 函数)
 vec3 CalculateIBL(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness, float ao) {
     vec3 R = reflect(-V, N);
@@ -296,9 +388,14 @@ void main() {
 
     vec3 Lo = vec3(0.0);
 
-    // Directional light
+    // 相机空间深度（正值），用于 cascade 选择和距离淡出
+    float viewDepth = -(u_View * vec4(fs_in.FragPos, 1.0)).z;
+
+    // 方向光 + 阴影
     if (u_DirLightDirection.w > 0.0) {
-        Lo += CalculateDirectionalLight(N, V, F0, albedo, metallic, roughness);
+        vec3 L = normalize(-u_DirLightDirection.xyz);
+        float shadow = ShadowCalculation(fs_in.FragPos, viewDepth, N, L);
+        Lo += CalculateDirectionalLight(N, V, F0, albedo, metallic, roughness) * shadow;
     }
 
     // Point lights
@@ -371,6 +468,19 @@ void main() {
     // FragColor = vec4(specularIBL, 1.0);
     // vec2 lut = texture(u_BrdfLUT, vec2(0.5, 0.5)).rg;
     // FragColor = vec4(lut.r, lut.g, 0.0, 1.0);
+
+    // Debug: cascade 可视化（ShowCascades 开启时叠加色调）
+    if (u_ShowCascades) {
+        float vd = -(u_View * vec4(fs_in.FragPos, 1.0)).z;
+        uint c = SelectCascade(vd);
+        const vec3 cascadeColors[4] = vec3[](
+            vec3(1.0, 0.0, 0.0),   // cascade 0: 红（最近，最精细）
+            vec3(0.0, 1.0, 0.0),   // cascade 1: 绿
+            vec3(0.0, 0.0, 1.0),   // cascade 2: 蓝
+            vec3(1.0, 1.0, 0.0)    // cascade 3: 黄（最远）
+        );
+        color = mix(color, cascadeColors[c], 0.4);
+    }
 
     FragColor = vec4(color, 1.0);
     EntityID = fs_in.EntityID;

@@ -159,7 +159,33 @@ void SettingsPanel::OnDraw(EditorContext& context) {
     // 渲染设置
     if (ImGui::CollapsingHeader("Rendering")) {
         ImGui::Checkbox("Wireframe", &settings.Wireframe);
-        ImGui::Checkbox("Enable Shadows", &settings.EnableShadows);
+    }
+
+    // 阴影设置
+    if (ImGui::CollapsingHeader("Shadows")) {
+        const char* resItems[] = { "1024", "2048", "4096" };
+        const uint32_t resValues[] = { 1024, 2048, 4096 };
+        int resIndex = 1;
+        for (int i = 0; i < 3; i++) {
+            if (settings.ShadowResolution == resValues[i]) { resIndex = i; break; }
+        }
+        if (ImGui::Combo("Resolution", &resIndex, resItems, 3))
+            settings.ShadowResolution = resValues[resIndex];
+
+        const char* cascadeItems[] = { "2", "4" };
+        const uint32_t cascadeValues[] = { 2, 4 };
+        int cascadeIndex = 1;
+        for (int i = 0; i < 2; i++) {
+            if (settings.ShadowCascadeCount == cascadeValues[i]) { cascadeIndex = i; break; }
+        }
+        if (ImGui::Combo("Cascades", &cascadeIndex, cascadeItems, 2))
+            settings.ShadowCascadeCount = cascadeValues[cascadeIndex];
+
+        ImGui::SliderFloat("Distance",     &settings.ShadowDistance,     10.0f, 500.0f, "%.0f");
+        ImGui::SliderFloat("Fade",         &settings.ShadowFade,          1.0f,  50.0f, "%.1f");
+        ImGui::SliderFloat("Split Lambda", &settings.CascadeSplitLambda,  0.0f,   1.0f, "%.2f");
+        ImGui::Checkbox("Soft Shadows",    &settings.SoftShadows);
+        ImGui::Checkbox("Show Cascades",   &settings.ShowCascades);
     }
 }
 

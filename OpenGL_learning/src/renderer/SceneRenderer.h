@@ -24,6 +24,9 @@
 #include "asset/MaterialAsset.h"
 #include "renderer/Environment.h"
 #include "graphics/IBLProcessor.h"
+#include "graphics/ShadowMap.h"
+#include "core/Frustum.h"
+#include "scene/BVH.h"
 
 #include <memory>
 #include <vector>
@@ -32,20 +35,29 @@ namespace GLRenderer {
 
 // 场景渲染设置
 struct SceneRenderSettings {
-    bool ShowGrid = true;
-    bool ShowSkybox = true;
-    bool EnableShadows = false;
-    bool Wireframe = false;
+    bool ShowGrid    = true;
+    bool ShowSkybox  = true;
+    bool Wireframe   = false;
 
     // 网格设置
-    float GridSize = 100.0f;
+    float GridSize     = 100.0f;
     float GridCellSize = 1.0f;
 
     // 环境设置
     glm::vec3 AmbientColor = glm::vec3(0.1f);
 
     // 天空盒
-    float SkyboxLOD = 0.0f;  // 0 = 清晰, 越高越模糊 (对应预滤波 mip 级别)
+    float SkyboxLOD = 0.0f;
+
+    // 阴影设置
+    uint32_t ShadowCascadeCount  = 4;
+    uint32_t ShadowResolution    = 2048;
+    float    ShadowDistance      = 200.0f;
+    float    ShadowFade          = 10.0f;
+    float    CascadeSplitLambda  = 0.75f;   // 0=均匀, 1=纯对数
+    float    CascadeTransitionFade = 5.0f;  // cascade 间过渡区宽度（世界单位）
+    bool     SoftShadows         = true;    // Poisson PCF vs 硬阴影
+    bool     ShowCascades        = false;   // debug 色调可视化
 };
 
 // 场景环境数据
@@ -146,6 +158,11 @@ private:
     void CreateDefaultResources();
     void UpdateLightingUBO();
 
+    // 阴影
+    void ShadowPass();
+    void UpdateShadowUBO();
+    void CalculateCascades(CascadeData* outCascades);
+
     // PBR 渲染
     void BindPBRMaterial(Shader& shader, const Ref<MaterialAsset>& material);
     Ref<MaterialAsset> GetMaterialForDrawCommand(const DrawCommand& cmd);
@@ -173,6 +190,9 @@ private:
     std::vector<DrawCommand> m_TransparentDrawList;
     std::vector<LightEntityInfo> m_LightEntities;
 
+    // 与 m_OpaqueDrawList 一一对应的世界空间 AABB（用于 BVH 和视锥裁剪）
+    std::vector<AABB> m_WorldAABBs;
+
     // === Pipeline ===
     std::unique_ptr<Pipeline> m_OpaquePipeline;
     std::unique_ptr<Pipeline> m_TransparentPipeline;
@@ -182,10 +202,21 @@ private:
     glm::mat4 m_ViewMatrix;
     glm::mat4 m_ProjectionMatrix;
     glm::vec3 m_CameraPosition;
+    float     m_CameraNear = 0.1f;
+    float     m_CameraFar  = 1000.0f;
 
     // === Uniform Buffer Objects ===
     std::unique_ptr<UniformBuffer> m_CameraUBO;
     std::unique_ptr<UniformBuffer> m_LightingUBO;
+    std::unique_ptr<UniformBuffer> m_ShadowUBO;
+
+    // === 阴影 ===
+    Ref<ShadowMap>             m_ShadowMap;
+    std::unique_ptr<Pipeline>  m_ShadowPipeline;
+    CascadeData                m_Cascades[4];   // 当前帧计算结果，最多 4 个 cascade
+    Frustum                    m_CameraFrustum;
+
+    BVH                        m_SceneBVH;
 };
 
 } // namespace GLRenderer
