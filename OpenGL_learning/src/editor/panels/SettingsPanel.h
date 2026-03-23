@@ -17,6 +17,7 @@ public:
 
 private:
     SceneRenderer* m_SceneRenderer = nullptr;
+    bool           m_ShowAODebug   = false;
 };
 
 } // namespace GLRenderer

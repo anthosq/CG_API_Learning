@@ -43,9 +43,9 @@ vec3 QuadraticThreshold(vec3 color, float threshold, vec3 curve) {
     return color;
 }
 
-// 13-tap 降采样（COD Advanced Warfare 方案），同时作为 prefilter 采样
-// 避免锯齿，比单次 bilinear 采样质量更高
-vec3 Sample13Tap(sampler2D tex, vec2 uv, vec2 texelSize) {
+// 13-tap 降采样（COD Advanced Warfare 方案）
+// 注意：与 bloom_downsample.glsl 中的 Downsample13Tap 保持相同权重
+vec3 Downsample13Tap(sampler2D tex, vec2 uv, vec2 texelSize) {
     // 中心 4 个 2x2 block（各加权 0.5）+ 4 个角（各加权 0.125）+ 4 个边中（各加权 0.125）
     vec3 a = texture(tex, uv + texelSize * vec2(-2.0,  2.0)).rgb;
     vec3 b = texture(tex, uv + texelSize * vec2( 0.0,  2.0)).rgb;
@@ -74,7 +74,7 @@ vec3 Sample13Tap(sampler2D tex, vec2 uv, vec2 texelSize) {
 
 void main() {
     vec2 texelSize = 1.0 / vec2(textureSize(u_Texture, 0));
-    vec3 color = Sample13Tap(u_Texture, v_TexCoord, texelSize);
+    vec3 color = Downsample13Tap(u_Texture, v_TexCoord, texelSize);
 
     // Knee Curve 阈值过滤
     float knee   = u_Threshold * u_Knee;

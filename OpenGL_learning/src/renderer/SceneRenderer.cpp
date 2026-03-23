@@ -5,6 +5,7 @@
 #include "graphics/IBLProcessor.h"
 #include "renderer/Material.h"
 #include <algorithm>
+#include <random>
 
 namespace GLRenderer {
 
@@ -43,6 +44,9 @@ void SceneRenderer::Initialize() {
 
     m_ShadowPipeline = std::make_unique<Pipeline>(PipelineSpecification::Shadow());
 
+    // 生成 SSAO 采样核（只需一次）
+    GenerateSSAOKernel();
+
     // HDR FBO 在首次 FlushDrawList 时根据 TargetFramebuffer 尺寸懒创建
     // （此时尚不知道目标大小）
 
@@ -60,6 +64,10 @@ void SceneRenderer::Shutdown() {
     m_ShadowMap = nullptr;
     m_ShadowPipeline.reset();
     m_ShaderLibrary.Clear();
+
+    m_GNormalFBO.Reset();
+    m_SSAOFbo.Reset();
+    m_SSAOBlurFBO.Reset();
 
     m_Initialized = false;
     std::cout << "[SceneRenderer] Shutdown" << std::endl;
@@ -278,8 +286,12 @@ void SceneRenderer::FlushDrawList() {
         return;
     }
 
+    const uint32_t viewportWidth  = m_TargetFramebuffer->GetWidth();
+    const uint32_t viewportHeight = m_TargetFramebuffer->GetHeight();
+
     // 确保 HDR FBO 尺寸与目标一致
-    EnsureHDRFramebuffer(m_TargetFramebuffer->GetWidth(), m_TargetFramebuffer->GetHeight());
+    EnsureHDRFramebuffer(viewportWidth, viewportHeight);
+    EnsureSSAOResources(viewportWidth, viewportHeight);
 
     // 所有几何 Pass 渲染到内部 HDR FBO（GL_RGBA16F，保留 >1.0 的 HDR 值）
     m_HDRFramebuffer->Bind();
@@ -301,17 +313,29 @@ void SceneRenderer::FlushDrawList() {
     UpdateShadowUBO();
     ShadowPass();
 
-    // 恢复 HDR FBO（ShadowPass 会切换 FBO）
+    // 1. SSAO：法线预处理 → AO 计算 → 深度感知模糊
+    if (m_Settings.EnableSSAO) {
+        NormalPrePass();
+        SSAOPass();
+        SSAOBlurPass();
+    }
+
+    // 恢复 HDR FBO（ShadowPass / SSAO 会切换 FBO）
     m_HDRFramebuffer->Bind();
     RenderCommand::SetViewport(0, 0, m_HDRFramebuffer->GetWidth(),
                                       m_HDRFramebuffer->GetHeight());
 
-    // 1. 网格 Pass
+    // 1. Pre-Depth Pass（仅写深度，为 GeometryPass 消除 overdraw）
+    if (m_Settings.EnableDepthPrepass) {
+        DepthPrePass();
+    }
+
+    // 2. 网格 Pass
     if (m_Settings.ShowGrid) {
         GridPass();
     }
 
-    // 2. 不透明几何 Pass
+    // 3. 不透明几何 Pass
     GeometryPass();
 
     // 3. 天空盒 Pass（深度 LEQUAL，在透明物体之前，避免覆盖透明物体）
@@ -329,18 +353,23 @@ void SceneRenderer::FlushDrawList() {
 
     m_HDRFramebuffer->Unbind();
 
+    // 后处理阶段：全屏四边形，不需要深度测试，统一在此关闭
+    glDisable(GL_DEPTH_TEST);
+
     // Bloom 三阶段（仅在 EnableBloom 时执行）
     if (m_Settings.EnableBloom) {
         uint32_t hw = m_TargetFramebuffer->GetWidth()  / 2;
         uint32_t hh = m_TargetFramebuffer->GetHeight() / 2;
         EnsureBloomTextures(hw, hh);
-        BloomPrefilterPass();   // 提取亮部 → m_BloomPrefilterFBO
-        BloomDownsamplePass();  // 下采样链 → m_BloomMips[0..N-1]
-        BloomUpsamplePass();    // 上采样叠加 → 最终结果回到 m_BloomPrefilterFBO
+        BloomPrefilterPass();
+        BloomDownsamplePass();
+        BloomUpsamplePass();
     }
 
     // Tonemap HDR → target FBO（LDR，ImGui 显示用）
     CompositePass();
+
+    glEnable(GL_DEPTH_TEST);
 }
 
 void SceneRenderer::GridPass() {
@@ -412,6 +441,55 @@ void SceneRenderer::SkyboxPass() {
     glDepthFunc(GL_LESS);
 }
 
+void SceneRenderer::DepthPrePass() {
+    if (m_OpaqueDrawList.empty()) return;
+
+    auto shader = m_ShaderLibrary.Get("depth_prepass");
+    if (!shader) return;
+
+    // 渲染到当前绑定的 HDR FBO（与 GeometryPass 共用同一深度缓冲）
+    // 屏蔽所有颜色写入，只写深度
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    RenderCommand::EnableDepthTest();
+    RenderCommand::SetDepthMask(true);
+    glDepthFunc(GL_LESS);
+    glDisable(GL_CULL_FACE);
+
+    shader->Bind();
+
+    // 使用 BVH 裁剪（与 GeometryPass 保持同一可见集合）
+    std::vector<int> visibleIndices;
+    m_SceneBVH.Query(m_CameraFrustum, visibleIndices);
+
+    for (int idx : visibleIndices) {
+        const auto& cmd = m_OpaqueDrawList[idx];
+        if (!cmd.MeshSource) continue;
+        auto vao = cmd.MeshSource->GetVertexArray();
+        if (!vao) continue;
+
+        shader->SetMat4("u_Model", cmd.Transform);
+
+        const auto& submeshes = cmd.MeshSource->GetSubmeshes();
+        if (cmd.SubmeshIndex >= submeshes.size()) continue;
+        const auto& submesh = submeshes[cmd.SubmeshIndex];
+
+        vao->Bind();
+        glDrawElementsBaseVertex(
+            GL_TRIANGLES,
+            submesh.IndexCount,
+            GL_UNSIGNED_INT,
+            (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+            submesh.BaseVertex
+        );
+        vao->Unbind();
+    }
+
+    shader->Unbind();
+
+    // 恢复颜色写入
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+
 void SceneRenderer::GeometryPass() {
     if (m_OpaqueDrawList.empty()) return;
 
@@ -422,9 +500,17 @@ void SceneRenderer::GeometryPass() {
         if (!pbrShader) return;
     }
 
-    // 设置渲染状态
+    // 深度预写已完成时切换为 LEQUAL + 禁止深度写入，消除 overdraw
+    const bool prepassDone = m_Settings.EnableDepthPrepass
+                             && m_ShaderLibrary.Get("depth_prepass");
     RenderCommand::EnableDepthTest();
-    RenderCommand::SetDepthMask(true);
+    if (prepassDone) {
+        glDepthFunc(GL_LEQUAL);
+        RenderCommand::SetDepthMask(false);
+    } else {
+        glDepthFunc(GL_LESS);
+        RenderCommand::SetDepthMask(true);
+    }
     glDisable(GL_CULL_FACE);
 
     if (m_Settings.Wireframe) {
@@ -460,8 +546,21 @@ void SceneRenderer::GeometryPass() {
     pbrShader->SetBool("u_SoftShadows",  m_Settings.SoftShadows);
     pbrShader->SetBool("u_ShowCascades", m_Settings.ShowCascades);
 
+    // SSAO（slot 10）：禁用时绑白色纹理（1.0），ao *= 1.0 不改变结果，无需 branch
+    glActiveTexture(GL_TEXTURE0 + SSAO_TEXTURE_SLOT);
+    glBindTexture(GL_TEXTURE_2D,
+        (m_Settings.EnableSSAO && m_SSAOBlurFBO)
+            ? m_SSAOBlurFBO->GetColorAttachment()
+            : Renderer::GetWhiteTexture()->GetID());
+    pbrShader->SetInt("u_SSAOMap", static_cast<int>(SSAO_TEXTURE_SLOT));
+
     std::vector<int> visibleIndices;
     m_SceneBVH.Query(m_CameraFrustum, visibleIndices);
+
+    m_CullingStats.TotalObjects   = static_cast<int>(m_OpaqueDrawList.size());
+    m_CullingStats.VisibleObjects = static_cast<int>(visibleIndices.size());
+    m_CullingStats.CulledObjects  = m_CullingStats.TotalObjects - m_CullingStats.VisibleObjects;
+    m_CullingStats.BVHNodeCount   = m_SceneBVH.NodeCount();
 
     for (int idx : visibleIndices) {
         const auto& cmd = m_OpaqueDrawList[idx];
@@ -499,7 +598,12 @@ void SceneRenderer::GeometryPass() {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
-    // 重置 OpenGL 状态
+    // PrePass 改变了深度函数和深度写入，恢复默认值供后续 pass 使用
+    if (prepassDone) {
+        glDepthFunc(GL_LESS);
+        RenderCommand::SetDepthMask(true);
+    }
+
     glBindVertexArray(0);
     glUseProgram(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -870,6 +974,7 @@ void SceneRenderer::EnsureHDRFramebuffer(uint32_t width, uint32_t height) {
 
 void SceneRenderer::EnsureBloomTextures(uint32_t width, uint32_t height) {
     if (m_BloomPrefilterFBO &&
+        !m_BloomMips.empty() &&
         m_BloomPrefilterFBO->GetWidth()  == width &&
         m_BloomPrefilterFBO->GetHeight() == height)
         return;
@@ -908,8 +1013,6 @@ void SceneRenderer::BloomPrefilterPass() {
         m_BloomPrefilterFBO->GetWidth(),
         m_BloomPrefilterFBO->GetHeight());
 
-    glDisable(GL_DEPTH_TEST);
-
     shader->Bind();
     shader->SetInt  ("u_Texture",   0);
     shader->SetFloat("u_Threshold", m_Settings.BloomThreshold);
@@ -921,8 +1024,6 @@ void SceneRenderer::BloomPrefilterPass() {
     Renderer::DrawFullscreenQuad();
 
     shader->Unbind();
-    glEnable(GL_DEPTH_TEST);
-
     m_BloomPrefilterFBO->Unbind();
 }
 
@@ -930,12 +1031,10 @@ void SceneRenderer::BloomDownsamplePass() {
     auto shader = m_ShaderLibrary.Get("bloom_downsample");
     if (!shader || m_BloomMips.empty()) return;
 
-    glDisable(GL_DEPTH_TEST);
     shader->Bind();
     shader->SetInt("u_Texture", 0);
     glActiveTexture(GL_TEXTURE0);
 
-    // Prefilter → mip[0] → mip[1] → ... → mip[N-1]
     GLuint srcTex = m_BloomPrefilterFBO->GetColorAttachment();
     for (auto& mipFBO : m_BloomMips) {
         mipFBO->Bind();
@@ -947,14 +1046,11 @@ void SceneRenderer::BloomDownsamplePass() {
     }
 
     shader->Unbind();
-    glEnable(GL_DEPTH_TEST);
 }
 
 void SceneRenderer::BloomUpsamplePass() {
     auto shader = m_ShaderLibrary.Get("bloom_upsample");
-    if (!shader || m_BloomMips.size() < 2) return;
-
-    glDisable(GL_DEPTH_TEST);
+    if (!shader || m_BloomMips.empty()) return;
 
     // 加法混合：将上采样结果叠加到目标 mip 已有的下采样内容上
     glEnable(GL_BLEND);
@@ -987,7 +1083,6 @@ void SceneRenderer::BloomUpsamplePass() {
 
     shader->Unbind();
     glDisable(GL_BLEND);
-    glEnable(GL_DEPTH_TEST);
 }
 
 void SceneRenderer::CopyDepthToTarget(Framebuffer& target) {
@@ -1016,19 +1111,15 @@ void SceneRenderer::CompositePass() {
     RenderCommand::SetViewport(0, 0, m_TargetFramebuffer->GetWidth(),
                                       m_TargetFramebuffer->GetHeight());
 
-    // 禁用深度测试（全屏四边形不需要）
-    glDisable(GL_DEPTH_TEST);
-
     compositeShader->Bind();
     compositeShader->SetInt  ("u_Texture",    0);
     compositeShader->SetInt  ("u_EntityIDTex", 1);
     compositeShader->SetFloat("u_Exposure",   m_Settings.Exposure);
 
-    // Bloom
+    // Bloom：intensity=0 时 shader 直接 × 0，无需额外 bool
     bool bloomReady = m_Settings.EnableBloom && m_BloomPrefilterFBO;
-    compositeShader->SetBool ("u_EnableBloom",    bloomReady);
-    compositeShader->SetInt  ("u_BloomTex",        2);
-    compositeShader->SetFloat("u_BloomIntensity",  m_Settings.BloomIntensity);
+    compositeShader->SetInt  ("u_BloomTex",       2);
+    compositeShader->SetFloat("u_BloomIntensity", bloomReady ? m_Settings.BloomIntensity : 0.0f);
 
     // 描边
     compositeShader->SetInt  ("u_SelectedEntityID",
@@ -1042,14 +1133,187 @@ void SceneRenderer::CompositePass() {
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetEntityIDAttachment());
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, bloomReady ? m_BloomPrefilterFBO->GetColorAttachment() : 0);
+    glBindTexture(GL_TEXTURE_2D, bloomReady
+        ? m_BloomPrefilterFBO->GetColorAttachment()
+        : Renderer::GetBlackTexture()->GetID());
 
     Renderer::DrawFullscreenQuad();
 
     compositeShader->Unbind();
-    glEnable(GL_DEPTH_TEST);
-
     m_TargetFramebuffer->Unbind();
+}
+
+void SceneRenderer::GenerateSSAOKernel() {
+    // 固定种子保证每次启动采样核一致
+    std::default_random_engine rng(42u);
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+    m_SSAOKernel.resize(64);
+    for (int i = 0; i < 64; ++i) {
+        // 切线空间半球样本：xy ∈ [-1,1]，z ∈ [0,1]（朝向法线方向）
+        glm::vec3 sample(
+            dist(rng) * 2.0f - 1.0f,
+            dist(rng) * 2.0f - 1.0f,
+            dist(rng)
+        );
+        sample = glm::normalize(sample) * dist(rng);
+
+        // 优化 [3]：幂次分布 r = mix(0.1, 1.0, (i/N)²)
+        // 使更多样本集中在近处，近处几何体对 AO 贡献最大
+        float scale = float(i) / 64.0f;
+        scale = glm::mix(0.1f, 1.0f, scale * scale);
+        m_SSAOKernel[i] = sample * scale;
+    }
+}
+
+void SceneRenderer::EnsureSSAOResources(uint32_t width, uint32_t height) {
+    if (m_GNormalFBO &&
+        m_GNormalFBO->GetWidth()  == width &&
+        m_GNormalFBO->GetHeight() == height)
+        return;
+
+    // 法线 G-Buffer：RGBA16F 颜色 + 可采样深度纹理
+    // SSAOPass 需要同时读取法线颜色和深度，因此深度必须是纹理而非 Renderbuffer
+    {
+        FramebufferSpec spec;
+        spec.Width                 = width;
+        spec.Height                = height;
+        spec.ColorFormat           = GL_RGBA16F;
+        spec.HasColorAttachment    = true;
+        spec.HasDepthAttachment    = true;
+        spec.DepthAsTexture        = true;
+        spec.HasEntityIDAttachment = false;
+        m_GNormalFBO = Framebuffer::Create(spec);
+    }
+
+    // 原始 AO：R16F 单通道
+    {
+        FramebufferSpec spec;
+        spec.Width                 = width;
+        spec.Height                = height;
+        spec.ColorFormat           = GL_R16F;
+        spec.HasColorAttachment    = true;
+        spec.HasDepthAttachment    = false;
+        spec.HasEntityIDAttachment = false;
+        m_SSAOFbo = Framebuffer::Create(spec);
+    }
+
+    // 模糊后 AO：同 R16F
+    {
+        FramebufferSpec spec;
+        spec.Width                 = width;
+        spec.Height                = height;
+        spec.ColorFormat           = GL_R16F;
+        spec.HasColorAttachment    = true;
+        spec.HasDepthAttachment    = false;
+        spec.HasEntityIDAttachment = false;
+        m_SSAOBlurFBO = Framebuffer::Create(spec);
+    }
+
+    std::cout << "[SceneRenderer] SSAO resources created: " << width << "x" << height << std::endl;
+}
+
+void SceneRenderer::NormalPrePass() {
+    if (m_OpaqueDrawList.empty() || !m_GNormalFBO) return;
+
+    auto shader = m_ShaderLibrary.Get("ssao_prepass");
+    if (!shader) return;
+
+    m_GNormalFBO->Bind();
+    RenderCommand::SetViewport(0, 0, m_GNormalFBO->GetWidth(), m_GNormalFBO->GetHeight());
+    RenderCommand::SetClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    RenderCommand::Clear();
+    RenderCommand::EnableDepthTest();
+    RenderCommand::SetDepthMask(true);
+    glDisable(GL_CULL_FACE);
+
+    shader->Bind();
+
+    // 遍历所有不透明物体写入视图空间法线和深度
+    // 不做视锥裁剪：法线预处理的 overhead 很低，且 SSAO 需要屏幕边缘的遮挡信息
+    for (const auto& cmd : m_OpaqueDrawList) {
+        if (!cmd.MeshSource) continue;
+        auto vao = cmd.MeshSource->GetVertexArray();
+        if (!vao) continue;
+
+        shader->SetMat4("u_Model",        cmd.Transform);
+        shader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
+
+        const auto& submeshes = cmd.MeshSource->GetSubmeshes();
+        if (cmd.SubmeshIndex >= submeshes.size()) continue;
+        const auto& submesh = submeshes[cmd.SubmeshIndex];
+
+        vao->Bind();
+        glDrawElementsBaseVertex(GL_TRIANGLES, submesh.IndexCount,
+            GL_UNSIGNED_INT,
+            (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+            submesh.BaseVertex);
+        vao->Unbind();
+    }
+
+    shader->Unbind();
+    m_GNormalFBO->Unbind();
+}
+
+void SceneRenderer::SSAOPass() {
+    if (!m_SSAOFbo || !m_GNormalFBO) return;
+
+    auto shader = m_ShaderLibrary.Get("ssao");
+    if (!shader) return;
+
+    m_SSAOFbo->Bind();
+    RenderCommand::SetViewport(0, 0, m_SSAOFbo->GetWidth(), m_SSAOFbo->GetHeight());
+    glDisable(GL_DEPTH_TEST);
+
+    shader->Bind();
+
+    // 上传采样核（切线空间，64 个，C++ 已做幂次分布）
+    int kernelSize = std::min(m_Settings.SSAOKernelSize, static_cast<int>(m_SSAOKernel.size()));
+    for (int i = 0; i < kernelSize; ++i)
+        shader->SetVec3("u_Samples[" + std::to_string(i) + "]", m_SSAOKernel[i]);
+    shader->SetInt  ("u_KernelSize", kernelSize);
+    shader->SetFloat("u_Radius",     m_Settings.SSAORadius);
+    shader->SetFloat("u_Bias",       m_Settings.SSAOBias);
+
+    shader->SetInt("u_GNormal", 0);
+    shader->SetInt("u_GDepth",  1);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_GNormalFBO->GetColorAttachment());
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_GNormalFBO->GetDepthAttachment());
+
+    Renderer::DrawFullscreenQuad();
+
+    shader->Unbind();
+    m_SSAOFbo->Unbind();
+    glEnable(GL_DEPTH_TEST);
+}
+
+void SceneRenderer::SSAOBlurPass() {
+    if (!m_SSAOBlurFBO || !m_SSAOFbo || !m_GNormalFBO) return;
+
+    auto shader = m_ShaderLibrary.Get("ssao_blur");
+    if (!shader) return;
+
+    m_SSAOBlurFBO->Bind();
+    RenderCommand::SetViewport(0, 0, m_SSAOBlurFBO->GetWidth(), m_SSAOBlurFBO->GetHeight());
+    glDisable(GL_DEPTH_TEST);
+
+    shader->Bind();
+    shader->SetInt  ("u_AOInput",       0);
+    shader->SetInt  ("u_Depth",         1);
+    shader->SetFloat("u_BlurSharpness", m_Settings.SSAOBlurSharpness);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_SSAOFbo->GetColorAttachment());
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_GNormalFBO->GetDepthAttachment());
+
+    Renderer::DrawFullscreenQuad();
+
+    shader->Unbind();
+    m_SSAOBlurFBO->Unbind();
+    glEnable(GL_DEPTH_TEST);
 }
 
 } // namespace GLRenderer

@@ -67,7 +67,9 @@ constexpr uint32_t UBO_BINDING_MATERIAL = 2;  // 预留给材质 UBO
 constexpr uint32_t UBO_BINDING_SHADOW   = 3;  // 阴影数据
 
 // 阴影贴图纹理槽（sampler2DArray，4 个 cascade 共用）
-constexpr uint32_t SHADOW_MAP_SLOT = 9;
+constexpr uint32_t SHADOW_MAP_SLOT    = 9;
+// SSAO 纹理槽（PBR GeometryPass 读取 blurred AO）
+constexpr uint32_t SSAO_TEXTURE_SLOT  = 10;
 
 // 单个 cascade 的 CPU 端数据（CalculateCascades 输出，不上传 GPU）
 struct CascadeData {

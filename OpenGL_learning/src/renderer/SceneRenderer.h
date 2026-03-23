@@ -49,6 +49,9 @@ struct SceneRenderSettings {
     // 天空盒
     float SkyboxLOD = 0.0f;
 
+    // Pre-Depth Pass：在 GeometryPass 前写满深度，消除 PBR overdraw
+    bool EnableDepthPrepass = true;
+
     // 后处理
     float Exposure = 1.0f;  // 曝光值，传给 CompositePass
 
@@ -62,6 +65,13 @@ struct SceneRenderSettings {
     bool      EnableOutline = true;
     glm::vec4 OutlineColor  = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
     int       OutlineWidth  = 2;
+
+    // SSAO
+    bool  EnableSSAO         = true;
+    float SSAORadius         = 0.5f;   // 采样半径（视图空间，单位：米）
+    float SSAOBias           = 0.025f; // self-occlusion 偏移
+    int   SSAOKernelSize     = 64;     // 采样核数量（≤ 64）
+    float SSAOBlurSharpness  = 1.0f;   // 双边模糊的深度敏感度
 
     // 阴影设置
     uint32_t ShadowCascadeCount  = 4;
@@ -87,6 +97,14 @@ struct SceneEnvironment {
     Ref<TextureCube> Skybox;          // 旧接口兼容, 优先使用 IBLEnvironment
     Ref<Environment> IBLEnvironment;  // IBL 数据 (RadianceMap + IrradianceMap)
     float EnvironmentIntensity = 1.0f;
+};
+
+// 视锥裁剪统计（每帧更新）
+struct CullingStats {
+    int TotalObjects   = 0;  // 提交的不透明 DrawCommand 总数
+    int VisibleObjects = 0;  // BVH 查询后通过视锥的数量
+    int CulledObjects  = 0;  // 被裁剪掉的数量
+    int BVHNodeCount   = 0;  // 当前 BVH 节点总数
 };
 
 // 光源实体信息（用于可视化和拾取）
@@ -142,6 +160,14 @@ public:
     SceneEnvironment& GetEnvironment() { return m_Environment; }
     const SceneEnvironment& GetEnvironment() const { return m_Environment; }
 
+    // 裁剪统计（上一帧结果）
+    const CullingStats& GetCullingStats() const { return m_CullingStats; }
+
+    // SSAO 调试：返回模糊后 AO 纹理的 GL handle（0 = 尚未创建）
+    uint32_t GetSSAODebugTexture() const {
+        return m_SSAOBlurFBO ? m_SSAOBlurFBO->GetColorAttachment() : 0;
+    }
+
     // 着色器库访问
     ShaderLibrary& GetShaderLibrary() { return m_ShaderLibrary; }
 
@@ -169,8 +195,16 @@ private:
 
     void GridPass();
     void SkyboxPass();
+    void DepthPrePass();         // 仅写深度（消除 GeometryPass overdraw）
     void GeometryPass();         // 不透明物体
     void TransparentPass();      // 透明物体
+
+    // SSAO
+    void NormalPrePass();        // 渲染视图空间法线到 m_GNormalFBO
+    void SSAOPass();             // 计算原始 AO → m_SSAOFbo
+    void SSAOBlurPass();         // 深度感知模糊 → m_SSAOBlurFBO
+    void EnsureSSAOResources(uint32_t width, uint32_t height);
+    void GenerateSSAOKernel();   // 在 Initialize() 中调用一次
 
     void BloomPrefilterPass();   // Bloom 第一步：提取亮部
     void BloomDownsamplePass();  // Bloom 第二步：逐级下采样
@@ -261,6 +295,14 @@ private:
     std::vector<Ref<Framebuffer>> m_BloomMips;
 
     int                        m_SelectedEntityID = -1;
+
+    CullingStats               m_CullingStats;
+
+    // === SSAO ===
+    Ref<Framebuffer>           m_GNormalFBO;     // 法线预处理 FBO（RGBA16F normal + depth tex）
+    Ref<Framebuffer>           m_SSAOFbo;        // 原始 AO（R16F）
+    Ref<Framebuffer>           m_SSAOBlurFBO;    // 模糊后 AO（R16F）
+    std::vector<glm::vec3>     m_SSAOKernel;     // 半球采样核（切线空间）
 };
 
 } // namespace GLRenderer

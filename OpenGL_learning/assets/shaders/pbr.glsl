@@ -109,6 +109,9 @@ uniform samplerCube u_PrefilterMap;
 uniform sampler2D u_BrdfLUT;
 uniform float u_EnvironmentIntensity;
 
+// SSAO（slot 10，禁用时绑白色纹理，采样结果为 1.0，对 ao 无影响）
+uniform sampler2D u_SSAOMap;
+
 // Shadow
 layout(std140, binding = 3) uniform ShadowData {
     mat4  u_LightSpaceMatrices[4];
@@ -375,6 +378,8 @@ void main() {
     float metallic = texture(u_MetallicMap, fs_in.TexCoord).r * u_Metallic;
     float roughness = texture(u_RoughnessMap, fs_in.TexCoord).r * u_Roughness;
     float ao = texture(u_AOMap, fs_in.TexCoord).r * u_AO;
+    // 屏幕空间 AO：禁用时 C++ 侧绑白色纹理（1.0），乘以 1.0 不改变结果
+    ao *= texture(u_SSAOMap, gl_FragCoord.xy / vec2(textureSize(u_SSAOMap, 0))).r;
 
     roughness = clamp(roughness, 0.04, 1.0);
 

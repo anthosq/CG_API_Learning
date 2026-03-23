@@ -27,10 +27,9 @@ uniform sampler2D  u_Texture;      // HDR color attachment
 uniform isampler2D u_EntityIDTex;  // HDR EntityID attachment（原样复制到 viewport FBO）
 uniform float      u_Exposure;
 
-// Bloom
-uniform sampler2D  u_BloomTex;       // Bloom prefilter 最终输出（半分辨率，累积了所有 mip）
-uniform float      u_BloomIntensity; // 叠加强度（0 = 关闭，默认 0.8）
-uniform bool       u_EnableBloom;
+// Bloom（intensity=0 表示禁用，无需额外 bool）
+uniform sampler2D  u_BloomTex;
+uniform float      u_BloomIntensity;
 
 uniform int   u_SelectedEntityID;  // -1 = 无选中
 uniform vec4  u_OutlineColor;      // rgba，alpha 控制混合强度
@@ -62,11 +61,8 @@ void main() {
     // 曝光调整
     color *= u_Exposure;
 
-    // Bloom 叠加（在 Tonemap 之前，保留 HDR 特性）
-    if (u_EnableBloom) {
-        vec3 bloom = texture(u_BloomTex, v_TexCoord).rgb;
-        color += bloom * u_BloomIntensity;
-    }
+    // Bloom 叠加（在 Tonemap 之前；intensity=0 时无贡献）
+    color += texture(u_BloomTex, v_TexCoord).rgb * u_BloomIntensity;
 
     // ACES Tone Mapping: HDR linear → [0, 1]
     color = ACESTonemap(color);
@@ -79,13 +75,13 @@ void main() {
     // 将几何体 EntityID 从 HDR FBO 复制到 viewport FBO attachment 1
     // billboard 后续渲染会在其像素位置覆盖写入，最终 viewport FBO 包含所有 EntityID
     ivec2 texelCoord = ivec2(v_TexCoord * vec2(textureSize(u_EntityIDTex, 0)));
-    o_EntityID = texelFetch(u_EntityIDTex, texelCoord, 0).r;
+    int   thisID     = texelFetch(u_EntityIDTex, texelCoord, 0).r;
+    o_EntityID = thisID;
 
     // 描边：对选中实体做 EntityID 边缘检测
     if (u_SelectedEntityID >= 0) {
         ivec2 texSize = textureSize(u_EntityIDTex, 0) - ivec2(1);
-        int   thisID  = texelFetch(u_EntityIDTex, texelCoord, 0).r;
-        int   w       = int(u_OutlineWidth);
+        int   w = int(u_OutlineWidth);
         bool  isEdge  = false;
         for (int dx = -w; dx <= w && !isEdge; dx++) {
             for (int dy = -w; dy <= w && !isEdge; dy++) {

@@ -82,12 +82,25 @@ void Framebuffer::Invalidate() {
         glGenTextures(1, &m_ColorAttachment);
         glBindTexture(GL_TEXTURE_2D, m_ColorAttachment);
 
-        // 根据 ColorFormat 选择数据类型：HDR 格式用浮点，LDR 用 UNSIGNED_BYTE
-        GLenum dataType = (m_Spec.ColorFormat == GL_RGBA16F || m_Spec.ColorFormat == GL_RGB16F)
-                          ? GL_FLOAT : GL_UNSIGNED_BYTE;
+        // 根据 internalFormat 推导 baseFormat 和 dataType
+        // 单通道（R8/R16F）必须用 GL_RED，否则 GL 报 INVALID_OPERATION
+        auto GetBaseFormat = [](GLenum fmt) -> GLenum {
+            switch (fmt) {
+                case GL_R8: case GL_R16F: case GL_R32F: return GL_RED;
+                case GL_RG8: case GL_RG16F:             return GL_RG;
+                default:                                return GL_RGBA;
+            }
+        };
+        auto GetDataType = [](GLenum fmt) -> GLenum {
+            switch (fmt) {
+                case GL_R16F: case GL_RG16F: case GL_RGB16F:
+                case GL_RGBA16F: case GL_R32F: case GL_RGBA32F: return GL_FLOAT;
+                default:                                         return GL_UNSIGNED_BYTE;
+            }
+        };
         glTexImage2D(GL_TEXTURE_2D, 0, m_Spec.ColorFormat,
                      m_Spec.Width, m_Spec.Height, 0,
-                     GL_RGBA, dataType, nullptr);
+                     GetBaseFormat(m_Spec.ColorFormat), GetDataType(m_Spec.ColorFormat), nullptr);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);

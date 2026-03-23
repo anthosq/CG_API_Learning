@@ -159,7 +159,8 @@ void SettingsPanel::OnDraw(EditorContext& context) {
 
     // 渲染设置
     if (ImGui::CollapsingHeader("Rendering")) {
-        ImGui::Checkbox("Wireframe", &settings.Wireframe);
+        ImGui::Checkbox("Wireframe",          &settings.Wireframe);
+        ImGui::Checkbox("Depth Pre-Pass",     &settings.EnableDepthPrepass);
     }
 
     // 阴影设置
@@ -199,11 +200,52 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         }
     }
 
+    // SSAO 设置
+    if (ImGui::CollapsingHeader("SSAO")) {
+        ImGui::Checkbox("Enable##ssao", &settings.EnableSSAO);
+        if (settings.EnableSSAO) {
+            ImGui::SliderFloat("Radius",        &settings.SSAORadius,        0.1f,  2.0f,  "%.2f");
+            ImGui::SliderFloat("Bias",          &settings.SSAOBias,          0.001f, 0.1f, "%.3f");
+            ImGui::SliderInt  ("Kernel Size",   &settings.SSAOKernelSize,    8,     64);
+            ImGui::SliderFloat("Blur Sharpness",&settings.SSAOBlurSharpness, 0.1f, 10.0f, "%.1f");
+
+            ImGui::Spacing();
+            ImGui::Checkbox("Show AO Buffer", &m_ShowAODebug);
+        }
+    }
+
+    // AO 调试窗口（独立浮动，避免挤压 Settings 面板布局）
+    if (m_ShowAODebug && m_SceneRenderer) {
+        ImGui::SetNextWindowSize(ImVec2(400, 430), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("AO Buffer", &m_ShowAODebug)) {
+            uint32_t texID = m_SceneRenderer->GetSSAODebugTexture();
+            if (texID != 0) {
+                ImVec2 avail = ImGui::GetContentRegionAvail();
+                float  side  = glm::min(avail.x, avail.y);
+                ImGui::Image((ImTextureID)(uintptr_t)texID,
+                             ImVec2(side, side),
+                             ImVec2(0, 1), ImVec2(1, 0));
+            } else {
+                ImGui::TextDisabled("(not available — enable SSAO first)");
+            }
+        }
+        ImGui::End();
+    }
+
     // 描边设置
     if (ImGui::CollapsingHeader("Outline")) {
         ImGui::Checkbox("Enable",         &settings.EnableOutline);
         ImGui::ColorEdit4("Color",        glm::value_ptr(settings.OutlineColor));
         ImGui::SliderInt("Width (px)",    &settings.OutlineWidth, 1, 5);
+    }
+
+    // 裁剪统计
+    if (ImGui::CollapsingHeader("Statistics")) {
+        const auto& stats = m_SceneRenderer->GetCullingStats();
+        ImGui::Text("Total Objects:   %d", stats.TotalObjects);
+        ImGui::Text("Visible:         %d", stats.VisibleObjects);
+        ImGui::Text("Culled:          %d", stats.CulledObjects);
+        ImGui::Text("BVH Nodes:       %d", stats.BVHNodeCount);
     }
 }
 
