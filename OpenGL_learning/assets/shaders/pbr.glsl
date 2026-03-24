@@ -68,16 +68,15 @@ layout (std140) uniform CameraData {
     vec4 u_CameraPos;
 };
 
-#define MAX_POINT_LIGHTS 16
+#define MAX_POINT_LIGHTS    256
+#define MAX_LIGHTS_PER_TILE 128
+#define TILE_SIZE           16
 
 layout (std140) uniform LightingData {
     vec4 u_DirLightDirection;      // xyz = direction, w = intensity
     vec4 u_DirLightColor;          // xyz = color, w = shadowAmount
 
-    vec4 u_PointLightPosRadius[MAX_POINT_LIGHTS];      // xyz = position, w = radius
-    vec4 u_PointLightColorIntensity[MAX_POINT_LIGHTS]; // xyz = color, w = intensity
-    vec4 u_PointLightParams[MAX_POINT_LIGHTS];         // x = falloff
-
+    // 点光源数据已迁移至 SSBO（Tiled Forward+），此处只保留方向光/聚光灯/元数据
     vec4 u_SpotLightPosRange;          // xyz = position, w = range
     vec4 u_SpotLightDirAngle;          // xyz = direction, w = angle (degrees)
     vec4 u_SpotLightColorIntensity;    // xyz = color, w = intensity
@@ -86,6 +85,26 @@ layout (std140) uniform LightingData {
     ivec4 u_LightCounts;               // x = point light count, y = spotlight enabled (0/1)
     vec4 u_AmbientColor;               // xyz = color, w = intensity
 };
+
+// Tiled Forward+ — 点光源 SSBO（binding = 0）
+struct PointLightData {
+    vec4 PosRadius;       // xyz = world position, w = radius
+    vec4 ColorIntensity;  // xyz = color, w = intensity
+    vec4 Params;          // x = falloff
+};
+layout(std430, binding = 0) readonly buffer PointLightSSBO {
+    PointLightData u_PointLights[];
+};
+
+// Tiled Forward+ — tile 光源列表 SSBO（binding = 1, 2）
+layout(std430, binding = 1) readonly buffer TileLightCounts {
+    int u_TileLightCounts[];
+};
+layout(std430, binding = 2) readonly buffer TileLightIndices {
+    int u_TileLightIndices[];
+};
+
+uniform ivec2 u_TileCount; // ceil(W/TILE_SIZE), ceil(H/TILE_SIZE)
 
 // Material properties
 uniform vec3 u_AlbedoColor;
@@ -203,11 +222,11 @@ vec3 CalculateDirectionalLight(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metal
 }
 
 vec3 CalculatePointLight(int index, vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
-    vec3 lightPos = u_PointLightPosRadius[index].xyz;
-    float radius = u_PointLightPosRadius[index].w;
-    vec3 lightColor = u_PointLightColorIntensity[index].rgb;
-    float lightIntensity = u_PointLightColorIntensity[index].w;
-    float falloff = u_PointLightParams[index].x;
+    vec3 lightPos      = u_PointLights[index].PosRadius.xyz;
+    float radius       = u_PointLights[index].PosRadius.w;
+    vec3 lightColor    = u_PointLights[index].ColorIntensity.rgb;
+    float lightIntensity = u_PointLights[index].ColorIntensity.w;
+    float falloff      = u_PointLights[index].Params.x;
 
     vec3 L = lightPos - fragPos;
     float distance = length(L);
@@ -406,10 +425,14 @@ void main() {
         Lo += CalculateDirectionalLight(N, V, F0, albedo, metallic, roughness) * shadow;
     }
 
-    // Point lights
-    int pointLightCount = min(u_LightCounts.x, MAX_POINT_LIGHTS);
-    for (int i = 0; i < pointLightCount; i++) {
-        Lo += CalculatePointLight(i, fs_in.FragPos, N, V, F0, albedo, metallic, roughness);
+    // Tiled Forward+ 点光源：只迭代本 tile 可见的光源
+    ivec2 tileID    = ivec2(gl_FragCoord.xy) / TILE_SIZE;
+    int   tileIndex = tileID.y * u_TileCount.x + tileID.x;
+    int   tileCount = u_TileLightCounts[tileIndex];
+    int   tileBase  = tileIndex * MAX_LIGHTS_PER_TILE;
+    for (int i = 0; i < tileCount; i++) {
+        int lightIdx = u_TileLightIndices[tileBase + i];
+        Lo += CalculatePointLight(lightIdx, fs_in.FragPos, N, V, F0, albedo, metallic, roughness);
     }
 
     // Spotlight

@@ -84,6 +84,10 @@ void ComputePipeline::SetInt(const std::string& name, int value) const {
     glUniform1i(GetUniformLocation(name), value);
 }
 
+void ComputePipeline::SetIVec2(const std::string& name, const glm::ivec2& value) const {
+    glUniform2iv(GetUniformLocation(name), 1, glm::value_ptr(value));
+}
+
 void ComputePipeline::SetFloat(const std::string& name, float value) const {
     glUniform1f(GetUniformLocation(name), value);
 }

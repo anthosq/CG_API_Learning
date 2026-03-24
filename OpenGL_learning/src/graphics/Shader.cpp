@@ -157,6 +157,10 @@ void Shader::SetMat4(const std::string& name, const glm::mat4& mat) const {
     glUniformMatrix4fv(GetUniformLocation(name), 1, GL_FALSE, glm::value_ptr(mat));
 }
 
+void Shader::SetIVec2(const std::string& name, const glm::ivec2& value) const {
+    glUniform2iv(GetUniformLocation(name), 1, glm::value_ptr(value));
+}
+
 void Shader::SetIntArray(const std::string& name, const int* values, uint32_t count) const {
     glUniform1iv(GetUniformLocation(name), count, values);
 }

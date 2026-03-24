@@ -25,18 +25,16 @@ struct CameraUBO {
     glm::vec4 Position;        // offset 192, size 16 (w 分量未使用，用于对齐)
 };  // Total: 208 bytes
 
-constexpr int MAX_POINT_LIGHTS = 16;
+constexpr int MAX_POINT_LIGHTS    = 256;  // Tiled Forward+ 支持大量点光源
+constexpr int TILE_SIZE           = 16;   // 屏幕 tile 边长（像素）
+constexpr int MAX_LIGHTS_PER_TILE = 128;  // 每 tile 最多可见光源数
 
 // 光照 UBO (绑定点 1), std140 布局
+// 点光源数据已迁移至 SSBO（PointLightSSBO），此处只保留方向光/聚光灯/元数据
 struct LightingUBO {
     // 方向光
     glm::vec4 DirLightDirection;      // xyz = 方向, w = 强度
     glm::vec4 DirLightColor;          // xyz = 颜色, w = shadowAmount
-
-    // 点光源 (最多16个)
-    glm::vec4 PointLightPosRadius[MAX_POINT_LIGHTS];      // xyz = 位置, w = 半径
-    glm::vec4 PointLightColorIntensity[MAX_POINT_LIGHTS]; // xyz = 颜色, w = 强度
-    glm::vec4 PointLightParams[MAX_POINT_LIGHTS];         // x = falloff
 
     // 聚光灯 (单个)
     glm::vec4 SpotLightPosRange;          // xyz = 位置, w = 范围
@@ -48,6 +46,18 @@ struct LightingUBO {
     glm::ivec4 LightCounts;           // x = 点光源数量, y = 聚光灯启用(0/1)
     glm::vec4 AmbientColor;           // xyz = 环境光颜色, w = 强度
 };
+
+// 点光源 GPU 数据（std430，写入 SSBO）
+struct PointLightGPU {
+    glm::vec4 PosRadius;        // xyz = 世界空间位置, w = 影响半径
+    glm::vec4 ColorIntensity;   // xyz = 颜色, w = 强度
+    glm::vec4 Params;           // x = falloff 指数, yzw = 未使用
+};
+
+// SSBO 绑定点
+constexpr uint32_t SSBO_BINDING_POINT_LIGHTS       = 0;  // PointLightGPU[]
+constexpr uint32_t SSBO_BINDING_TILE_LIGHT_COUNTS  = 1;  // int[numTiles]
+constexpr uint32_t SSBO_BINDING_TILE_LIGHT_INDICES = 2;  // int[numTiles * MAX_LIGHTS_PER_TILE]
 
 // Shadow UBO (绑定点 3), std140 布局
 // 注意 std140 规则: mat4=64B, vec4=16B, float/int=4B, 结构体末尾须 16B 对齐

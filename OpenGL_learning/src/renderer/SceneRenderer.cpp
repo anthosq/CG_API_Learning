@@ -47,9 +47,12 @@ void SceneRenderer::Initialize() {
     // 生成 SSAO 采样核（只需一次）
     GenerateSSAOKernel();
 
-    // HDR FBO 在首次 FlushDrawList 时根据 TargetFramebuffer 尺寸懒创建
-    // （此时尚不知道目标大小）
+    // Tiled Forward+：预分配最小 SSBO（实际大小在第一次 FlushDrawList 时扩容）
+    m_PointLightSSBO     = StorageBuffer::Create(sizeof(PointLightGPU) * MAX_POINT_LIGHTS);
+    m_TileLightCountSSBO = StorageBuffer::Create(sizeof(int) * 1);   // 懒扩容
+    m_TileLightIndexSSBO = StorageBuffer::Create(sizeof(int) * 1);   // 懒扩容
 
+    // HDR FBO 在首次 FlushDrawList 时根据 TargetFramebuffer 尺寸懒创建
     m_Initialized = true;
     std::cout << "[SceneRenderer] Initialized" << std::endl;
 }
@@ -64,6 +67,11 @@ void SceneRenderer::Shutdown() {
     m_ShadowMap = nullptr;
     m_ShadowPipeline.reset();
     m_ShaderLibrary.Clear();
+
+    m_TileLightCullPipeline.Reset();
+    m_PointLightSSBO.Reset();
+    m_TileLightCountSSBO.Reset();
+    m_TileLightIndexSSBO.Reset();
 
     m_GNormalFBO.Reset();
     m_SSAOFbo.Reset();
@@ -90,9 +98,19 @@ void SceneRenderer::LoadShaders(const std::filesystem::path& shaderDir) {
     // 为所有着色器绑定 UBO
     for (const auto& [name, shader] : m_ShaderLibrary.GetShaders()) {
         if (shader && shader->IsValid()) {
-            shader->BindUniformBlock("CameraData", UBO_BINDING_CAMERA);
+            shader->BindUniformBlock("CameraData",   UBO_BINDING_CAMERA);
             shader->BindUniformBlock("LightingData", UBO_BINDING_LIGHTING);
         }
+    }
+
+    // 加载 Tiled Forward+ 光源剔除 Compute Shader
+    auto cullPath = shaderDir / "tiled_light_cull.glsl";
+    if (std::filesystem::exists(cullPath)) {
+        m_TileLightCullPipeline = ComputePipeline::Create(cullPath);
+        if (!m_TileLightCullPipeline || !m_TileLightCullPipeline->IsValid())
+            std::cerr << "[SceneRenderer] Failed to load tiled_light_cull.glsl\n";
+        else
+            std::cout << "[SceneRenderer] Tiled Forward+ compute shader loaded\n";
     }
 }
 
@@ -325,31 +343,48 @@ void SceneRenderer::FlushDrawList() {
     RenderCommand::SetViewport(0, 0, m_HDRFramebuffer->GetWidth(),
                                       m_HDRFramebuffer->GetHeight());
 
+    // Wireframe 模式：全局切换为线框光栅化，所有几何（含天空盒）均只画边缘
+    if (m_Settings.Wireframe)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
     // 1. Pre-Depth Pass（仅写深度，为 GeometryPass 消除 overdraw）
-    if (m_Settings.EnableDepthPrepass) {
+    // Wireframe 下跳过：PrePass 以实心写满深度，GeometryPass 只光栅化边缘，
+    // 导致三角形内部有深度无颜色，表现为黑色填充。
+    if (m_Settings.EnableDepthPrepass && !m_Settings.Wireframe) {
         DepthPrePass();
     }
 
+    // 1.5 Tiled Forward+ 光源剔除（依赖 Depth Pre-Pass 的深度缓冲）
+    if (m_Settings.EnableTiledLighting) {
+        TiledLightCullPass();
+        // 恢复 HDR FBO（TiledLightCullPass 不切换 FBO，但保险起见重新绑定）
+        m_HDRFramebuffer->Bind();
+    }
+
     // 2. 网格 Pass
-    if (m_Settings.ShowGrid) {
+    if (m_Settings.ShowGrid && !m_Settings.Wireframe) {
         GridPass();
     }
 
     // 3. 不透明几何 Pass
     GeometryPass();
 
-    // 3. 天空盒 Pass（深度 LEQUAL，在透明物体之前，避免覆盖透明物体）
+    // 4. 天空盒 Pass（深度 LEQUAL，在透明物体之前，避免覆盖透明物体）
     bool hasSkybox = m_Environment.Skybox ||
                      (m_Environment.IBLEnvironment && m_Environment.IBLEnvironment->EnvMap);
     if (m_Settings.ShowSkybox && hasSkybox) {
         SkyboxPass();
     }
 
-    // 4. 透明物体 Pass
+    // 5. 透明物体 Pass
     if (!m_TransparentDrawList.empty()) {
         SortTransparentDrawList();
         TransparentPass();
     }
+
+    // 恢复 fill mode，避免影响后续 CompositePass 的全屏四边形
+    if (m_Settings.Wireframe)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
     m_HDRFramebuffer->Unbind();
 
@@ -513,10 +548,6 @@ void SceneRenderer::GeometryPass() {
     }
     glDisable(GL_CULL_FACE);
 
-    if (m_Settings.Wireframe) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    }
-
     pbrShader->Bind();
     m_OpaquePipeline->SetShader(pbrShader);
 
@@ -545,6 +576,14 @@ void SceneRenderer::GeometryPass() {
     }
     pbrShader->SetBool("u_SoftShadows",  m_Settings.SoftShadows);
     pbrShader->SetBool("u_ShowCascades", m_Settings.ShowCascades);
+
+    // Tiled Forward+：绑定 SSBO 并传入 tile 数量
+    if (m_Settings.EnableTiledLighting && m_PointLightSSBO) {
+        m_PointLightSSBO->BindBase(SSBO_BINDING_POINT_LIGHTS);
+        m_TileLightCountSSBO->BindBase(SSBO_BINDING_TILE_LIGHT_COUNTS);
+        m_TileLightIndexSSBO->BindBase(SSBO_BINDING_TILE_LIGHT_INDICES);
+        pbrShader->SetIVec2("u_TileCount", glm::ivec2(m_TilesX, m_TilesY));
+    }
 
     // SSAO（slot 10）：禁用时绑白色纹理（1.0），ao *= 1.0 不改变结果，无需 branch
     glActiveTexture(GL_TEXTURE0 + SSAO_TEXTURE_SLOT);
@@ -591,11 +630,6 @@ void SceneRenderer::GeometryPass() {
             submesh.BaseVertex
         );
         vao->Unbind();
-    }
-
-    // 恢复渲染状态
-    if (m_Settings.Wireframe) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
     // PrePass 改变了深度函数和深度写入，恢复默认值供后续 pass 使用
@@ -659,23 +693,81 @@ void SceneRenderer::TransparentPass() {
     RenderCommand::DisableBlending();
 }
 
+void SceneRenderer::EnsureTiledLightBuffers(int numTilesX, int numTilesY) {
+    int numTiles = numTilesX * numTilesY;
+    size_t countSize = sizeof(int) * numTiles;
+    size_t indexSize = sizeof(int) * numTiles * MAX_LIGHTS_PER_TILE;
+
+    if (!m_TileLightCountSSBO || m_TileLightCountSSBO->GetSize() < countSize)
+        m_TileLightCountSSBO = StorageBuffer::Create(countSize);
+
+    if (!m_TileLightIndexSSBO || m_TileLightIndexSSBO->GetSize() < indexSize)
+        m_TileLightIndexSSBO = StorageBuffer::Create(indexSize);
+}
+
+void SceneRenderer::UploadPointLightSSBO() {
+    int count = std::min(m_Environment.PointLightCount, MAX_POINT_LIGHTS);
+    std::vector<PointLightGPU> gpuLights(count);
+    for (int i = 0; i < count; ++i) {
+        const auto& l = m_Environment.PointLights[i];
+        float radius = l.Quadratic > 0.0f ? (1.0f / std::sqrt(l.Quadratic)) : 10.0f;
+        gpuLights[i].PosRadius      = glm::vec4(l.Position, radius);
+        gpuLights[i].ColorIntensity = glm::vec4(l.Diffuse, 1.0f);
+        gpuLights[i].Params         = glm::vec4(0.5f, 0.0f, 0.0f, 0.0f);
+    }
+    if (count > 0)
+        m_PointLightSSBO->SetData(gpuLights.data(), sizeof(PointLightGPU) * count);
+}
+
+void SceneRenderer::TiledLightCullPass() {
+    if (!m_TileLightCullPipeline || !m_TileLightCullPipeline->IsValid()) return;
+    if (!m_HDRFramebuffer) return;
+
+    uint32_t W = m_HDRFramebuffer->GetWidth();
+    uint32_t H = m_HDRFramebuffer->GetHeight();
+    m_TilesX = (W + TILE_SIZE - 1) / TILE_SIZE;
+    m_TilesY = (H + TILE_SIZE - 1) / TILE_SIZE;
+
+    EnsureTiledLightBuffers(m_TilesX, m_TilesY);
+    UploadPointLightSSBO();
+
+    // 绑定 SSBO
+    m_PointLightSSBO->BindBase(SSBO_BINDING_POINT_LIGHTS);
+    m_TileLightCountSSBO->BindBase(SSBO_BINDING_TILE_LIGHT_COUNTS);
+    m_TileLightIndexSSBO->BindBase(SSBO_BINDING_TILE_LIGHT_INDICES);
+
+    // 深度纹理（来自 HDR FBO，Depth Pre-Pass 已填充）
+    GLuint depthTex = m_HDRFramebuffer->GetDepthAttachment();
+
+    m_TileLightCullPipeline->Bind();
+    // CameraData UBO（binding=0）由 glBindBufferBase 全局生效，无需手动绑定
+    m_TileLightCullPipeline->SetIVec2("u_ScreenSize",      glm::ivec2(W, H));
+    m_TileLightCullPipeline->SetInt  ("u_PointLightCount", m_Environment.PointLightCount);
+    m_TileLightCullPipeline->SetFloat("u_NearPlane",       m_CameraNear);
+    m_TileLightCullPipeline->SetFloat("u_FarPlane",        m_CameraFar);
+
+    // 绑定深度纹理到纹理单元 0
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, depthTex);
+    m_TileLightCullPipeline->SetInt("u_DepthTex", 0);
+
+    m_TileLightCullPipeline->DispatchAndWait(
+        static_cast<uint32_t>(m_TilesX),
+        static_cast<uint32_t>(m_TilesY),
+        1
+    );
+    m_TileLightCullPipeline->Unbind();
+}
+
 void SceneRenderer::UpdateLightingUBO() {
     LightingUBO lightData = {};
 
     // 方向光
     lightData.DirLightDirection = glm::vec4(m_Environment.DirLight.Direction, 1.0f);
-    lightData.DirLightColor = glm::vec4(m_Environment.DirLight.Diffuse, 0.0f);
+    lightData.DirLightColor     = glm::vec4(m_Environment.DirLight.Diffuse, 0.0f);
 
-    // 点光源
-    int count = std::min(m_Environment.PointLightCount, MAX_POINT_LIGHTS);
-    lightData.LightCounts.x = count;
-    for (int i = 0; i < count; ++i) {
-        const auto& light = m_Environment.PointLights[i];
-        float radius = 1.0f / (light.Quadratic > 0.0f ? sqrt(light.Quadratic) : 1.0f);
-        lightData.PointLightPosRadius[i] = glm::vec4(light.Position, radius);
-        lightData.PointLightColorIntensity[i] = glm::vec4(light.Diffuse, 1.0f);
-        lightData.PointLightParams[i] = glm::vec4(0.5f, 0.0f, 0.0f, 0.0f);
-    }
+    // 点光源数量（数据已在 UploadPointLightSSBO 中上传至 SSBO）
+    lightData.LightCounts.x = std::min(m_Environment.PointLightCount, MAX_POINT_LIGHTS);
 
     // 聚光灯
     lightData.LightCounts.y = m_Environment.SpotlightEnabled ? 1 : 0;

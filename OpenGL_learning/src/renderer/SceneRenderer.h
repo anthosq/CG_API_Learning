@@ -25,6 +25,8 @@
 #include "renderer/Environment.h"
 #include "graphics/IBLProcessor.h"
 #include "graphics/ShadowMap.h"
+#include "graphics/ComputePipeline.h"
+#include "graphics/StorageBuffer.h"
 #include "core/Frustum.h"
 #include "scene/BVH.h"
 
@@ -50,7 +52,10 @@ struct SceneRenderSettings {
     float SkyboxLOD = 0.0f;
 
     // Pre-Depth Pass：在 GeometryPass 前写满深度，消除 PBR overdraw
-    bool EnableDepthPrepass = true;
+    bool EnableDepthPrepass  = true;
+
+    // Tiled Forward+ 光源剔除
+    bool EnableTiledLighting = true;
 
     // 后处理
     float Exposure = 1.0f;  // 曝光值，传给 CompositePass
@@ -195,9 +200,10 @@ private:
 
     void GridPass();
     void SkyboxPass();
-    void DepthPrePass();         // 仅写深度（消除 GeometryPass overdraw）
-    void GeometryPass();         // 不透明物体
-    void TransparentPass();      // 透明物体
+    void DepthPrePass();           // 仅写深度（消除 GeometryPass overdraw）
+    void TiledLightCullPass();     // Compute Shader：per-tile 光源剔除
+    void GeometryPass();           // 不透明物体（从 tile 光源列表取光源）
+    void TransparentPass();        // 透明物体
 
     // SSAO
     void NormalPrePass();        // 渲染视图空间法线到 m_GNormalFBO
@@ -216,6 +222,8 @@ private:
     void SortTransparentDrawList();
     void CreateDefaultResources();
     void UpdateLightingUBO();
+    void UploadPointLightSSBO();                              // 上传点光源数据到 SSBO
+    void EnsureTiledLightBuffers(int numTilesX, int numTilesY); // 按需扩容 SSBO
 
     // 阴影
     void ShadowPass();
@@ -271,6 +279,14 @@ private:
     std::unique_ptr<UniformBuffer> m_CameraUBO;
     std::unique_ptr<UniformBuffer> m_LightingUBO;
     std::unique_ptr<UniformBuffer> m_ShadowUBO;
+
+    // === Tiled Forward+ ===
+    Ref<ComputePipeline>  m_TileLightCullPipeline;
+    Ref<StorageBuffer>    m_PointLightSSBO;        // PointLightGPU[]
+    Ref<StorageBuffer>    m_TileLightCountSSBO;    // int[numTiles]
+    Ref<StorageBuffer>    m_TileLightIndexSSBO;    // int[numTiles * MAX_LIGHTS_PER_TILE]
+    int                   m_TilesX = 0;
+    int                   m_TilesY = 0;
 
     // === 阴影 ===
     Ref<ShadowMap>             m_ShadowMap;
