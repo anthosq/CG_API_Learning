@@ -5,6 +5,7 @@
 #include <string>
 #include <filesystem>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace GLRenderer {
 
@@ -58,6 +59,10 @@ private:
     GLuint CompileShader(GLenum type, const std::string& source);
     bool LinkProgram(GLuint vertexShader, GLuint fragmentShader);
     std::string ReadFile(const std::filesystem::path& path);
+    // 递归展开 #include "file.glsl"，相对路径基于 dir；visited 防止循环引用
+    std::string ResolveIncludes(const std::string& source,
+                                const std::filesystem::path& dir,
+                                std::unordered_set<std::string>& visited);
     std::unordered_map<GLenum, std::string> ParseShaderSource(const std::string& source);
     static GLenum ShaderTypeFromString(const std::string& type);
 

@@ -25,6 +25,8 @@
 #include "renderer/Environment.h"
 #include "graphics/IBLProcessor.h"
 #include "graphics/ShadowMap.h"
+#include "graphics/PointShadowMapArray.h"
+#include "graphics/GBuffer.h"
 #include "graphics/ComputePipeline.h"
 #include "graphics/StorageBuffer.h"
 #include "core/Frustum.h"
@@ -71,6 +73,15 @@ struct SceneRenderSettings {
     glm::vec4 OutlineColor  = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
     int       OutlineWidth  = 2;
 
+    // SSR 屏幕空间反射（仅 Deferred 路径）
+    bool  EnableSSR          = false;
+    bool  SSRHalfResolution  = true;    // 半分辨率：~4x 性能提升，粗糙面几乎无质量损失
+    int   SSRMaxSteps        = 64;
+    float SSRDepthTolerance  = 0.15f;   // 命中深度容差（线性，单位米）
+    float SSRFadeStart       = 0.8f;    // 边缘淡出起始比例
+    float SSRFacingFade      = 0.2f;    // 掠射角容差
+    float SSRIntensity       = 1.0f;    // 整体强度（0=关闭，不需要单独 bool）
+
     // SSAO
     bool  EnableSSAO         = true;
     float SSAORadius         = 0.5f;   // 采样半径（视图空间，单位：米）
@@ -78,7 +89,7 @@ struct SceneRenderSettings {
     int   SSAOKernelSize     = 64;     // 采样核数量（≤ 64）
     float SSAOBlurSharpness  = 1.0f;   // 双边模糊的深度敏感度
 
-    // 阴影设置
+    // 方向光阴影设置
     uint32_t ShadowCascadeCount  = 4;
     uint32_t ShadowResolution    = 2048;
     float    ShadowDistance      = 200.0f;
@@ -87,6 +98,16 @@ struct SceneRenderSettings {
     float    CascadeTransitionFade = 5.0f;  // cascade 间过渡区宽度（世界单位）
     bool     SoftShadows         = true;    // Poisson PCF vs 硬阴影
     bool     ShowCascades        = false;   // debug 色调可视化
+
+    // 点光源阴影设置（Omnidirectional Cubemap Shadow Array）
+    bool     EnablePointShadows    = true;
+    uint32_t PointShadowResolution = 512;
+    float    PointShadowFarPlane   = 50.0f;
+
+    // 渲染路径
+    // false = Tiled Forward+（默认）
+    // true  = Tiled Deferred（GBufferPass + DeferredLightingPass）
+    bool UseDeferredShading = false;
 };
 
 // 场景环境数据
@@ -201,9 +222,15 @@ private:
     void GridPass();
     void SkyboxPass();
     void DepthPrePass();           // 仅写深度（消除 GeometryPass overdraw）
+    void HiZBuildPass();           // 从场景深度构建 Hi-Z MIN mip 链（SSR 加速结构）
+    void BackFaceDepthPass();      // 正面剔除渲染背面深度，供 SSR 厚度测试使用
+    void SSRPass();                // 屏幕空间反射（线性步进，仅 Deferred 路径）
     void TiledLightCullPass();     // Compute Shader：per-tile 光源剔除
-    void GeometryPass();           // 不透明物体（从 tile 光源列表取光源）
-    void TransparentPass();        // 透明物体
+    void GeometryPass();               // 不透明物体（Tiled Forward+ 路径）
+    void WireframeOverlayPass();       // 线框叠加（Deferred 路径，深度缓冲已有值）
+    void GBufferPass();            // 不透明物体写入 G-Buffer（Deferred 路径）
+    void DeferredLightingPass();   // 全屏 quad 读 G-Buffer 做 PBR 光照（Deferred 路径）
+    void TransparentPass();        // 透明物体（两种路径均为 Forward+）
 
     // SSAO
     void NormalPrePass();        // 渲染视图空间法线到 m_GNormalFBO
@@ -227,11 +254,14 @@ private:
 
     // 阴影
     void ShadowPass();
+    void PointShadowPass();       // 点光源 Omnidirectional Shadow Pass
     void UpdateShadowUBO();
     void CalculateCascades(CascadeData* outCascades);
 
     void EnsureHDRFramebuffer(uint32_t width, uint32_t height);
     void EnsureBloomTextures(uint32_t width, uint32_t height);
+    void EnsureSSRResources(uint32_t width, uint32_t height);
+    void EnsureBackFaceDepthTex(int w, int h);
 
     // PBR 渲染
     void BindPBRMaterial(Shader& shader, const Ref<MaterialAsset>& material);
@@ -287,12 +317,20 @@ private:
     Ref<StorageBuffer>    m_TileLightIndexSSBO;    // int[numTiles * MAX_LIGHTS_PER_TILE]
     int                   m_TilesX = 0;
     int                   m_TilesY = 0;
+    // 当前帧场景深度纹理，由 FlushDrawList 在 DepthPrePass 后赋值。
+    // Deferred 迁移后改为指向 GBuffer 深度附件，TiledLightCullPass 无需感知来源。
+    GLuint                m_SceneDepthTexture = 0;
 
     // === 阴影 ===
     Ref<ShadowMap>             m_ShadowMap;
     std::unique_ptr<Pipeline>  m_ShadowPipeline;
     CascadeData                m_Cascades[4];   // 当前帧计算结果，最多 4 个 cascade
     Frustum                    m_CameraFrustum;
+
+    // 点光源阴影
+    Ref<PointShadowMapArray>   m_PointShadowArray;
+    // m_PointShadowAssignments[slot] = 环境中 PointLights[] 的索引（-1 = 该 slot 未使用）
+    int                        m_PointShadowAssignments[MAX_SHADOW_POINT_LIGHTS] = {};
 
     BVH                        m_SceneBVH;
 
@@ -315,10 +353,43 @@ private:
     CullingStats               m_CullingStats;
 
     // === SSAO ===
-    Ref<Framebuffer>           m_GNormalFBO;     // 法线预处理 FBO（RGBA16F normal + depth tex）
+    Ref<Framebuffer>           m_GNormalFBO;     // 法线预处理 FBO（RGBA16F normal + depth tex，Forward+ 路径使用）
     Ref<Framebuffer>           m_SSAOFbo;        // 原始 AO（R16F）
     Ref<Framebuffer>           m_SSAOBlurFBO;    // 模糊后 AO（R16F）
     std::vector<glm::vec3>     m_SSAOKernel;     // 半球采样核（切线空间）
+
+    // === SSR ===
+    // Hi-Z 纹理：R32F，完整 mip 链，GL_NEAREST 过滤，MIN 下采样（见 hiz_build.glsl）
+    // 使用原始 GLuint 而非 Texture2D，因为需要精确控制 mip 数量与 glTexStorage2D
+    GLuint m_HiZTex       = 0;
+    int    m_HiZMipCount  = 0;
+    int    m_HiZTexWidth  = 0;
+    int    m_HiZTexHeight = 0;
+
+    // SSR 输出纹理：RGBA16F，无 mip，rgb=反射色，a=confidence
+    GLuint m_SSROutputTex    = 0;
+    int    m_SSROutputWidth  = 0;
+    int    m_SSROutputHeight = 0;
+
+    Ref<ComputePipeline> m_HiZPipeline;  // hiz_build.glsl
+    Ref<ComputePipeline> m_SSRPipeline;  // ssr.glsl
+
+    // 场景颜色金字塔（ConeTracing 用）：RGBA16F，全分辨率，完整 mip 链
+    GLuint m_SSRColorPyramid       = 0;
+    int    m_SSRColorPyramidWidth  = 0;
+    int    m_SSRColorPyramidHeight = 0;
+    int    m_SSRColorPyramidMips   = 0;
+
+    // 背面深度贴图：GL_DEPTH_COMPONENT32F，全分辨率，正面剔除渲染
+    GLuint m_BackFaceDepthTex = 0;
+    GLuint m_BackFaceDepthFBO = 0;
+    int    m_BackFaceDepthW   = 0;
+    int    m_BackFaceDepthH   = 0;
+
+    int m_FrameIndex = 0;  // 每帧递增，用于 SSR 时间抖动
+
+    // === Deferred Shading ===
+    Ref<GBuffer>               m_GBuffer;        // 几何缓冲区（Deferred 路径使用）
 };
 
 } // namespace GLRenderer

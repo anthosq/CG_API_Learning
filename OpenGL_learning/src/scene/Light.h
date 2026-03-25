@@ -22,9 +22,13 @@ struct PointLight {
     glm::vec3 Specular = glm::vec3(1.0f);
 
     // 衰减参数
-    float Constant = 1.0f;
-    float Linear = 0.09f;
+    float Constant  = 1.0f;
+    float Linear    = 0.09f;
     float Quadratic = 0.032f;
+
+    // 阴影
+    bool  CastShadows    = false;
+    float ShadowFarPlane = 25.0f;
 };
 
 // 聚光灯

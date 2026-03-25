@@ -44,6 +44,16 @@ void SceneRenderer::Initialize() {
 
     m_ShadowPipeline = std::make_unique<Pipeline>(PipelineSpecification::Shadow());
 
+    // 点光源阴影 Cubemap Array
+    {
+        PointShadowMapArray::Config psmCfg;
+        psmCfg.Resolution = m_Settings.PointShadowResolution;
+        psmCfg.Count      = static_cast<uint32_t>(MAX_SHADOW_POINT_LIGHTS);
+        m_PointShadowArray = PointShadowMapArray::Create(psmCfg);
+    }
+    std::fill(m_PointShadowAssignments,
+              m_PointShadowAssignments + MAX_SHADOW_POINT_LIGHTS, -1);
+
     // 生成 SSAO 采样核（只需一次）
     GenerateSSAOKernel();
 
@@ -66,6 +76,7 @@ void SceneRenderer::Shutdown() {
     m_ShadowUBO.reset();
     m_ShadowMap = nullptr;
     m_ShadowPipeline.reset();
+    m_PointShadowArray = nullptr;
     m_ShaderLibrary.Clear();
 
     m_TileLightCullPipeline.Reset();
@@ -76,6 +87,14 @@ void SceneRenderer::Shutdown() {
     m_GNormalFBO.Reset();
     m_SSAOFbo.Reset();
     m_SSAOBlurFBO.Reset();
+    m_GBuffer = nullptr;
+
+    if (m_HiZTex)            { glDeleteTextures(1, &m_HiZTex);            m_HiZTex            = 0; }
+    if (m_SSROutputTex)      { glDeleteTextures(1, &m_SSROutputTex);      m_SSROutputTex      = 0; }
+    if (m_BackFaceDepthTex)  { glDeleteTextures(1, &m_BackFaceDepthTex);  m_BackFaceDepthTex  = 0; }
+    if (m_BackFaceDepthFBO)  { glDeleteFramebuffers(1, &m_BackFaceDepthFBO); m_BackFaceDepthFBO = 0; }
+    m_HiZPipeline.Reset();
+    m_SSRPipeline.Reset();
 
     m_Initialized = false;
     std::cout << "[SceneRenderer] Shutdown" << std::endl;
@@ -111,6 +130,26 @@ void SceneRenderer::LoadShaders(const std::filesystem::path& shaderDir) {
             std::cerr << "[SceneRenderer] Failed to load tiled_light_cull.glsl\n";
         else
             std::cout << "[SceneRenderer] Tiled Forward+ compute shader loaded\n";
+    }
+
+    // Hi-Z 构建 Compute Shader（SSR 加速结构）
+    auto hizPath = shaderDir / "hiz_build.glsl";
+    if (std::filesystem::exists(hizPath)) {
+        m_HiZPipeline = ComputePipeline::Create(hizPath);
+        if (!m_HiZPipeline || !m_HiZPipeline->IsValid())
+            std::cerr << "[SceneRenderer] Failed to load hiz_build.glsl\n";
+        else
+            std::cout << "[SceneRenderer] Hi-Z compute shader loaded\n";
+    }
+
+    // SSR Compute Shader
+    auto ssrPath = shaderDir / "ssr.glsl";
+    if (std::filesystem::exists(ssrPath)) {
+        m_SSRPipeline = ComputePipeline::Create(ssrPath);
+        if (!m_SSRPipeline || !m_SSRPipeline->IsValid())
+            std::cerr << "[SceneRenderer] Failed to load ssr.glsl\n";
+        else
+            std::cout << "[SceneRenderer] SSR compute shader loaded\n";
     }
 }
 
@@ -326,67 +365,133 @@ void SceneRenderer::FlushDrawList() {
     m_CameraFrustum = Frustum::FromViewProjection(m_ProjectionMatrix * m_ViewMatrix);
     m_SceneBVH.Build(m_WorldAABBs);
 
-    // 0. 阴影 Pass（在几何 Pass 前写深度贴图）
+    // 0-a. 方向光阴影 Pass（CSM）
     CalculateCascades(m_Cascades);
     UpdateShadowUBO();
     ShadowPass();
 
-    // 1. SSAO：法线预处理 → AO 计算 → 深度感知模糊
-    if (m_Settings.EnableSSAO) {
-        NormalPrePass();
-        SSAOPass();
-        SSAOBlurPass();
-    }
+    // 0-b. 点光源阴影 Pass（填充 m_PointShadowAssignments）
+    if (m_Settings.EnablePointShadows)
+        PointShadowPass();
 
-    // 恢复 HDR FBO（ShadowPass / SSAO 会切换 FBO）
-    m_HDRFramebuffer->Bind();
-    RenderCommand::SetViewport(0, 0, m_HDRFramebuffer->GetWidth(),
-                                      m_HDRFramebuffer->GetHeight());
+    // 0-c. 上传点光源 SSBO（读取 m_PointShadowAssignments，供后续所有 Pass 使用）
+    if (m_Settings.EnableTiledLighting)
+        UploadPointLightSSBO();
 
-    // Wireframe 模式：全局切换为线框光栅化，所有几何（含天空盒）均只画边缘
-    if (m_Settings.Wireframe)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-    // 1. Pre-Depth Pass（仅写深度，为 GeometryPass 消除 overdraw）
-    // Wireframe 下跳过：PrePass 以实心写满深度，GeometryPass 只光栅化边缘，
-    // 导致三角形内部有深度无颜色，表现为黑色填充。
-    if (m_Settings.EnableDepthPrepass && !m_Settings.Wireframe) {
-        DepthPrePass();
-    }
-
-    // 1.5 Tiled Forward+ 光源剔除（依赖 Depth Pre-Pass 的深度缓冲）
-    if (m_Settings.EnableTiledLighting) {
-        TiledLightCullPass();
-        // 恢复 HDR FBO（TiledLightCullPass 不切换 FBO，但保险起见重新绑定）
-        m_HDRFramebuffer->Bind();
-    }
-
-    // 2. 网格 Pass
-    if (m_Settings.ShowGrid && !m_Settings.Wireframe) {
-        GridPass();
-    }
-
-    // 3. 不透明几何 Pass
-    GeometryPass();
-
-    // 4. 天空盒 Pass（深度 LEQUAL，在透明物体之前，避免覆盖透明物体）
     bool hasSkybox = m_Environment.Skybox ||
                      (m_Environment.IBLEnvironment && m_Environment.IBLEnvironment->EnvMap);
-    if (m_Settings.ShowSkybox && hasSkybox) {
-        SkyboxPass();
+
+    if (m_Settings.UseDeferredShading && m_GBuffer) {
+        // === Tiled Deferred 路径 ===
+
+        // 1. G-Buffer Pass：写入几何数据（位置由深度重建，无独立 DepthPrePass）
+        GBufferPass();
+        m_SceneDepthTexture = m_GBuffer->GetDepth();
+
+        // 2. SSAO：直接读 GBuffer 法线（跳过 NormalPrePass，GBuffer 已有深度和法线）
+        if (m_Settings.EnableSSAO) {
+            SSAOPass();
+            SSAOBlurPass();
+        }
+
+        // 3. Tiled Forward+ 光源剔除（读 GBuffer 深度）
+        if (m_Settings.EnableTiledLighting)
+            TiledLightCullPass();
+
+        // 4. Deferred Lighting Pass → 输出 HDR 颜色
+        m_HDRFramebuffer->Bind();
+        RenderCommand::SetViewport(0, 0, viewportWidth, viewportHeight);
+        glClear(GL_COLOR_BUFFER_BIT);  // 只清颜色，深度留给 blit
+        DeferredLightingPass();
+
+        // 4.5 SSR（Hi-Z 从 GBuffer 深度构建，在 HDR 颜色输出后、深度 blit 前执行）
+        if (m_Settings.EnableSSR && m_HiZPipeline && m_SSRPipeline) {
+            BackFaceDepthPass();
+            HiZBuildPass();
+            SSRPass();
+        }
+
+        // 5. 将 GBuffer 深度 blit 到 HDR FBO，供 SkyboxPass / TransparentPass 做深度测试
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_GBuffer->GetFBO());
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_HDRFramebuffer->GetID());
+        glBlitFramebuffer(0, 0, viewportWidth, viewportHeight,
+                          0, 0, viewportWidth, viewportHeight,
+                          GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_HDRFramebuffer->GetID());
+
+        RenderCommand::EnableDepthTest();
+
+        // 6. Grid / Wireframe 叠加（在 HDR FBO 上，GBuffer 深度已 blit 过来）
+        if (m_Settings.ShowGrid && !m_Settings.Wireframe)
+            GridPass();
+
+        if (m_Settings.Wireframe)
+            WireframeOverlayPass();
+
+        // 7. 天空盒（深度 LEQUAL，在透明物体之前）
+        if (m_Settings.ShowSkybox && hasSkybox)
+            SkyboxPass();
+
+        // 8. 透明物体（保持 Forward+）
+        if (!m_TransparentDrawList.empty()) {
+            SortTransparentDrawList();
+            TransparentPass();
+        }
+
+        m_HDRFramebuffer->Unbind();
+    } else {
+        // === Tiled Forward+ 路径（原有逻辑不变）===
+
+        // 1. SSAO：法线预处理 → AO 计算 → 深度感知模糊
+        if (m_Settings.EnableSSAO) {
+            NormalPrePass();
+            SSAOPass();
+            SSAOBlurPass();
+        }
+
+        // 恢复 HDR FBO（ShadowPass / SSAO 会切换 FBO）
+        m_HDRFramebuffer->Bind();
+        RenderCommand::SetViewport(0, 0, viewportWidth, viewportHeight);
+
+        // Wireframe 模式
+        if (m_Settings.Wireframe)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+        // 2. Pre-Depth Pass（Wireframe 下跳过）
+        m_SceneDepthTexture = 0;
+        if (m_Settings.EnableDepthPrepass && !m_Settings.Wireframe) {
+            DepthPrePass();
+            m_SceneDepthTexture = m_HDRFramebuffer->GetDepthAttachment();
+        }
+
+        // 2.5 Tiled Forward+ 光源剔除
+        if (m_Settings.EnableTiledLighting) {
+            TiledLightCullPass();
+            m_HDRFramebuffer->Bind();
+        }
+
+        // 3. Grid
+        if (m_Settings.ShowGrid && !m_Settings.Wireframe)
+            GridPass();
+
+        // 4. 不透明几何 Pass
+        GeometryPass();
+
+        // 5. 天空盒
+        if (m_Settings.ShowSkybox && hasSkybox)
+            SkyboxPass();
+
+        // 6. 透明物体
+        if (!m_TransparentDrawList.empty()) {
+            SortTransparentDrawList();
+            TransparentPass();
+        }
+
+        if (m_Settings.Wireframe)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+        m_HDRFramebuffer->Unbind();
     }
-
-    // 5. 透明物体 Pass
-    if (!m_TransparentDrawList.empty()) {
-        SortTransparentDrawList();
-        TransparentPass();
-    }
-
-    // 恢复 fill mode，避免影响后续 CompositePass 的全屏四边形
-    if (m_Settings.Wireframe)
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-    m_HDRFramebuffer->Unbind();
 
     // 后处理阶段：全屏四边形，不需要深度测试，统一在此关闭
     glDisable(GL_DEPTH_TEST);
@@ -403,6 +508,8 @@ void SceneRenderer::FlushDrawList() {
 
     // Tonemap HDR → target FBO（LDR，ImGui 显示用）
     CompositePass();
+
+    ++m_FrameIndex;
 
     glEnable(GL_DEPTH_TEST);
 }
@@ -585,6 +692,12 @@ void SceneRenderer::GeometryPass() {
         pbrShader->SetIVec2("u_TileCount", glm::ivec2(m_TilesX, m_TilesY));
     }
 
+    // 点光源阴影数组（slot 11，samplerCubeArray）
+    if (m_Settings.EnablePointShadows && m_PointShadowArray && m_PointShadowArray->IsValid()) {
+        m_PointShadowArray->BindForReading(POINT_SHADOW_MAP_SLOT);
+        pbrShader->SetInt("u_PointShadowMaps", static_cast<int>(POINT_SHADOW_MAP_SLOT));
+    }
+
     // SSAO（slot 10）：禁用时绑白色纹理（1.0），ao *= 1.0 不改变结果，无需 branch
     glActiveTexture(GL_TEXTURE0 + SSAO_TEXTURE_SLOT);
     glBindTexture(GL_TEXTURE_2D,
@@ -642,6 +755,197 @@ void SceneRenderer::GeometryPass() {
     glUseProgram(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+}
+
+void SceneRenderer::GBufferPass() {
+    if (m_OpaqueDrawList.empty()) return;
+
+    auto gbufferShader = m_ShaderLibrary.Get("gbuffer");
+    if (!gbufferShader) {
+        std::cerr << "[SceneRenderer] gbuffer shader not found!" << std::endl;
+        return;
+    }
+
+    m_GBuffer->Bind();
+    RenderCommand::SetViewport(0, 0, m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    m_GBuffer->ClearEntityID();
+
+    RenderCommand::EnableDepthTest();
+    glDepthFunc(GL_LESS);
+    RenderCommand::SetDepthMask(true);
+    glDisable(GL_CULL_FACE);
+
+    gbufferShader->Bind();
+
+    std::vector<int> visibleIndices;
+    m_SceneBVH.Query(m_CameraFrustum, visibleIndices);
+
+    m_CullingStats.TotalObjects   = static_cast<int>(m_OpaqueDrawList.size());
+    m_CullingStats.VisibleObjects = static_cast<int>(visibleIndices.size());
+    m_CullingStats.CulledObjects  = m_CullingStats.TotalObjects - m_CullingStats.VisibleObjects;
+    m_CullingStats.BVHNodeCount   = m_SceneBVH.NodeCount();
+
+    for (int idx : visibleIndices) {
+        const auto& cmd = m_OpaqueDrawList[idx];
+        if (!cmd.MeshSource) continue;
+
+        auto vao = cmd.MeshSource->GetVertexArray();
+        if (!vao) continue;
+
+        auto material = GetMaterialForDrawCommand(cmd);
+        BindPBRMaterial(*gbufferShader, material);
+
+        gbufferShader->SetMat4("u_Model", cmd.Transform);
+        gbufferShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
+        gbufferShader->SetInt("u_EntityID", cmd.EntityID);
+
+        const auto& submeshes = cmd.MeshSource->GetSubmeshes();
+        if (cmd.SubmeshIndex >= submeshes.size()) continue;
+        const auto& submesh = submeshes[cmd.SubmeshIndex];
+
+        vao->Bind();
+        glDrawElementsBaseVertex(
+            GL_TRIANGLES,
+            submesh.IndexCount,
+            GL_UNSIGNED_INT,
+            (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+            submesh.BaseVertex
+        );
+        vao->Unbind();
+    }
+
+    gbufferShader->Unbind();
+    m_GBuffer->Unbind();
+}
+
+void SceneRenderer::DeferredLightingPass() {
+    auto shader = m_ShaderLibrary.Get("deferred_lighting");
+    if (!shader) {
+        std::cerr << "[SceneRenderer] deferred_lighting shader not found!" << std::endl;
+        return;
+    }
+
+    RenderCommand::DisableDepthTest();
+
+    shader->Bind();
+
+    // G-Buffer 纹理：slot 0-3
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetBaseColorAO());
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetNormalRoughMetal());
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetEmissiveShadingID());
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetDepth());
+
+    shader->SetInt("u_GBufBaseColorAO",      0);
+    shader->SetInt("u_GBufNormalRoughMetal",  1);
+    shader->SetInt("u_GBufEmissiveShadingID", 2);
+    shader->SetInt("u_GBufDepth",             3);
+
+    // InvViewProjection（重建世界坐标）
+    glm::mat4 invVP = glm::inverse(m_ProjectionMatrix * m_ViewMatrix);
+    shader->SetMat4("u_InvViewProjection", invVP);
+
+    // IBL（slot 6, 7, 8）
+    if (m_Environment.IBLEnvironment && m_Environment.IBLEnvironment->IsValid()) {
+        m_Environment.IBLEnvironment->IrradianceMap->Bind(TextureSlot::Irradiance);
+        m_Environment.IBLEnvironment->RadianceMap->Bind(TextureSlot::Prefilter);
+        shader->SetInt("u_IrradianceMap", static_cast<int>(TextureSlot::Irradiance));
+        shader->SetInt("u_PrefilterMap",  static_cast<int>(TextureSlot::Prefilter));
+        shader->SetFloat("u_EnvironmentIntensity", m_Environment.EnvironmentIntensity);
+    } else {
+        shader->SetFloat("u_EnvironmentIntensity", 0.0f);
+    }
+    auto brdfLut = IBLProcessor::GetBRDFLUT();
+    if (brdfLut) {
+        brdfLut->Bind(TextureSlot::BrdfLUT);
+        shader->SetInt("u_BrdfLUT", static_cast<int>(TextureSlot::BrdfLUT));
+    }
+
+    // 阴影贴图（slot 9）
+    if (m_ShadowMap && m_ShadowMap->IsValid()) {
+        m_ShadowMap->BindForReading(SHADOW_MAP_SLOT);
+        shader->SetInt("u_ShadowMap", static_cast<int>(SHADOW_MAP_SLOT));
+    }
+    shader->SetBool("u_SoftShadows",  m_Settings.SoftShadows);
+    shader->SetBool("u_ShowCascades", m_Settings.ShowCascades);
+
+    // SSAO（slot 10）
+    glActiveTexture(GL_TEXTURE0 + SSAO_TEXTURE_SLOT);
+    glBindTexture(GL_TEXTURE_2D,
+        (m_Settings.EnableSSAO && m_SSAOBlurFBO)
+            ? m_SSAOBlurFBO->GetColorAttachment()
+            : Renderer::GetWhiteTexture()->GetID());
+    shader->SetInt("u_SSAOMap", static_cast<int>(SSAO_TEXTURE_SLOT));
+
+    // 点光源阴影（slot 11）
+    if (m_Settings.EnablePointShadows && m_PointShadowArray && m_PointShadowArray->IsValid()) {
+        m_PointShadowArray->BindForReading(POINT_SHADOW_MAP_SLOT);
+        shader->SetInt("u_PointShadowMaps", static_cast<int>(POINT_SHADOW_MAP_SLOT));
+    }
+
+    // Tiled Forward+ SSBO
+    if (m_Settings.EnableTiledLighting && m_PointLightSSBO) {
+        m_PointLightSSBO->BindBase(SSBO_BINDING_POINT_LIGHTS);
+        m_TileLightCountSSBO->BindBase(SSBO_BINDING_TILE_LIGHT_COUNTS);
+        m_TileLightIndexSSBO->BindBase(SSBO_BINDING_TILE_LIGHT_INDICES);
+        shader->SetIVec2("u_TileCount", glm::ivec2(m_TilesX, m_TilesY));
+    }
+
+    Renderer::DrawFullscreenQuad();
+
+    shader->Unbind();
+
+    RenderCommand::EnableDepthTest();
+}
+
+void SceneRenderer::WireframeOverlayPass() {
+    if (m_OpaqueDrawList.empty()) return;
+
+    auto shader = m_ShaderLibrary.Get("wireframe");
+    if (!shader) return;
+
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    RenderCommand::EnableDepthTest();
+    glDepthFunc(GL_LEQUAL);
+    RenderCommand::SetDepthMask(false);
+    glDisable(GL_CULL_FACE);
+
+    shader->Bind();
+    shader->SetMat4("u_View",       m_ViewMatrix);
+    shader->SetMat4("u_Projection", m_ProjectionMatrix);
+    shader->SetVec3("u_Color",      glm::vec3(0.8f));
+
+    for (const auto& cmd : m_OpaqueDrawList) {
+        if (!cmd.MeshSource) continue;
+        auto vao = cmd.MeshSource->GetVertexArray();
+        if (!vao) continue;
+
+        shader->SetMat4("u_Model",    cmd.Transform);
+        shader->SetInt ("u_EntityID", cmd.EntityID);
+
+        const auto& submeshes = cmd.MeshSource->GetSubmeshes();
+        if (cmd.SubmeshIndex >= submeshes.size()) continue;
+        const auto& submesh = submeshes[cmd.SubmeshIndex];
+
+        vao->Bind();
+        glDrawElementsBaseVertex(
+            GL_TRIANGLES,
+            submesh.IndexCount,
+            GL_UNSIGNED_INT,
+            (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+            submesh.BaseVertex
+        );
+        vao->Unbind();
+    }
+
+    shader->Unbind();
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glDepthFunc(GL_LESS);
+    RenderCommand::SetDepthMask(true);
 }
 
 void SceneRenderer::TransparentPass() {
@@ -710,10 +1014,43 @@ void SceneRenderer::UploadPointLightSSBO() {
     std::vector<PointLightGPU> gpuLights(count);
     for (int i = 0; i < count; ++i) {
         const auto& l = m_Environment.PointLights[i];
-        float radius = l.Quadratic > 0.0f ? (1.0f / std::sqrt(l.Quadratic)) : 10.0f;
+
+        // 与 PointLightComponent::GetRange() 一致：
+        // 找到衰减函数 1/(c+l*d+q*d²) 降至 threshold 时的距离
+        // threshold = 5/256，解二次方程：d = (-L + sqrt(L²-4Q(C-bright/thresh))) / 2Q
+        float maxBright = std::max({l.Diffuse.r, l.Diffuse.g, l.Diffuse.b});
+        float radius    = 10.0f;  // 保底值
+        if (l.Quadratic > 0.0f) {
+            constexpr float threshold = 5.0f / 256.0f;
+            float disc = l.Linear * l.Linear
+                       - 4.0f * l.Quadratic * (l.Constant - maxBright / threshold);
+            if (disc >= 0.0f)
+                radius = (-l.Linear + std::sqrt(disc)) / (2.0f * l.Quadratic);
+        }
+
         gpuLights[i].PosRadius      = glm::vec4(l.Position, radius);
         gpuLights[i].ColorIntensity = glm::vec4(l.Diffuse, 1.0f);
-        gpuLights[i].Params         = glm::vec4(0.5f, 0.0f, 0.0f, 0.0f);
+
+        // shadowSlot: 在 m_PointShadowAssignments[slot]=lightIndex 中反向查找
+        // O(MAX_SHADOW_POINT_LIGHTS=4)，完全可接受
+        float shadowSlot = -1.0f;
+        float farPlane   = l.ShadowFarPlane > 0.0f ? l.ShadowFarPlane
+                                                    : m_Settings.PointShadowFarPlane;
+        if (m_Settings.EnablePointShadows && l.CastShadows) {
+            for (int s = 0; s < MAX_SHADOW_POINT_LIGHTS; s++) {
+                if (m_PointShadowAssignments[s] == i) {
+                    shadowSlot = static_cast<float>(s);
+                    break;
+                }
+            }
+        }
+
+        gpuLights[i].Params = glm::vec4(
+            0.5f,        // x = falloff
+            shadowSlot,  // y = shadowSlot (-1 = 无阴影)
+            farPlane,    // z = per-light farPlane
+            0.0f
+        );
     }
     if (count > 0)
         m_PointLightSSBO->SetData(gpuLights.data(), sizeof(PointLightGPU) * count);
@@ -722,6 +1059,7 @@ void SceneRenderer::UploadPointLightSSBO() {
 void SceneRenderer::TiledLightCullPass() {
     if (!m_TileLightCullPipeline || !m_TileLightCullPipeline->IsValid()) return;
     if (!m_HDRFramebuffer) return;
+    if (m_SceneDepthTexture == 0) return;  // DepthPrePass 未执行
 
     uint32_t W = m_HDRFramebuffer->GetWidth();
     uint32_t H = m_HDRFramebuffer->GetHeight();
@@ -729,15 +1067,11 @@ void SceneRenderer::TiledLightCullPass() {
     m_TilesY = (H + TILE_SIZE - 1) / TILE_SIZE;
 
     EnsureTiledLightBuffers(m_TilesX, m_TilesY);
-    UploadPointLightSSBO();
 
-    // 绑定 SSBO
+    // 绑定 SSBO（点光源数据已在 FlushDrawList 开头上传）
     m_PointLightSSBO->BindBase(SSBO_BINDING_POINT_LIGHTS);
     m_TileLightCountSSBO->BindBase(SSBO_BINDING_TILE_LIGHT_COUNTS);
     m_TileLightIndexSSBO->BindBase(SSBO_BINDING_TILE_LIGHT_INDICES);
-
-    // 深度纹理（来自 HDR FBO，Depth Pre-Pass 已填充）
-    GLuint depthTex = m_HDRFramebuffer->GetDepthAttachment();
 
     m_TileLightCullPipeline->Bind();
     // CameraData UBO（binding=0）由 glBindBufferBase 全局生效，无需手动绑定
@@ -746,9 +1080,9 @@ void SceneRenderer::TiledLightCullPass() {
     m_TileLightCullPipeline->SetFloat("u_NearPlane",       m_CameraNear);
     m_TileLightCullPipeline->SetFloat("u_FarPlane",        m_CameraFar);
 
-    // 绑定深度纹理到纹理单元 0
+    // 绑定场景深度纹理（m_SceneDepthTexture 由 FlushDrawList 在 DepthPrePass 后赋值）
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, depthTex);
+    glBindTexture(GL_TEXTURE_2D, m_SceneDepthTexture);
     m_TileLightCullPipeline->SetInt("u_DepthTex", 0);
 
     m_TileLightCullPipeline->DispatchAndWait(
@@ -929,6 +1263,91 @@ void SceneRenderer::ShadowPass() {
     shadowShader->Unbind();
 }
 
+void SceneRenderer::PointShadowPass() {
+    if (!m_PointShadowArray || !m_PointShadowArray->IsValid()) return;
+
+    auto shader = m_ShaderLibrary.Get("point_shadow");
+    if (!shader) return;
+
+    // 重置所有 slot
+    for (int i = 0; i < MAX_SHADOW_POINT_LIGHTS; i++)
+        m_PointShadowAssignments[i] = -1;
+
+    // 只为 CastShadows=true 的灯分配 slot（按顺序，最多 MAX_SHADOW_POINT_LIGHTS 个）
+    int slot = 0;
+    for (int i = 0; i < m_Environment.PointLightCount && slot < MAX_SHADOW_POINT_LIGHTS; i++) {
+        if (m_Environment.PointLights[i].CastShadows)
+            m_PointShadowAssignments[slot++] = i;
+    }
+    if (slot == 0) return;  // 无需投影的灯
+
+    shader->Bind();
+    m_ShadowPipeline->ApplyRenderState();
+
+    const uint32_t res = m_Settings.PointShadowResolution;
+
+    // OpenGL 右手系 Cubemap 面的目标方向和 Up 向量
+    static const glm::vec3 faceTargets[6] = {
+        { 1, 0, 0}, {-1, 0, 0},
+        { 0, 1, 0}, { 0,-1, 0},
+        { 0, 0, 1}, { 0, 0,-1}
+    };
+    static const glm::vec3 faceUps[6] = {
+        { 0,-1, 0}, { 0,-1, 0},
+        { 0, 0, 1}, { 0, 0,-1},
+        { 0,-1, 0}, { 0,-1, 0}
+    };
+
+    for (int s = 0; s < MAX_SHADOW_POINT_LIGHTS; s++) {
+        int lightIndex = m_PointShadowAssignments[s];
+        if (lightIndex < 0) break;  // slots are filled front-to-back
+
+        const auto&    light    = m_Environment.PointLights[lightIndex];
+        const glm::vec3 lightPos = light.Position;
+        const float    farPlane  = light.ShadowFarPlane > 0.0f
+                                   ? light.ShadowFarPlane
+                                   : m_Settings.PointShadowFarPlane;
+
+        const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, farPlane);
+
+        shader->SetVec3 ("u_LightPos",  lightPos);
+        shader->SetFloat("u_FarPlane",  farPlane);
+
+        for (int face = 0; face < 6; face++) {
+            m_PointShadowArray->BindFaceForWriting(s, face);
+            glViewport(0, 0, res, res);
+            glClear(GL_DEPTH_BUFFER_BIT);
+
+            glm::mat4 view = glm::lookAt(lightPos,
+                                         lightPos + faceTargets[face],
+                                         faceUps[face]);
+            shader->SetMat4("u_LightSpaceMatrix", proj * view);
+
+            for (const auto& cmd : m_OpaqueDrawList) {
+                if (!cmd.MeshSource) continue;
+                auto vao = cmd.MeshSource->GetVertexArray();
+                if (!vao) continue;
+
+                shader->SetMat4("u_Model", cmd.Transform);
+
+                const auto& submeshes = cmd.MeshSource->GetSubmeshes();
+                if (cmd.SubmeshIndex >= submeshes.size()) continue;
+                const auto& submesh = submeshes[cmd.SubmeshIndex];
+
+                vao->Bind();
+                glDrawElementsBaseVertex(GL_TRIANGLES, submesh.IndexCount,
+                    GL_UNSIGNED_INT,
+                    (void*)(submesh.BaseIndex * sizeof(uint32_t)),
+                    submesh.BaseVertex);
+                vao->Unbind();
+            }
+        }
+    }
+
+    m_PointShadowArray->Unbind();
+    shader->Unbind();
+}
+
 void SceneRenderer::BindPBRMaterial(Shader& shader, const Ref<MaterialAsset>& material) {
     if (!material) return;
 
@@ -1014,9 +1433,11 @@ void SceneRenderer::SyncLightsFromECS(ECS::World& world) {
                 m_Environment.PointLights[idx].Ambient = glm::vec3(0.05f) * light.Intensity;
                 m_Environment.PointLights[idx].Diffuse = light.Color * light.Intensity * 0.8f;
                 m_Environment.PointLights[idx].Specular = light.Color * light.Intensity;
-                m_Environment.PointLights[idx].Constant = light.Constant;
-                m_Environment.PointLights[idx].Linear = light.Linear;
-                m_Environment.PointLights[idx].Quadratic = light.Quadratic;
+                m_Environment.PointLights[idx].Constant      = light.Constant;
+                m_Environment.PointLights[idx].Linear        = light.Linear;
+                m_Environment.PointLights[idx].Quadratic     = light.Quadratic;
+                m_Environment.PointLights[idx].CastShadows   = light.CastShadows;
+                m_Environment.PointLights[idx].ShadowFarPlane = light.ShadowFarPlane;
             }
         }
     );
@@ -1062,6 +1483,295 @@ void SceneRenderer::EnsureHDRFramebuffer(uint32_t width, uint32_t height) {
 
     m_HDRFramebuffer = Framebuffer::Create(spec);
     std::cout << "[SceneRenderer] HDR Framebuffer created: " << width << "x" << height << std::endl;
+
+    // G-Buffer 与 HDR FBO 始终保持同尺寸
+    if (!m_GBuffer || m_GBuffer->GetWidth() != width || m_GBuffer->GetHeight() != height)
+        m_GBuffer = GBuffer::Create({ width, height });
+
+    // SSR 资源与 HDR FBO 同尺寸一起维护
+    EnsureSSRResources(width, height);
+}
+
+void SceneRenderer::EnsureSSRResources(uint32_t width, uint32_t height) {
+    const int w = static_cast<int>(width);
+    const int h = static_cast<int>(height);
+
+    // SSR 输出尺寸：半分辨率时为 w/2 × h/2，全分辨率时与 viewport 一致
+    const int ssrW = m_Settings.SSRHalfResolution ? std::max(w / 2, 1) : w;
+    const int ssrH = m_Settings.SSRHalfResolution ? std::max(h / 2, 1) : h;
+
+    // Hi-Z：R32F，完整 mip 链，GL_NEAREST_MIPMAP_NEAREST（禁止插值，保证 MIN 语义）
+    // mip 数 = floor(log2(max(w,h))) + 1
+    int mipCount = 1;
+    {
+        int dim = std::max(w, h);
+        while (dim > 1) { dim >>= 1; ++mipCount; }
+    }
+
+    if (m_HiZTex == 0 || m_HiZTexWidth != w || m_HiZTexHeight != h) {
+        if (m_HiZTex) glDeleteTextures(1, &m_HiZTex);
+        glGenTextures(1, &m_HiZTex);
+        glBindTexture(GL_TEXTURE_2D, m_HiZTex);
+        // glTexStorage2D 一次性分配所有 mip 层，格式不可变（immutable）
+        // 工程注意：必须用 glTexStorage2D 而非 glTexImage2D，
+        //   否则 glBindImageTexture 针对特定 mip 的绑定在部分驱动上不稳定
+        glTexStorage2D(GL_TEXTURE_2D, mipCount, GL_R32F, w, h);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        m_HiZTexWidth  = w;
+        m_HiZTexHeight = h;
+        m_HiZMipCount  = mipCount;
+        std::cout << "[SceneRenderer] Hi-Z texture created: " << w << "x" << h
+                  << " (" << mipCount << " mips)\n";
+    }
+
+    // SSR 输出：RGBA16F，单 mip（半分辨率时为 ssrW × ssrH）
+    if (m_SSROutputTex == 0 || m_SSROutputWidth != ssrW || m_SSROutputHeight != ssrH) {
+        if (m_SSROutputTex) glDeleteTextures(1, &m_SSROutputTex);
+        glGenTextures(1, &m_SSROutputTex);
+        glBindTexture(GL_TEXTURE_2D, m_SSROutputTex);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA16F, ssrW, ssrH);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        m_SSROutputWidth  = ssrW;
+        m_SSROutputHeight = ssrH;
+    }
+
+    // 场景颜色金字塔（ConeTracing 用）：RGBA16F，全分辨率，完整 mip 链
+    // 每帧在 SSRPass 中从 HDR color attachment 拷贝 mip0，再 glGenerateMipmap
+    if (m_SSRColorPyramid == 0 || m_SSRColorPyramidWidth != w || m_SSRColorPyramidHeight != h) {
+        if (m_SSRColorPyramid) glDeleteTextures(1, &m_SSRColorPyramid);
+
+        int pyrMips = 1;
+        { int dim = std::max(w, h); while (dim > 1) { dim >>= 1; ++pyrMips; } }
+
+        glGenTextures(1, &m_SSRColorPyramid);
+        glBindTexture(GL_TEXTURE_2D, m_SSRColorPyramid);
+        glTexStorage2D(GL_TEXTURE_2D, pyrMips, GL_RGBA16F, w, h);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        m_SSRColorPyramidWidth  = w;
+        m_SSRColorPyramidHeight = h;
+        m_SSRColorPyramidMips   = pyrMips;
+    }
+}
+
+void SceneRenderer::EnsureBackFaceDepthTex(int w, int h)
+{
+    if (m_BackFaceDepthTex && m_BackFaceDepthW == w && m_BackFaceDepthH == h) return;
+
+    if (m_BackFaceDepthFBO) { glDeleteFramebuffers(1, &m_BackFaceDepthFBO); m_BackFaceDepthFBO = 0; }
+    if (m_BackFaceDepthTex) { glDeleteTextures(1, &m_BackFaceDepthTex);     m_BackFaceDepthTex = 0; }
+
+    glGenTextures(1, &m_BackFaceDepthTex);
+    glBindTexture(GL_TEXTURE_2D, m_BackFaceDepthTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, w, h, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glGenFramebuffers(1, &m_BackFaceDepthFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_BackFaceDepthFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_BackFaceDepthTex, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    m_BackFaceDepthW = w;
+    m_BackFaceDepthH = h;
+}
+
+void SceneRenderer::BackFaceDepthPass()
+{
+    EnsureBackFaceDepthTex(m_HiZTexWidth, m_HiZTexHeight);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, m_BackFaceDepthFBO);
+    glViewport(0, 0, m_HiZTexWidth, m_HiZTexHeight);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    if (m_OpaqueDrawList.empty()) {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_HDRFramebuffer->GetID());
+        return;
+    }
+    auto shader = m_ShaderLibrary.Get("depth_prepass");
+    if (!shader) {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_HDRFramebuffer->GetID());
+        return;
+    }
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+
+    RenderCommand::EnableDepthTest();
+    RenderCommand::SetDepthMask(true);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_FRONT);
+
+    shader->Bind();
+    for (const auto& cmd : m_OpaqueDrawList) {
+        if (!cmd.MeshSource) continue;
+        auto vao = cmd.MeshSource->GetVertexArray();
+        if (!vao) continue;
+        shader->SetMat4("u_Model", cmd.Transform);
+        const auto& submeshes = cmd.MeshSource->GetSubmeshes();
+        if (cmd.SubmeshIndex >= submeshes.size()) continue;
+        const auto& sm = submeshes[cmd.SubmeshIndex];
+        vao->Bind();
+        glDrawElementsBaseVertex(GL_TRIANGLES, sm.IndexCount, GL_UNSIGNED_INT,
+            (void*)(sm.BaseIndex * sizeof(uint32_t)), sm.BaseVertex);
+        vao->Unbind();
+    }
+    shader->Unbind();
+
+    glCullFace(GL_BACK);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+    // 恢复 HDR FBO（SSRPass 为 compute，不需要 FBO，但后续 pass 需要）
+    glBindFramebuffer(GL_FRAMEBUFFER, m_HDRFramebuffer->GetID());
+}
+
+void SceneRenderer::HiZBuildPass() {
+    if (!m_HiZPipeline || !m_HiZPipeline->IsValid() || !m_HiZTex) return;
+    if (!m_Settings.UseDeferredShading || !m_GBuffer) return;
+
+    m_HiZPipeline->Bind();
+
+    const int w = m_HiZTexWidth;
+    const int h = m_HiZTexHeight;
+
+    // Pass 0：从 GBuffer 深度（DEPTH24_STENCIL8）拷贝到 HiZ mip 0
+    // DEPTH24_STENCIL8 在 GL_DEPTH_STENCIL_TEXTURE_MODE=GL_DEPTH_COMPONENT（默认）下
+    // 可通过 sampler2D + texelFetch 读取 .r 深度分量
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetDepth());
+    m_HiZPipeline->SetInt("u_InputDepth", 0);
+    m_HiZPipeline->SetInt("u_SrcMip",     0);
+    m_HiZPipeline->SetIVec2("u_SrcSize",  glm::ivec2(w, h));
+    m_HiZPipeline->SetInt("u_IsFirstPass", 1);
+    m_HiZPipeline->BindImageTexture(0, m_HiZTex, 0, GL_WRITE_ONLY, GL_R32F);
+    m_HiZPipeline->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+
+    // 每次 Dispatch 后必须 barrier，确保写入对后续 texelFetch 可见
+    ComputePipeline::Wait(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT |
+                          GL_TEXTURE_FETCH_BARRIER_BIT);
+
+    // Pass 1..N：2×2 MIN 下采样（对 HiZ 自身逐级构建）
+    glBindTexture(GL_TEXTURE_2D, m_HiZTex);
+    m_HiZPipeline->SetInt("u_IsFirstPass", 0);
+
+    for (int mip = 1; mip < m_HiZMipCount; ++mip) {
+        const int srcW = std::max(1, w >> (mip - 1));
+        const int srcH = std::max(1, h >> (mip - 1));
+        const int dstW = std::max(1, w >> mip);
+        const int dstH = std::max(1, h >> mip);
+
+        m_HiZPipeline->SetInt("u_SrcMip",  mip - 1);
+        m_HiZPipeline->SetIVec2("u_SrcSize", glm::ivec2(srcW, srcH));
+        m_HiZPipeline->BindImageTexture(0, m_HiZTex, mip, GL_WRITE_ONLY, GL_R32F);
+        m_HiZPipeline->Dispatch((dstW + 7) / 8, (dstH + 7) / 8, 1);
+
+        ComputePipeline::Wait(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT |
+                              GL_TEXTURE_FETCH_BARRIER_BIT);
+    }
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    m_HiZPipeline->Unbind();
+}
+
+void SceneRenderer::SSRPass() {
+    if (!m_SSRPipeline || !m_SSRPipeline->IsValid()) return;
+    if (!m_HiZTex) return;
+    if (!m_Settings.UseDeferredShading || !m_GBuffer) return;
+
+    // 响应运行时半分辨率切换（EnsureHDRFramebuffer 只在 resize 时触发）
+    EnsureSSRResources(m_HiZTexWidth, m_HiZTexHeight);
+    if (!m_SSROutputTex) return;
+
+    const int w = m_SSROutputWidth;
+    const int h = m_SSROutputHeight;
+
+    m_SSRPipeline->Bind();
+
+    // GBuffer 输入
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetDepth());
+    m_SSRPipeline->SetInt("u_GDepth", 0);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetNormalRoughMetal());
+    m_SSRPipeline->SetInt("u_GNormal", 1);
+
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetBaseColorAO());
+    m_SSRPipeline->SetInt("u_GBaseColor", 2);
+
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, m_HiZTex);
+    m_SSRPipeline->SetInt("u_HiZ", 3);
+
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetColorAttachment());
+    m_SSRPipeline->SetInt("u_SceneColor", 4);
+
+    // 场景颜色金字塔：从 HDR color attachment 拷贝 mip0，再生成完整 mip 链
+    // glCopyImageSubData：GPU-to-GPU 直接拷贝，无需 framebuffer blit
+    glCopyImageSubData(
+        m_HDRFramebuffer->GetColorAttachment(), GL_TEXTURE_2D, 0, 0, 0, 0,
+        m_SSRColorPyramid,                      GL_TEXTURE_2D, 0, 0, 0, 0,
+        m_HiZTexWidth, m_HiZTexHeight, 1);
+    glBindTexture(GL_TEXTURE_2D, m_SSRColorPyramid);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT);
+
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, m_SSRColorPyramid);
+    m_SSRPipeline->SetInt("u_SceneColorMip",      5);
+    m_SSRPipeline->SetInt("u_SceneColorMipCount", m_SSRColorPyramidMips);
+
+    glActiveTexture(GL_TEXTURE6);
+    glBindTexture(GL_TEXTURE_2D, m_BackFaceDepthTex ? m_BackFaceDepthTex : m_HiZTex);
+    m_SSRPipeline->SetInt("u_BackFaceDepth", 6);
+
+    // 相机矩阵
+    m_SSRPipeline->SetMat4("u_View",          m_ViewMatrix);
+    m_SSRPipeline->SetMat4("u_Projection",    m_ProjectionMatrix);
+    m_SSRPipeline->SetMat4("u_InvProjection", glm::inverse(m_ProjectionMatrix));
+    // u_Resolution 始终为全分辨率（HiZ 和 GBuffer 均为全分辨率，射线坐标系基于此）
+    m_SSRPipeline->SetVec2("u_Resolution",    glm::vec2(m_HiZTexWidth, m_HiZTexHeight));
+    m_SSRPipeline->SetFloat("u_Near",         m_CameraNear);
+    m_SSRPipeline->SetFloat("u_Far",          m_CameraFar);
+
+    // SSR 参数
+    m_SSRPipeline->SetInt  ("u_MaxSteps",        m_Settings.SSRMaxSteps);
+    m_SSRPipeline->SetFloat("u_DepthTolerance",  m_Settings.SSRDepthTolerance);
+    m_SSRPipeline->SetFloat("u_FadeStart",       m_Settings.SSRFadeStart);
+    m_SSRPipeline->SetFloat("u_FacingFade",      m_Settings.SSRFacingFade);
+    m_SSRPipeline->SetInt  ("u_HiZMipCount",     m_HiZMipCount);
+    m_SSRPipeline->SetInt  ("u_FrameIndex",      m_FrameIndex);
+
+    // 输出 image2D
+    m_SSRPipeline->BindImageTexture(0, m_SSROutputTex, 0, GL_WRITE_ONLY, GL_RGBA16F);
+
+    m_SSRPipeline->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+    ComputePipeline::Wait(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT |
+                          GL_TEXTURE_FETCH_BARRIER_BIT);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    m_SSRPipeline->Unbind();
 }
 
 void SceneRenderer::EnsureBloomTextures(uint32_t width, uint32_t height) {
@@ -1220,13 +1930,27 @@ void SceneRenderer::CompositePass() {
     compositeShader->SetFloat("u_OutlineWidth",
         static_cast<float>(m_Settings.OutlineWidth));
 
+    // SSR：intensity=0 时 shader 直接 × 0，无需额外 bool
+    bool ssrReady = m_Settings.EnableSSR && m_SSROutputTex;
+    compositeShader->SetInt  ("u_SSRTex",       3);
+    compositeShader->SetFloat("u_SSRIntensity", ssrReady ? m_Settings.SSRIntensity : 0.0f);
+
+    // Deferred 路径的 EntityID 来自 GBuffer，Forward 路径来自 HDR FBO
+    GLuint entityIDTex = (m_Settings.UseDeferredShading && m_GBuffer)
+        ? m_GBuffer->GetEntityID()
+        : m_HDRFramebuffer->GetEntityIDAttachment();
+
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetColorAttachment());
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetEntityIDAttachment());
+    glBindTexture(GL_TEXTURE_2D, entityIDTex);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, bloomReady
         ? m_BloomPrefilterFBO->GetColorAttachment()
+        : Renderer::GetBlackTexture()->GetID());
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, ssrReady
+        ? m_SSROutputTex
         : Renderer::GetBlackTexture()->GetID());
 
     Renderer::DrawFullscreenQuad();
@@ -1348,7 +2072,8 @@ void SceneRenderer::NormalPrePass() {
 }
 
 void SceneRenderer::SSAOPass() {
-    if (!m_SSAOFbo || !m_GNormalFBO) return;
+    bool deferred = m_Settings.UseDeferredShading && m_GBuffer;
+    if (!m_SSAOFbo || (!deferred && !m_GNormalFBO)) return;
 
     auto shader = m_ShaderLibrary.Get("ssao");
     if (!shader) return;
@@ -1366,13 +2091,18 @@ void SceneRenderer::SSAOPass() {
     shader->SetInt  ("u_KernelSize", kernelSize);
     shader->SetFloat("u_Radius",     m_Settings.SSAORadius);
     shader->SetFloat("u_Bias",       m_Settings.SSAOBias);
+    shader->SetBool ("u_UseGBufferNormals", deferred);
 
     shader->SetInt("u_GNormal", 0);
     shader->SetInt("u_GDepth",  1);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_GNormalFBO->GetColorAttachment());
+    glBindTexture(GL_TEXTURE_2D, deferred
+        ? m_GBuffer->GetNormalRoughMetal()
+        : m_GNormalFBO->GetColorAttachment());
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, m_GNormalFBO->GetDepthAttachment());
+    glBindTexture(GL_TEXTURE_2D, deferred
+        ? m_GBuffer->GetDepth()
+        : m_GNormalFBO->GetDepthAttachment());
 
     Renderer::DrawFullscreenQuad();
 
@@ -1382,7 +2112,8 @@ void SceneRenderer::SSAOPass() {
 }
 
 void SceneRenderer::SSAOBlurPass() {
-    if (!m_SSAOBlurFBO || !m_SSAOFbo || !m_GNormalFBO) return;
+    bool deferred = m_Settings.UseDeferredShading && m_GBuffer;
+    if (!m_SSAOBlurFBO || !m_SSAOFbo || (!deferred && !m_GNormalFBO)) return;
 
     auto shader = m_ShaderLibrary.Get("ssao_blur");
     if (!shader) return;
@@ -1399,7 +2130,9 @@ void SceneRenderer::SSAOBlurPass() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_SSAOFbo->GetColorAttachment());
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, m_GNormalFBO->GetDepthAttachment());
+    glBindTexture(GL_TEXTURE_2D, deferred
+        ? m_GBuffer->GetDepth()
+        : m_GNormalFBO->GetDepthAttachment());
 
     Renderer::DrawFullscreenQuad();
 

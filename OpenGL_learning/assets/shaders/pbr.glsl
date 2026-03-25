@@ -131,6 +131,10 @@ uniform float u_EnvironmentIntensity;
 // SSAO（slot 10，禁用时绑白色纹理，采样结果为 1.0，对 ao 无影响）
 uniform sampler2D u_SSAOMap;
 
+// 点光源阴影（samplerCubeArray，一个绑定对应 MAX_SHADOW_POINT_LIGHTS 个 cubemap）
+// shadowSlot 由 PointLightGPU.Params.y 数据驱动，-1 = 该光源不投影
+uniform samplerCubeArray u_PointShadowMaps;
+
 // Shadow
 layout(std140, binding = 3) uniform ShadowData {
     mat4  u_LightSpaceMatrices[4];
@@ -242,7 +246,54 @@ vec3 CalculatePointLight(int index, vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 
         attenuation = 1.0 / (1.0 + falloff * distance * distance);
     }
 
-    vec3 radiance = lightColor * lightIntensity * attenuation;
+    // 点光源阴影
+    // Params.y = shadowSlot（-1 = 不投影），Params.z = farPlane
+    float shadow = 1.0;
+    float shadowSlot = u_PointLights[index].Params.y;
+    float farPlane   = u_PointLights[index].Params.z;
+    if (shadowSlot >= 0.0 && farPlane > 0.0) {
+        // fragToLight 方向即 Cubemap 采样方向
+        vec3  fragToLight   = fragPos - lightPos;
+        float dist          = length(fragToLight);
+        float currentDepth  = dist / farPlane;
+
+        float NdotL = max(dot(N, normalize(-fragToLight)), 0.0);
+        float bias  = max(0.0005 * (1.0 - NdotL), 0.0001);
+
+        if (u_SoftShadows) {
+            // 3D PCF：20 方向偏移核 + 每像素随机旋转（消除固定核图案）
+            const vec3 offsets[20] = vec3[](
+                vec3( 1, 1, 1), vec3( 1,-1, 1), vec3(-1,-1, 1), vec3(-1, 1, 1),
+                vec3( 1, 1,-1), vec3( 1,-1,-1), vec3(-1,-1,-1), vec3(-1, 1,-1),
+                vec3( 1, 1, 0), vec3( 1,-1, 0), vec3(-1,-1, 0), vec3(-1, 1, 0),
+                vec3( 1, 0, 1), vec3(-1, 0, 1), vec3( 1, 0,-1), vec3(-1, 0,-1),
+                vec3( 0, 1, 1), vec3( 0,-1, 1), vec3( 0,-1,-1), vec3( 0, 1,-1)
+            );
+            float diskRadius = (1.0 + dist / farPlane) / 50.0;
+
+            // 每像素独立旋转角（IGN 替代 noise texture）
+            float angle = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))
+                          * 6.28318530718;
+            float c = cos(angle), s = sin(angle);
+
+            float sum = 0.0;
+            for (int i = 0; i < 20; i++) {
+                // 绕 Y 轴旋转偏移向量，打散固定核图案
+                vec3 o = offsets[i];
+                vec3 rotated = vec3(o.x * c - o.z * s, o.y, o.x * s + o.z * c);
+                float closest = texture(u_PointShadowMaps,
+                                        vec4(fragToLight + rotated * diskRadius, shadowSlot)).r;
+                sum += (currentDepth - bias > closest) ? 0.0 : 1.0;
+            }
+            shadow = sum / 20.0;
+        } else {
+            float closestDepth = texture(u_PointShadowMaps,
+                                         vec4(fragToLight, shadowSlot)).r;
+            shadow = (currentDepth - bias > closestDepth) ? 0.0 : 1.0;
+        }
+    }
+
+    vec3 radiance = lightColor * lightIntensity * attenuation * shadow;
 
     return CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness);
 }
@@ -337,7 +388,7 @@ float ShadowCalculation(vec3 worldPos, float viewDepth, vec3 normal, vec3 lightD
     if (distFade <= 0.0) return 1.0;
 
     float NdotL = max(dot(normal, lightDir), 0.0);
-    float bias  = max(0.002 * (1.0 - NdotL), 0.0005);
+    float bias  = max(0.001 * (1.0 - NdotL), 0.0002);
 
     uint  cascade = SelectCascade(viewDepth);
     float shadow;

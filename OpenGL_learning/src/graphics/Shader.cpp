@@ -1,6 +1,7 @@
 #include "Shader.h"
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 
 namespace GLRenderer {
 
@@ -12,6 +13,10 @@ Shader::Shader(const std::filesystem::path& filepath) {
         std::cerr << "[Shader] 无法读取着色器文件: " << filepath << std::endl;
         return;
     }
+
+    std::unordered_set<std::string> visited;
+    visited.insert(std::filesystem::weakly_canonical(filepath).string());
+    source = ResolveIncludes(source, filepath.parent_path(), visited);
 
     auto shaderSources = ParseShaderSource(source);
 
@@ -61,6 +66,17 @@ Shader::Shader(const std::filesystem::path& vertexPath,
     if (vertexSource.empty() || fragmentSource.empty()) {
         std::cerr << "[Shader] 无法读取着色器文件" << std::endl;
         return;
+    }
+
+    {
+        std::unordered_set<std::string> visited;
+        visited.insert(std::filesystem::weakly_canonical(vertexPath).string());
+        vertexSource = ResolveIncludes(vertexSource, vertexPath.parent_path(), visited);
+    }
+    {
+        std::unordered_set<std::string> visited;
+        visited.insert(std::filesystem::weakly_canonical(fragmentPath).string());
+        fragmentSource = ResolveIncludes(fragmentSource, fragmentPath.parent_path(), visited);
     }
 
     GLuint vertexShader = CompileShader(GL_VERTEX_SHADER, vertexSource);
@@ -190,6 +206,54 @@ Ref<Shader> Shader::Create(const std::filesystem::path& filepath) {
 Ref<Shader> Shader::Create(const std::filesystem::path& vertexPath,
                            const std::filesystem::path& fragmentPath) {
     return Ref<Shader>(new Shader(vertexPath, fragmentPath));
+}
+
+std::string Shader::ResolveIncludes(const std::string& source,
+                                     const std::filesystem::path& dir,
+                                     std::unordered_set<std::string>& visited)
+{
+    std::istringstream in(source);
+    std::ostringstream out;
+    std::string line;
+
+    while (std::getline(in, line)) {
+        // 匹配 #include "filename"（允许前置空白）
+        size_t start = line.find_first_not_of(" \t");
+        if (start != std::string::npos && line.compare(start, 8, "#include") == 0) {
+            size_t q1 = line.find('"', start + 8);
+            size_t q2 = (q1 != std::string::npos) ? line.find('"', q1 + 1) : std::string::npos;
+
+            if (q1 == std::string::npos || q2 == std::string::npos) {
+                std::cerr << "[Shader] #include 语法错误（缺少引号）: " << line << std::endl;
+                out << line << '\n';
+                continue;
+            }
+
+            std::filesystem::path includePath = dir / line.substr(q1 + 1, q2 - q1 - 1);
+            std::string canonical = std::filesystem::weakly_canonical(includePath).string();
+
+            if (visited.count(canonical)) {
+                // 已包含过，跳过（防止循环引用）
+                out << "// #include already included: " << includePath.filename().string() << '\n';
+                continue;
+            }
+
+            std::string includeSrc = ReadFile(includePath);
+            if (includeSrc.empty()) {
+                std::cerr << "[Shader] #include 文件未找到: " << includePath << std::endl;
+                out << "// #include NOT FOUND: " << includePath.filename().string() << '\n';
+                continue;
+            }
+
+            visited.insert(canonical);
+            out << ResolveIncludes(includeSrc, includePath.parent_path(), visited);
+            out << '\n';
+        } else {
+            out << line << '\n';
+        }
+    }
+
+    return out.str();
 }
 
 std::string Shader::ReadFile(const std::filesystem::path& path) {

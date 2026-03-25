@@ -39,8 +39,10 @@ layout(location = 0) out vec4 o_AO;
 
 in vec2 v_TexCoord;
 
-uniform sampler2D u_GNormal;   // 视图空间法线（encoded [0,1]，来自 ssao_prepass）
+uniform sampler2D u_GNormal;   // Forward: 视图空间法线 [0,1]（来自 ssao_prepass）
+                               // Deferred: Oct 编码世界法线 RG（来自 GBuffer att1）
 uniform sampler2D u_GDepth;    // 深度纹理（GL_DEPTH24_STENCIL8）
+uniform bool      u_UseGBufferNormals;  // true = Deferred 路径，从 GBuffer 解码法线
 
 uniform vec3 u_Samples[64];   // 半球采样核（切线空间，C++ 生成）
 uniform int  u_KernelSize;    // 实际使用数量（≤ 64）
@@ -79,6 +81,16 @@ vec3 ReconstructViewPos(vec2 uv, float linearDepth) {
     );
 }
 
+// Octahedral 解码（对应 GBuffer 写入的 OctEncode）
+vec3 OctDecode(vec2 f) {
+    f = f * 2.0 - 1.0;
+    vec3 n = vec3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
+    float t = max(-n.z, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.y += (n.y >= 0.0) ? -t : t;
+    return normalize(n);
+}
+
 // 优化 [2]：交错梯度噪声（IGN）
 // 对不同像素坐标产生不同的随机角度，用于旋转采样核。
 // 空间分布质量优于 mod-4 重复的噪声纹理（无 4px 重复条纹）。
@@ -87,8 +99,17 @@ float InterleavedGradientNoise(vec2 fragCoord) {
 }
 
 void main() {
-    // 解码法线（[0,1] → [-1,1]），得到视图空间法线
-    vec3 normal = normalize(texture(u_GNormal, v_TexCoord).xyz * 2.0 - 1.0);
+    // 解码法线，统一变换到视图空间
+    vec3 normal;
+    if (u_UseGBufferNormals) {
+        // Deferred 路径：GBuffer att1 RG 存储 Oct 编码的世界空间法线
+        vec2 oct = texture(u_GNormal, v_TexCoord).rg;
+        vec3 worldNormal = OctDecode(oct);
+        normal = normalize(vec3(u_View * vec4(worldNormal, 0.0)));
+    } else {
+        // Forward 路径：ssao_prepass 输出视图空间法线 [0,1]
+        normal = normalize(texture(u_GNormal, v_TexCoord).xyz * 2.0 - 1.0);
+    }
 
     float rawDepth    = texture(u_GDepth, v_TexCoord).r;
     float linearDepth = LinearizeDepth(rawDepth);

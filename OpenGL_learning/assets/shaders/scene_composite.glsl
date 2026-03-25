@@ -35,6 +35,10 @@ uniform int   u_SelectedEntityID;  // -1 = 无选中
 uniform vec4  u_OutlineColor;      // rgba，alpha 控制混合强度
 uniform float u_OutlineWidth;      // 像素宽度
 
+// SSR（intensity=0 时无贡献，无需额外 bool）
+uniform sampler2D u_SSRTex;
+uniform float     u_SSRIntensity;
+
 // ACES Filmic Tonemapper
 // 来源: http://www.oscars.org/science-technology/sci-tech-projects/aces
 // 与 Hazel SceneComposite.glsl 完全一致
@@ -57,6 +61,10 @@ vec3 ACESTonemap(vec3 color) {
 
 void main() {
     vec3 color = texture(u_Texture, v_TexCoord).rgb;
+
+    // SSR 叠加（在 Tonemap 之前，HDR 空间；intensity=0 或 confidence=0 时无贡献）
+    vec4 ssr = texture(u_SSRTex, v_TexCoord);
+    color += ssr.rgb * ssr.a * u_SSRIntensity;
 
     // 曝光调整
     color *= u_Exposure;

@@ -184,9 +184,9 @@ struct PointLightComponent {
     float Constant = 1.0f;
     float Linear = 0.09f;
     float Quadratic = 0.032f;
-    bool CastShadows = false;
+    bool  CastShadows     = true;
     float ShadowNearPlane = 0.1f;
-    float ShadowFarPlane = 25.0f;
+    float ShadowFarPlane  = 25.0f;
 
     float GetRange() const {
         float threshold = 5.0f / 256.0f;

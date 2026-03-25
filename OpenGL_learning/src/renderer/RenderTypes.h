@@ -51,7 +51,7 @@ struct LightingUBO {
 struct PointLightGPU {
     glm::vec4 PosRadius;        // xyz = 世界空间位置, w = 影响半径
     glm::vec4 ColorIntensity;   // xyz = 颜色, w = 强度
-    glm::vec4 Params;           // x = falloff 指数, yzw = 未使用
+    glm::vec4 Params;           // x = falloff 指数, y = shadowSlot(-1=不投影), z = farPlane, w = 未使用
 };
 
 // SSBO 绑定点
@@ -77,9 +77,13 @@ constexpr uint32_t UBO_BINDING_MATERIAL = 2;  // 预留给材质 UBO
 constexpr uint32_t UBO_BINDING_SHADOW   = 3;  // 阴影数据
 
 // 阴影贴图纹理槽（sampler2DArray，4 个 cascade 共用）
-constexpr uint32_t SHADOW_MAP_SLOT    = 9;
+constexpr uint32_t SHADOW_MAP_SLOT          = 9;
 // SSAO 纹理槽（PBR GeometryPass 读取 blurred AO）
-constexpr uint32_t SSAO_TEXTURE_SLOT  = 10;
+constexpr uint32_t SSAO_TEXTURE_SLOT        = 10;
+// 点光源阴影数组槽（samplerCubeArray，MAX_SHADOW_POINT_LIGHTS 个 cubemap）
+constexpr uint32_t POINT_SHADOW_MAP_SLOT    = 11;
+// 最多支持投影的点光源数量
+constexpr int      MAX_SHADOW_POINT_LIGHTS  = 4;
 
 // 单个 cascade 的 CPU 端数据（CalculateCascades 输出，不上传 GPU）
 struct CascadeData {

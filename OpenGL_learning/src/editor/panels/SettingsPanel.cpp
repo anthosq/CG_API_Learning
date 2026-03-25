@@ -161,6 +161,7 @@ void SettingsPanel::OnDraw(EditorContext& context) {
     if (ImGui::CollapsingHeader("Rendering")) {
         ImGui::Checkbox("Wireframe",          &settings.Wireframe);
         ImGui::Checkbox("Depth Pre-Pass",     &settings.EnableDepthPrepass);
+        ImGui::Checkbox("Deferred Shading",   &settings.UseDeferredShading);
     }
 
     // 阴影设置
@@ -188,6 +189,22 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         ImGui::SliderFloat("Split Lambda", &settings.CascadeSplitLambda,  0.0f,   1.0f, "%.2f");
         ImGui::Checkbox("Soft Shadows",    &settings.SoftShadows);
         ImGui::Checkbox("Show Cascades",   &settings.ShowCascades);
+    }
+
+    // 点光源阴影设置
+    if (ImGui::CollapsingHeader("Point Shadows")) {
+        ImGui::Checkbox("Enable##PointShadow", &settings.EnablePointShadows);
+        if (settings.EnablePointShadows) {
+            const char* resItems[]        = { "256", "512", "1024" };
+            const uint32_t resValues[]    = { 256, 512, 1024 };
+            int resIdx = 1;
+            for (int i = 0; i < 3; i++) {
+                if (settings.PointShadowResolution == resValues[i]) { resIdx = i; break; }
+            }
+            if (ImGui::Combo("Resolution##PSM", &resIdx, resItems, 3))
+                settings.PointShadowResolution = resValues[resIdx];
+            ImGui::SliderFloat("Far Plane##PSM", &settings.PointShadowFarPlane, 5.0f, 200.0f, "%.0f");
+        }
     }
 
     // Bloom 设置
@@ -237,6 +254,19 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         ImGui::Checkbox("Enable",         &settings.EnableOutline);
         ImGui::ColorEdit4("Color",        glm::value_ptr(settings.OutlineColor));
         ImGui::SliderInt("Width (px)",    &settings.OutlineWidth, 1, 5);
+    }
+
+    // SSR 设置
+    if (ImGui::CollapsingHeader("SSR")) {
+        ImGui::Checkbox("Enable##ssr",          &settings.EnableSSR);
+        if (settings.EnableSSR) {
+            ImGui::Checkbox  ("Half Resolution",    &settings.SSRHalfResolution);
+            ImGui::SliderFloat("Intensity",         &settings.SSRIntensity,      0.0f, 2.0f,  "%.2f");
+            ImGui::SliderInt  ("Max Steps",         &settings.SSRMaxSteps,       16,   128);
+            ImGui::SliderFloat("Depth Tol",         &settings.SSRDepthTolerance, 0.01f, 1.0f, "%.3f");
+            ImGui::SliderFloat("Fade Start",        &settings.SSRFadeStart,      0.5f, 1.0f,  "%.2f");
+            ImGui::SliderFloat("Facing Fade",       &settings.SSRFacingFade,     0.0f, 1.0f,  "%.2f");
+        }
     }
 
     // 裁剪统计

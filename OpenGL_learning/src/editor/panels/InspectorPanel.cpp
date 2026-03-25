@@ -454,6 +454,20 @@ void InspectorPanel::DrawPointLightComponent(ECS::PointLightComponent& light) {
     ImGui::Text("Range");
     ImGui::NextColumn();
     ImGui::Text("%.2f", range);
+    ImGui::NextColumn();
+
+    ImGui::Separator();
+    ImGui::Text("Cast Shadows");
+    ImGui::NextColumn();
+    ImGui::Checkbox("##CastShadows", &light.CastShadows);
+    ImGui::NextColumn();
+
+    if (light.CastShadows) {
+        ImGui::Text("Shadow Far");
+        ImGui::NextColumn();
+        ImGui::DragFloat("##ShadowFar", &light.ShadowFarPlane, 0.5f, 1.0f, 200.0f, "%.1f");
+        ImGui::NextColumn();
+    }
 
     ImGui::Columns(1);
 }
