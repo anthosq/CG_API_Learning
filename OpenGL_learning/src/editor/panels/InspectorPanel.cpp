@@ -7,6 +7,8 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include "renderer/ParticleSystem.h"
 #include <functional>
 
 namespace GLRenderer {
@@ -154,6 +156,13 @@ void InspectorPanel::OnDraw(EditorContext& context) {
     if (entity.HasComponent<ECS::FloatingComponent>()) {
         if (DrawComponentHeader<ECS::FloatingComponent>(entity, "Floating")) {
             DrawFloatingComponent(entity.GetComponent<ECS::FloatingComponent>());
+        }
+    }
+
+    // ParticleComponent
+    if (entity.HasComponent<ECS::ParticleComponent>()) {
+        if (DrawComponentHeader<ECS::ParticleComponent>(entity, "Particle System")) {
+            DrawParticleComponent(entity.GetComponent<ECS::ParticleComponent>());
         }
     }
 
@@ -595,7 +604,96 @@ void InspectorPanel::DrawAddComponentButton(ECS::Entity entity) {
             }
         }
 
+        if (!entity.HasComponent<ECS::ParticleComponent>()) {
+            if (ImGui::MenuItem("Particle System")) {
+                entity.AddComponent<ECS::ParticleComponent>();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
         ImGui::EndPopup();
+    }
+}
+
+void InspectorPanel::DrawParticleComponent(ECS::ParticleComponent& p) {
+    ImGui::Columns(2);
+    ImGui::SetColumnWidth(0, 120.0f);
+
+    // --- Emitter ---
+    ImGui::Text("Emit Rate");    ImGui::NextColumn();
+    ImGui::DragFloat("##EmitRate", &p.EmitRate, 1.0f, 0.0f, 10000.0f, "%.0f/s");
+    ImGui::NextColumn();
+
+    ImGui::Text("Direction");   ImGui::NextColumn();
+    ImGui::DragFloat3("##EmitDir", &p.EmitDirection.x, 0.01f, -1.0f, 1.0f);
+    ImGui::NextColumn();
+
+    float spreadDeg = glm::degrees(p.EmitSpread);
+    ImGui::Text("Spread");      ImGui::NextColumn();
+    if (ImGui::DragFloat("##Spread", &spreadDeg, 0.5f, 0.0f, 90.0f, "%.1f deg"))
+        p.EmitSpread = glm::radians(spreadDeg);
+    ImGui::NextColumn();
+
+    // --- Lifetime ---
+    ImGui::Text("Lifetime Min"); ImGui::NextColumn();
+    ImGui::DragFloat("##LifeMin", &p.LifetimeMin, 0.05f, 0.01f, p.LifetimeMax);
+    ImGui::NextColumn();
+
+    ImGui::Text("Lifetime Max"); ImGui::NextColumn();
+    ImGui::DragFloat("##LifeMax", &p.LifetimeMax, 0.05f, p.LifetimeMin, 30.0f);
+    ImGui::NextColumn();
+
+    // --- Velocity ---
+    ImGui::Text("Speed Min");   ImGui::NextColumn();
+    ImGui::DragFloat("##SpeedMin", &p.SpeedMin, 0.05f, 0.0f, p.SpeedMax);
+    ImGui::NextColumn();
+
+    ImGui::Text("Speed Max");   ImGui::NextColumn();
+    ImGui::DragFloat("##SpeedMax", &p.SpeedMax, 0.05f, p.SpeedMin, 100.0f);
+    ImGui::NextColumn();
+
+    ImGui::Text("Gravity");     ImGui::NextColumn();
+    ImGui::DragFloat3("##Gravity", &p.Gravity.x, 0.1f);
+    ImGui::NextColumn();
+
+    // --- Appearance ---
+    ImGui::Text("Color Begin"); ImGui::NextColumn();
+    ImGui::ColorEdit4("##ColorBegin", &p.ColorBegin.x);
+    ImGui::NextColumn();
+
+    ImGui::Text("Color End");   ImGui::NextColumn();
+    ImGui::ColorEdit4("##ColorEnd", &p.ColorEnd.x);
+    ImGui::NextColumn();
+
+    ImGui::Text("Size Begin");  ImGui::NextColumn();
+    ImGui::DragFloat("##SizeBegin", &p.SizeBegin, 0.01f, 0.0f, 10.0f);
+    ImGui::NextColumn();
+
+    ImGui::Text("Size End");    ImGui::NextColumn();
+    ImGui::DragFloat("##SizeEnd", &p.SizeEnd, 0.01f, 0.0f, 10.0f);
+    ImGui::NextColumn();
+
+    // --- Runtime ---
+    ImGui::Text("Max Particles"); ImGui::NextColumn();
+    int maxP = p.MaxParticles;
+    if (ImGui::DragInt("##MaxParticles", &maxP, 64, 64, 1048576)) {
+        p.MaxParticles = maxP;
+        p.RuntimeSystem.reset();  // 参数变化时重建 GPU buffer
+    }
+    ImGui::NextColumn();
+
+    ImGui::Columns(1);
+
+    ImGui::Checkbox("Looping", &p.Looping);
+    ImGui::SameLine();
+    ImGui::Checkbox("Playing", &p.Playing);
+
+    // 运行时信息
+    if (p.RuntimeSystem) {
+        ImGui::TextDisabled("Alive: %d / %d",
+            p.RuntimeSystem->GetAliveCount(), p.MaxParticles);
+    } else {
+        ImGui::TextDisabled("(not initialized)");
     }
 }
 
@@ -607,5 +705,6 @@ template bool InspectorPanel::DrawComponentHeader<ECS::PointLightComponent>(ECS:
 template bool InspectorPanel::DrawComponentHeader<ECS::DirectionalLightComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::RotatorComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::FloatingComponent>(ECS::Entity, const char*);
+template bool InspectorPanel::DrawComponentHeader<ECS::ParticleComponent>(ECS::Entity, const char*);
 
 } // namespace GLRenderer

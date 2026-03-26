@@ -86,22 +86,10 @@ void Editor::OnImGuiRender() {
 void Editor::DrawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Scene")) {
-                // TODO: 新建场景
-                ConsolePanel::LogInfo("New Scene (not implemented)");
-            }
-            if (ImGui::MenuItem("Open Scene")) {
-                // TODO: 打开场景
-                ConsolePanel::LogInfo("Open Scene (not implemented)");
-            }
-            if (ImGui::MenuItem("Save Scene")) {
-                // TODO: 保存场景
-                ConsolePanel::LogInfo("Save Scene (not implemented)");
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) {
-                // TODO: 退出应用
-            }
+            if (ImGui::MenuItem("New Scene",  "Ctrl+N")) { if (m_Context.OnNewScene)    m_Context.OnNewScene(); }
+            if (ImGui::MenuItem("Open Scene", "Ctrl+O")) { if (m_Context.OnOpenScene)   m_Context.OnOpenScene(); }
+            if (ImGui::MenuItem("Save Scene", "Ctrl+S")) { if (m_Context.OnSaveScene)   m_Context.OnSaveScene(); }
+            if (ImGui::MenuItem("Save As..."))            { if (m_Context.OnSaveSceneAs) m_Context.OnSaveSceneAs(); }
             ImGui::EndMenu();
         }
 

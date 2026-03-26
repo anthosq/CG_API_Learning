@@ -31,6 +31,7 @@
 #include "graphics/StorageBuffer.h"
 #include "core/Frustum.h"
 #include "scene/BVH.h"
+#include "renderer/ParticleSystem.h"
 
 #include <memory>
 #include <vector>
@@ -177,7 +178,8 @@ public:
     void RenderScene(ECS::World& world,
                      Framebuffer& targetFBO,
                      const Camera& camera,
-                     float aspectRatio);
+                     float aspectRatio,
+                     float deltaTime = 0.0f);
 
     // 设置
     SceneRenderSettings& GetSettings() { return m_Settings; }
@@ -231,6 +233,7 @@ private:
     void GBufferPass();            // 不透明物体写入 G-Buffer（Deferred 路径）
     void DeferredLightingPass();   // 全屏 quad 读 G-Buffer 做 PBR 光照（Deferred 路径）
     void TransparentPass();        // 透明物体（两种路径均为 Forward+）
+    void ParticlePass();           // GPU 粒子：Compute Simulate + Billboard Render
 
     // SSAO
     void NormalPrePass();        // 渲染视图空间法线到 m_GNormalFBO
@@ -289,6 +292,19 @@ private:
     std::vector<DrawCommand> m_OpaqueDrawList;
     std::vector<DrawCommand> m_TransparentDrawList;
     std::vector<LightEntityInfo> m_LightEntities;
+
+    // 粒子绘制列表（每帧从 ECS 收集）
+    struct ParticleDrawEntry {
+        std::shared_ptr<ParticleSystem> System;
+        EmitParams Params;
+    };
+    std::vector<ParticleDrawEntry> m_ParticleDrawList;
+    float m_DeltaTime = 0.0f;  // RenderScene 时更新，ParticlePass 使用
+
+    // 粒子 Compute Pipeline（与 TiledLightCull / HiZ / SSR 同样用 ComputePipeline 加载）
+    Ref<ComputePipeline> m_ParticleEmitPipeline;
+    Ref<ComputePipeline> m_ParticleUpdatePipeline;
+    Ref<ComputePipeline> m_ParticleCompactPipeline;
 
     // 与 m_OpaqueDrawList 一一对应的世界空间 AABB（用于 BVH 和视锥裁剪）
     std::vector<AABB> m_WorldAABBs;

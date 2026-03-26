@@ -31,6 +31,10 @@ void MeshSource::AddSubmesh(const Submesh& submesh) {
 void MeshSource::CreateGPUBuffers() {
     if (m_Vertices.empty()) return;
 
+    // 解绑当前 VAO：IndexBuffer 构造函数会调用 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ...)，
+    // 若此时有其他 VAO 处于绑定状态，该 VAO 会错误地捕获我们的 IBO。
+    glBindVertexArray(0);
+
     m_VertexBuffer = VertexBuffer::Create(
         m_Vertices.data(),
         static_cast<uint32_t>(m_Vertices.size() * sizeof(Vertex))
@@ -146,6 +150,11 @@ Ref<StaticMesh> StaticMesh::Create(AssetHandle meshSource) {
 Ref<StaticMesh> StaticMesh::Create(const Ref<MeshSource>& meshSource) {
     if (!meshSource) return nullptr;
     return Ref<StaticMesh>(new StaticMesh(meshSource->Handle));
+}
+
+// for test
+Ref<StaticMesh> StaticMesh::Create(AssetHandle meshSource, const std::vector<uint32_t>& submeshes) {
+    return Ref<StaticMesh>(new StaticMesh(meshSource, submeshes));
 }
 
 } // namespace GLRenderer

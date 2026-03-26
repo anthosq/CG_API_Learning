@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <iostream>
+#include <string>
 
 namespace GLRenderer {
 
@@ -102,6 +103,15 @@ void EditorApp::OnInit() {
     m_Editor = std::make_unique<Editor>();
     m_Editor->Initialize(m_World.get());
 
+    // 注入场景 I/O 回调
+    {
+        auto& ctx = m_Editor->GetContext();
+        ctx.OnNewScene    = [this]() { NewScene(); };
+        ctx.OnSaveScene   = [this]() { SaveScene(); };
+        ctx.OnSaveSceneAs = [this]() { SaveSceneAs(); };
+        ctx.OnOpenScene   = [this]() { OpenScene(); };
+    }
+
     // 添加视口面板
     auto viewportPanel = std::make_unique<ViewportPanel>();
     m_ViewportPanel = viewportPanel.get();
@@ -140,7 +150,57 @@ void EditorApp::OnShutdown() {
     std::cout << "[EditorApp] Shutdown complete" << std::endl;
 }
 
+void EditorApp::NewScene()
+{
+    m_Editor->GetContext().ClearSelection();
+    m_World->Clear();
+    m_CurrentScenePath.clear();
+    std::cout << "[EditorApp] 新建场景" << std::endl;
+}
+
+void EditorApp::SaveScene()
+{
+    if (m_CurrentScenePath.empty()) {
+        m_ShowSaveAsDialog = true;
+        return;
+    }
+    SceneSerializer::Serialize(*m_World, m_CurrentScenePath);
+}
+
+void EditorApp::SaveSceneAs()
+{
+    m_ShowSaveAsDialog = true;
+}
+
+void EditorApp::OpenScene(const std::filesystem::path& path)
+{
+    std::filesystem::path target = path;
+    if (target.empty()) {
+        // 没有文件对话框时，打开默认路径（可扩展为 NFD）
+        target = "assets/scenes/scene.glscene";
+    }
+    if (!std::filesystem::exists(target)) {
+        std::cerr << "[EditorApp] 场景文件不存在: " << target << std::endl;
+        return;
+    }
+    m_Editor->GetContext().ClearSelection();
+    if (SceneSerializer::Deserialize(*m_World, target))
+        m_CurrentScenePath = target;
+}
+
 void EditorApp::OnUpdate(float deltaTime) {
+    m_LastDeltaTime = deltaTime;
+
+    // 全局键盘快捷键
+    bool ctrl = Input::IsKeyPressed(GLFW_KEY_LEFT_CONTROL) ||
+                Input::IsKeyPressed(GLFW_KEY_RIGHT_CONTROL);
+    if (ctrl) {
+        if (Input::IsKeyJustPressed(GLFW_KEY_N)) NewScene();
+        if (Input::IsKeyJustPressed(GLFW_KEY_S)) SaveScene();
+        if (Input::IsKeyJustPressed(GLFW_KEY_O)) OpenScene();
+    }
+
+
     // 更新 ECS
     if (m_World && m_SystemManager) {
         m_SystemManager->Update(*m_World, deltaTime);
@@ -188,12 +248,30 @@ void EditorApp::OnRender() {
 void EditorApp::OnImGuiRender() {
     m_ImGuiLayer->Begin();
 
-    // 设置 DockSpace
     SetupDockSpace();
 
-    // 渲染编辑器面板
-    if (m_Editor) {
+    if (m_Editor)
         m_Editor->OnImGuiRender();
+
+    // Save As 弹窗
+    if (m_ShowSaveAsDialog) {
+        ImGui::OpenPopup("Save Scene As");
+        m_ShowSaveAsDialog = false;
+    }
+    if (ImGui::BeginPopupModal("Save Scene As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Scene Path:");
+        ImGui::SetNextItemWidth(400.0f);
+        ImGui::InputText("##savepath", m_SaveAsPathBuf, sizeof(m_SaveAsPathBuf));
+        ImGui::Spacing();
+        if (ImGui::Button("Save", ImVec2(120, 0))) {
+            m_CurrentScenePath = m_SaveAsPathBuf;
+            SceneSerializer::Serialize(*m_World, m_CurrentScenePath);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
 
     m_ImGuiLayer->End();
@@ -204,7 +282,7 @@ void EditorApp::OnImGuiRender() {
 
 void EditorApp::SetupDockSpace() {
     // 设置全屏 DockSpace
-    ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking;
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -226,46 +304,6 @@ void EditorApp::SetupDockSpace() {
     if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable) {
         ImGuiID dockspace_id = ImGui::GetID("EditorDockSpace");
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
-    }
-
-    // 菜单栏
-    if (ImGui::BeginMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Scene", "Ctrl+N")) {}
-            if (ImGui::MenuItem("Open Scene", "Ctrl+O")) {}
-            if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {}
-            ImGui::Separator();
-            if (ImGui::MenuItem("Exit", "Alt+F4")) {
-                GetWindow().Close();
-            }
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", "Ctrl+Z")) {}
-            if (ImGui::MenuItem("Redo", "Ctrl+Y")) {}
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("View")) {
-            // 面板可见性切换
-            for (const auto& panel : m_Editor->GetPanels()) {
-                bool isOpen = panel->IsOpen();
-                if (ImGui::MenuItem(panel->GetName().c_str(), nullptr, &isOpen)) {
-                    panel->SetOpen(isOpen);
-                }
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Reset Layout")) {}
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("Help")) {
-            if (ImGui::MenuItem("About")) {}
-            ImGui::EndMenu();
-        }
-
-        ImGui::EndMenuBar();
     }
 
     ImGui::End();
@@ -296,7 +334,7 @@ void EditorApp::RenderSceneToViewport() {
     }
 
     // 渲染场景：HDR FBO → CompositePass（同时复制 EntityID）→ viewport FBO
-    m_SceneRenderer->RenderScene(*m_World, *fbo, camera, aspectRatio);
+    m_SceneRenderer->RenderScene(*m_World, *fbo, camera, aspectRatio, m_LastDeltaTime);
 
     // 渲染编辑器 overlay（billboard），EntityID 覆盖写入 viewport FBO attachment 1
     // picking 直接读 viewport FBO，同时包含几何体和 billboard 的 EntityID

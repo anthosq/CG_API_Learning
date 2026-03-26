@@ -1,0 +1,59 @@
+{
+  "entries": [
+    {
+      "handle": "c18bce3d0af0eb53",
+      "path": "__prim:sphere",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "41a755f2c0db7881",
+      "path": "__prim:cube",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "eec599c9615e9497",
+      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_R.tga",
+      "type": "Texture"
+    },
+    {
+      "handle": "96efdf376b391c02",
+      "path": "assets/pic/container2.png",
+      "type": "Texture"
+    },
+    {
+      "handle": "38111cbfebc65341",
+      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Cerberus_LP.FBX",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "1f97c4d79e568471",
+      "path": "assets/pic/container2_specular.png",
+      "type": "Texture"
+    },
+    {
+      "handle": "66b7df2c5a58cc8d",
+      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_A.tga:srgb",
+      "type": "Texture"
+    },
+    {
+      "handle": "b98ebe28bf84f015",
+      "path": "__prim:plane",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "64810c9d3245f2b3",
+      "path": "__prim:cylinder",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "1e0864fd7db57154",
+      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_M.tga",
+      "type": "Texture"
+    },
+    {
+      "handle": "c477f7ef307971e3",
+      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_N.tga",
+      "type": "Texture"
+    }
+  ]
+}

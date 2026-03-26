@@ -16,7 +16,9 @@ void BVH::Build(std::span<const AABB> worldAABBs) {
     m_Nodes.clear();
     if (worldAABBs.empty()) return;
 
-    // 初始化下标列表（之后排序/分割这个列表，不动原始数据）
+    // 预留足够容量（二叉树最多 2*N-1 个节点），避免递归期间 vector 重分配使节点引用失效
+    m_Nodes.reserve(worldAABBs.size() * 2);
+
     std::vector<int> indices(worldAABBs.size());
     for (int i = 0; i < static_cast<int>(indices.size()); i++)
         indices[i] = i;

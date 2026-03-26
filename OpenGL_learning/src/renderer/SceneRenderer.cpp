@@ -151,12 +151,29 @@ void SceneRenderer::LoadShaders(const std::filesystem::path& shaderDir) {
         else
             std::cout << "[SceneRenderer] SSR compute shader loaded\n";
     }
+
+    // 粒子 Compute Pipelines
+    auto loadParticlePipeline = [&](const char* filename, Ref<ComputePipeline>& out) {
+        auto path = shaderDir / filename;
+        if (std::filesystem::exists(path)) {
+            out = ComputePipeline::Create(path);
+            if (!out || !out->IsValid())
+                std::cerr << "[SceneRenderer] Failed to load " << filename << "\n";
+            else
+                std::cout << "[SceneRenderer] Particle compute shader loaded: " << filename << "\n";
+        }
+    };
+    loadParticlePipeline("particle_emit.glsl",    m_ParticleEmitPipeline);
+    loadParticlePipeline("particle_update.glsl",  m_ParticleUpdatePipeline);
+    loadParticlePipeline("particle_compact.glsl", m_ParticleCompactPipeline);
 }
 
 void SceneRenderer::RenderScene(ECS::World& world,
                                  Framebuffer& targetFBO,
                                  const Camera& camera,
-                                 float aspectRatio) {
+                                 float aspectRatio,
+                                 float deltaTime) {
+    m_DeltaTime = deltaTime;
     if (!m_Initialized) {
         std::cerr << "[SceneRenderer] Not initialized!" << std::endl;
         return;
@@ -188,6 +205,7 @@ void SceneRenderer::BeginScene(const Camera& camera, float aspectRatio) {
     m_TransparentDrawList.clear();
     m_LightEntities.clear();
     m_WorldAABBs.clear();
+    m_ParticleDrawList.clear();
 
     // 缓存相机数据
     m_ViewMatrix       = camera.GetViewMatrix();
@@ -309,9 +327,18 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
             // 尝试获取 MeshSource (直接引用)
             auto meshSource = AssetManager::Get().GetAsset<MeshSource>(meshComp.MeshHandle);
             if (meshSource) {
-                // 渲染所有 submesh
+                // 组件级材质优先；否则回退到 MeshSource 内嵌材质
+                Ref<MaterialTable> effectiveMats = meshComp.Materials;
+                if (!effectiveMats) {
+                    const auto& defaultMats = meshSource->GetMaterials();
+                    if (!defaultMats.empty()) {
+                        effectiveMats = MaterialTable::Create(static_cast<uint32_t>(defaultMats.size()));
+                        for (uint32_t i = 0; i < defaultMats.size(); ++i)
+                            effectiveMats->SetMaterial(i, defaultMats[i]);
+                    }
+                }
                 for (uint32_t i = 0; i < meshSource->GetSubmeshCount(); ++i) {
-                    SubmitMesh(meshSource, i, transform.WorldMatrix, meshComp.Materials,
+                    SubmitMesh(meshSource, i, transform.WorldMatrix, effectiveMats,
                                static_cast<int>(entity.GetHandle()));
                 }
             }
@@ -329,6 +356,48 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
             info.EntityID = static_cast<int>(entity.GetHandle());
             info.LightType = 0;  // Point Light
             m_LightEntities.push_back(info);
+        }
+    );
+
+    // 收集粒子组件
+    world.Each<ECS::TransformComponent, ECS::ParticleComponent>(
+        [this](ECS::Entity /*entity*/,
+               ECS::TransformComponent& transform,
+               ECS::ParticleComponent& particle) {
+            if (!particle.Playing) return;
+
+            // 懒初始化 RuntimeSystem
+            if (!particle.RuntimeSystem) {
+                particle.RuntimeSystem = std::make_shared<ParticleSystem>(particle.MaxParticles);
+            }
+
+            // 计算本帧应发射的粒子数
+            particle.EmitAccumulator += particle.EmitRate * m_DeltaTime;
+            int emitCount = (int)particle.EmitAccumulator;
+            particle.EmitAccumulator -= (float)emitCount;
+
+            EmitParams params;
+            params.Position      = glm::vec4(transform.WorldMatrix[3]);
+            params.EmitDirection = glm::vec4(glm::normalize(particle.EmitDirection), 0.0f);
+            params.ColorBegin    = particle.ColorBegin;
+            params.ColorEnd      = particle.ColorEnd;
+            params.Gravity       = glm::vec4(particle.Gravity, 0.0f);
+            params.EmitSpread    = particle.EmitSpread;
+            params.EmitRate      = particle.EmitRate;
+            params.LifetimeMin   = particle.LifetimeMin;
+            params.LifetimeMax   = particle.LifetimeMax;
+            params.SpeedMin      = particle.SpeedMin;
+            params.SpeedMax      = particle.SpeedMax;
+            params.SizeBegin     = particle.SizeBegin;
+            params.SizeEnd       = particle.SizeEnd;
+            params.DeltaTime     = m_DeltaTime;
+            params.MaxParticles  = particle.MaxParticles;
+            params.EmitCount     = emitCount;
+
+            ParticleDrawEntry entry;
+            entry.System = particle.RuntimeSystem;
+            entry.Params = params;
+            m_ParticleDrawList.push_back(std::move(entry));
         }
     );
 
@@ -438,6 +507,10 @@ void SceneRenderer::FlushDrawList() {
             TransparentPass();
         }
 
+        // 9. 粒子（加法混合，不写深度）
+        if (!m_ParticleDrawList.empty())
+            ParticlePass();
+
         m_HDRFramebuffer->Unbind();
     } else {
         // === Tiled Forward+ 路径（原有逻辑不变）===
@@ -486,6 +559,10 @@ void SceneRenderer::FlushDrawList() {
             SortTransparentDrawList();
             TransparentPass();
         }
+
+        // 7. 粒子（加法混合，不写深度）
+        if (!m_ParticleDrawList.empty())
+            ParticlePass();
 
         if (m_Settings.Wireframe)
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -758,8 +835,6 @@ void SceneRenderer::GeometryPass() {
 }
 
 void SceneRenderer::GBufferPass() {
-    if (m_OpaqueDrawList.empty()) return;
-
     auto gbufferShader = m_ShaderLibrary.Get("gbuffer");
     if (!gbufferShader) {
         std::cerr << "[SceneRenderer] gbuffer shader not found!" << std::endl;
@@ -770,6 +845,11 @@ void SceneRenderer::GBufferPass() {
     RenderCommand::SetViewport(0, 0, m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     m_GBuffer->ClearEntityID();
+
+    if (m_OpaqueDrawList.empty()) {
+        m_GBuffer->Unbind();
+        return;
+    }
 
     RenderCommand::EnableDepthTest();
     glDepthFunc(GL_LESS);
@@ -995,6 +1075,52 @@ void SceneRenderer::TransparentPass() {
     // 恢复状态
     RenderCommand::SetDepthMask(true);
     RenderCommand::DisableBlending();
+}
+
+void SceneRenderer::ParticlePass() {
+    if (m_ParticleDrawList.empty()) return;
+
+    auto renderShader = m_ShaderLibrary.Get("particle_render");
+    if (!renderShader) return;
+
+    // === Compute：Emit → Update → Compact ===
+    for (auto& entry : m_ParticleDrawList) {
+        if (!entry.System) continue;
+        entry.System->Simulate(entry.Params,
+            m_ParticleEmitPipeline,
+            m_ParticleUpdatePipeline,
+            m_ParticleCompactPipeline);
+    }
+
+    // === Render：加法混合 Billboard ===
+    m_HDRFramebuffer->Bind();
+
+    RenderCommand::EnableDepthTest();
+    RenderCommand::SetDepthMask(false);          // 不写深度（粒子间不互相遮挡）
+    RenderCommand::EnableBlending();
+    RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE);  // 加法混合
+    glDisable(GL_CULL_FACE);
+
+    renderShader->Bind();
+    renderShader->SetMat4("u_ViewProjection",
+        m_ProjectionMatrix * m_ViewMatrix);
+    renderShader->SetMat4("u_View", m_ViewMatrix);
+    renderShader->SetInt("u_HasTexture", 0);
+
+    for (auto& entry : m_ParticleDrawList) {
+        if (!entry.System) continue;
+        entry.System->BindForRender();
+        glDrawArraysIndirect(GL_TRIANGLES, nullptr);
+    }
+
+    // 恢复状态
+    glBindVertexArray(0);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+    RenderCommand::SetDepthMask(true);
+    RenderCommand::DisableBlending();
+    RenderCommand::EnableDepthTest();
+
+    renderShader->Unbind();
 }
 
 void SceneRenderer::EnsureTiledLightBuffers(int numTilesX, int numTilesY) {
@@ -1381,10 +1507,7 @@ void SceneRenderer::CreateDefaultResources() {
 
     // 创建立方体网格 (用于天空盒等)
     AssetHandle cubeHandle = MeshFactory::CreateCube();
-    auto staticMesh = AssetManager::Get().GetAsset<StaticMesh>(cubeHandle);
-    if (staticMesh) {
-        m_CubeMesh = AssetManager::Get().GetAsset<MeshSource>(staticMesh->GetMeshSource());
-    }
+    m_CubeMesh = AssetManager::Get().GetAsset<MeshSource>(cubeHandle);
 
     // 创建默认 PBR 材质
     m_DefaultMaterial = MaterialAsset::Create(false);

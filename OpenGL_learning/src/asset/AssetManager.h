@@ -83,6 +83,13 @@ public:
     std::vector<AssetHandle> GetAllAssetsWithType(AssetType type) const;
     AssetHandle FindAssetByPath(const std::filesystem::path& path) const;
 
+    // 通过任意字符串键查找（用于基元资产如 "__prim:cube"）
+    AssetHandle FindAssetByKey(const std::string& key) const;
+    void RegisterKey(const std::string& key, AssetHandle handle);
+
+    // 确保 handle 对应的资产已加载（根据注册表元数据触发重导入）
+    bool EnsureLoaded(AssetHandle handle);
+
     // === 目录操作 ===
     const std::filesystem::path& GetAssetDirectory() const { return m_AssetDirectory; }
     void ScanDirectory(const std::filesystem::path& directory);
@@ -108,6 +115,9 @@ private:
     std::filesystem::path m_AssetDirectory;
 
     bool m_Initialized = false;
+
+    void SaveRegistry();
+    void LoadRegistry();
 };
 
 } // namespace GLRenderer

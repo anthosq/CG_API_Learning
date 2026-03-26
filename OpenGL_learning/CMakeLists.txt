@@ -137,6 +137,7 @@ target_link_libraries(GLRendererEngine
         imgui
         assimp
         EnTT::EnTT
+        nlohmann_json::nlohmann_json
 )
 
 target_compile_definitions(GLRendererEngine PUBLIC

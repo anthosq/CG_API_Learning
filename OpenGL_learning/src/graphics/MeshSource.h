@@ -114,6 +114,7 @@ public:
 
     static Ref<StaticMesh> Create(AssetHandle meshSource);
     static Ref<StaticMesh> Create(const Ref<MeshSource>& meshSource);
+    static Ref<StaticMesh> Create(AssetHandle meshSource, const std::vector<uint32_t>& submeshes);
 
 private:
     AssetHandle m_MeshSource = 0;

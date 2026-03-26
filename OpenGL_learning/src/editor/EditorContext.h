@@ -10,13 +10,19 @@
 #include "scene/ecs/ECS.h"
 #include "asset/AssetTypes.h"
 #include <vector>
+#include <functional>
 
 namespace GLRenderer {
 
 struct EditorContext {
     // ECS 引用
-
     ECS::World* World = nullptr;
+
+    // 场景 I/O 回调（由 EditorApp 注入，Editor 面板调用）
+    std::function<void()> OnNewScene;
+    std::function<void()> OnSaveScene;
+    std::function<void()> OnSaveSceneAs;
+    std::function<void()> OnOpenScene;
 
     // 选择状态
 

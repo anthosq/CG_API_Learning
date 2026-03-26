@@ -1,0 +1,324 @@
+{
+  "Entities": [
+    {
+      "Components": {
+        "Mesh": {
+          "PrimitiveType": "sphere",
+          "Visible": true
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Sphere_0",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            -1.3929063081741333,
+            2.2715063095092773,
+            0.0
+          ],
+          "Rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "Scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "UUID": 12557726070444801095
+    },
+    {
+      "Components": {
+        "Mesh": {
+          "PrimitiveType": "cube",
+          "Visible": true
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Cube_0",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            -1.8526465892791748,
+            1.727348804473877,
+            0.0
+          ],
+          "Rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "Scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "UUID": 9598384474602207275
+    },
+    {
+      "Components": {
+        "PointLight": {
+          "CastShadows": true,
+          "Color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "Constant": 1.0,
+          "Intensity": 1.0,
+          "Linear": 0.09000000357627869,
+          "Quadratic": 0.03200000151991844,
+          "ShadowFarPlane": 25.0,
+          "ShadowNearPlane": 0.10000000149011612
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Point Light",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            -1.5136160850524902,
+            2.180842876434326,
+            1.6163809299468994
+          ],
+          "Rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "Scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "UUID": 6716222987010378978
+    },
+    {
+      "Components": {
+        "Mesh": {
+          "Materials": [
+            {
+              "AOMap": "",
+              "AlbedoColor": [
+                1.0,
+                1.0,
+                1.0
+              ],
+              "AlbedoMap": "",
+              "Emission": 0.0,
+              "EmissiveMap": "",
+              "Metallic": 1.0,
+              "MetallicMap": "",
+              "NormalMap": "",
+              "Roughness": 0.15800000727176666,
+              "RoughnessMap": "",
+              "Slot": 0,
+              "Transparent": false,
+              "UseNormalMap": false
+            }
+          ],
+          "PrimitiveType": "sphere",
+          "Visible": true
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Sphere_0",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            -2.378795862197876,
+            2.1510889530181885,
+            -2.646926164627075
+          ],
+          "Rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "Scale": [
+            3.0899999141693115,
+            3.0899999141693115,
+            3.0899999141693115
+          ]
+        }
+      },
+      "UUID": 9032807389741805484
+    },
+    {
+      "Components": {
+        "Mesh": {
+          "Materials": [
+            {
+              "AOMap": "",
+              "AlbedoColor": [
+                0.800000011920929,
+                0.800000011920929,
+                0.800000011920929
+              ],
+              "AlbedoMap": "",
+              "Emission": 0.0,
+              "EmissiveMap": "",
+              "Metallic": 1.0,
+              "MetallicMap": "",
+              "NormalMap": "",
+              "Roughness": 0.5,
+              "RoughnessMap": "",
+              "Slot": 0,
+              "Transparent": false,
+              "UseNormalMap": false
+            }
+          ],
+          "PrimitiveType": "cube",
+          "Visible": true
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Cube_0",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            0.0,
+            1.2315583229064941,
+            0.0
+          ],
+          "Rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "Scale": [
+            12.075570106506348,
+            0.2520034611225128,
+            10.225083351135254
+          ]
+        }
+      },
+      "UUID": 2685008652291861386
+    },
+    {
+      "Components": {
+        "Mesh": {
+          "Materials": [
+            {
+              "AOMap": "",
+              "AlbedoColor": [
+                0.8625221252441406,
+                1.0,
+                0.012658238410949707
+              ],
+              "AlbedoMap": "",
+              "Emission": 0.0,
+              "EmissiveMap": "",
+              "Metallic": 0.0,
+              "MetallicMap": "",
+              "NormalMap": "",
+              "Roughness": 0.5,
+              "RoughnessMap": "",
+              "Slot": 0,
+              "Transparent": false,
+              "UseNormalMap": false
+            }
+          ],
+          "PrimitiveType": "cylinder",
+          "Visible": true
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Cylinder_0",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            -4.2006306648254395,
+            2.052609920501709,
+            -1.2035645246505737
+          ],
+          "Rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "Scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "UUID": 4452984744439676673
+    },
+    {
+      "Components": {
+        "Mesh": {
+          "Materials": [
+            {
+              "AOMap": "",
+              "AlbedoColor": [
+                1.0,
+                1.0,
+                1.0
+              ],
+              "AlbedoMap": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_A.tga",
+              "Emission": 0.0,
+              "EmissiveMap": "",
+              "Metallic": 0.0,
+              "MetallicMap": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_M.tga",
+              "NormalMap": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_N.tga",
+              "Roughness": 0.5,
+              "RoughnessMap": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_R.tga",
+              "Slot": 0,
+              "Transparent": false,
+              "UseNormalMap": true
+            }
+          ],
+          "MeshPath": "assets\\model\\Cerberus_by_Andrew_Maximov\\Cerberus_LP.FBX",
+          "Visible": true
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Cerberus_LP",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            -0.14553490281105042,
+            2.947944402694702,
+            -0.669782280921936
+          ],
+          "Rotation": [
+            0.8095918297767639,
+            -0.27946266531944275,
+            -0.48924145102500916,
+            0.16463415324687958
+          ],
+          "Scale": [
+            0.9999999403953552,
+            0.9999998807907104,
+            1.0
+          ]
+        }
+      },
+      "UUID": 7389993089771171398
+    }
+  ],
+  "Scene": "EditorWorld",
+  "Version": 1
+}

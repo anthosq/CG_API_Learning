@@ -9,6 +9,7 @@ glm::vec2 Input::s_LastMousePosition = glm::vec2(0.0f);
 glm::vec2 Input::s_MouseDelta = glm::vec2(0.0f);
 float Input::s_ScrollOffset = 0.0f;
 bool Input::s_FirstMouse = true;
+std::unordered_set<int> Input::s_JustPressedKeys;
 
 void Input::Init(GLFWwindow* window) {
     s_Window = window;
@@ -27,9 +28,9 @@ void Input::Init(GLFWwindow* window) {
 }
 
 void Input::OnUpdate() {
-    // 重置每帧数据
     s_MouseDelta = glm::vec2(0.0f);
     s_ScrollOffset = 0.0f;
+    s_JustPressedKeys.clear();  // 边缘事件只保留一帧
 }
 
 // 键盘输入
@@ -40,6 +41,10 @@ bool Input::IsKeyPressed(int keycode) {
 
 bool Input::IsKeyReleased(int keycode) {
     return glfwGetKey(s_Window, keycode) == GLFW_RELEASE;
+}
+
+bool Input::IsKeyJustPressed(int keycode) {
+    return s_JustPressedKeys.count(keycode) > 0;
 }
 
 // 鼠标输入
@@ -104,8 +109,8 @@ void Input::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
 }
 
 void Input::KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    // 可以在这里添加按键事件处理
-    // 目前使用轮询方式，不需要额外处理
+    if (action == GLFW_PRESS)
+        s_JustPressedKeys.insert(key);
 }
 
 void Input::MouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {

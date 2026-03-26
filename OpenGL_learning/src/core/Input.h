@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utils/GLCommon.h"
+#include <unordered_set>
 
 namespace GLRenderer {
 
@@ -17,6 +18,8 @@ public:
 
     static bool IsKeyPressed(int keycode);
     static bool IsKeyReleased(int keycode);
+    // 仅在按下的那一帧返回 true（边缘检测，由 KeyCallback 维护）
+    static bool IsKeyJustPressed(int keycode);
 
     // 鼠标输入
 
@@ -58,6 +61,7 @@ private:
     static glm::vec2 s_MouseDelta;
     static float s_ScrollOffset;
     static bool s_FirstMouse;
+    static std::unordered_set<int> s_JustPressedKeys;  // 当帧按下的键，OnUpdate 清空
 };
 
 } // namespace GLRenderer

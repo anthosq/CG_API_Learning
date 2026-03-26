@@ -27,6 +27,9 @@
 
 namespace GLRenderer {
 
+// 前向声明（ParticleComponent 需要引用渲染器中的 ParticleSystem）
+class ParticleSystem;
+
 namespace ECS {
 
 // 核心组件
@@ -271,6 +274,31 @@ struct SpriteComponent {
     SpriteComponent() = default;
     SpriteComponent(AssetHandle textureHandle, const glm::vec2& size = glm::vec2(1.0f))
         : TextureHandle(textureHandle), Size(size) {}
+};
+
+// 粒子系统组件
+
+struct ParticleComponent {
+    glm::vec3 EmitDirection = {0.0f, 1.0f, 0.0f};
+    float     EmitSpread    = glm::radians(30.0f);
+    float     EmitRate      = 50.0f;
+    float     LifetimeMin   = 1.0f;
+    float     LifetimeMax   = 3.0f;
+    float     SpeedMin      = 2.0f;
+    float     SpeedMax      = 5.0f;
+    glm::vec4 ColorBegin    = {1.0f, 0.6f, 0.1f, 1.0f};
+    glm::vec4 ColorEnd      = {0.2f, 0.2f, 0.2f, 0.0f};
+    glm::vec3 Gravity       = {0.0f, -2.0f, 0.0f};
+    float     SizeBegin     = 0.15f;
+    float     SizeEnd       = 0.05f;
+    int       MaxParticles  = 4096;
+    bool      Looping       = true;
+    bool      Playing       = true;
+    AssetHandle TextureHandle;
+
+    // 运行时状态（非序列化）
+    float EmitAccumulator = 0.0f;
+    std::shared_ptr<GLRenderer::ParticleSystem> RuntimeSystem;
 };
 
 // 调试组件

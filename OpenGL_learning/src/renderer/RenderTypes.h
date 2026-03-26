@@ -58,6 +58,11 @@ struct PointLightGPU {
 constexpr uint32_t SSBO_BINDING_POINT_LIGHTS       = 0;  // PointLightGPU[]
 constexpr uint32_t SSBO_BINDING_TILE_LIGHT_COUNTS  = 1;  // int[numTiles]
 constexpr uint32_t SSBO_BINDING_TILE_LIGHT_INDICES = 2;  // int[numTiles * MAX_LIGHTS_PER_TILE]
+// 粒子系统 SSBO（3~6）
+constexpr uint32_t SSBO_BINDING_PARTICLES          = 3;  // GPUParticle[]
+constexpr uint32_t SSBO_BINDING_ALIVE_LIST         = 4;  // uint[]（当前帧活跃粒子索引）
+constexpr uint32_t SSBO_BINDING_DEAD_LIST          = 5;  // uint[]（空闲槽索引）
+constexpr uint32_t SSBO_BINDING_COUNTERS           = 6;  // uint[2]：[0]=aliveCount, [1]=deadCount
 
 // Shadow UBO (绑定点 3), std140 布局
 // 注意 std140 规则: mat4=64B, vec4=16B, float/int=4B, 结构体末尾须 16B 对齐

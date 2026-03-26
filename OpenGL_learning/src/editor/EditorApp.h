@@ -29,6 +29,7 @@
 #include "editor/panels/SettingsPanel.h"
 #include "editor/panels/PrimitivesPanel.h"
 #include "asset/AssetManager.h"
+#include "scene/SceneSerializer.h"
 
 #include <memory>
 #include <filesystem>
@@ -67,6 +68,12 @@ private:
     // 创建网格资源（立方体 VAO）
     void CreateMeshResources();
 
+    // 场景 I/O
+    void NewScene();
+    void SaveScene();
+    void SaveSceneAs();
+    void OpenScene(const std::filesystem::path& path = {});
+
 private:
     // ImGui
     std::unique_ptr<ImGuiLayer> m_ImGuiLayer;
@@ -81,6 +88,8 @@ private:
     // 编辑器
     std::unique_ptr<Editor> m_Editor;
     ViewportPanel* m_ViewportPanel = nullptr;  // 由 Editor 拥有
+
+    float m_LastDeltaTime = 0.0f;  // OnUpdate → OnRender 传递 deltaTime
 
     // 注：共享网格资源通过 MeshFactory 获取
 
@@ -97,6 +106,13 @@ private:
 
     // 天空盒路径
     std::array<std::filesystem::path, 6> m_SkyboxPaths;
+
+    // 场景文件路径（空 = 尚未保存）
+    std::filesystem::path m_CurrentScenePath;
+
+    // "另存为" 输入状态
+    bool        m_ShowSaveAsDialog = false;
+    char        m_SaveAsPathBuf[512] = "assets/scenes/scene.glscene";
 };
 
 } // namespace GLRenderer

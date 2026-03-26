@@ -48,3 +48,8 @@ endif()
 if(NOT TARGET entt)
     include(entt.cmake)
 endif()
+
+# nlohmann/json - Header-only JSON
+if(NOT TARGET nlohmann_json)
+    include(nlohmann_json.cmake)
+endif()
