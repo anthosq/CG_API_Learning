@@ -16,6 +16,10 @@ public:
 
     // 从 .glscene 文件反序列化，覆盖 world（先 Clear），返回是否成功
     static bool Deserialize(ECS::World& world, const std::filesystem::path& path);
+
+    // 内存序列化：用于 Play Mode 快照（Enter Play 存档，Exit Play 恢复）
+    static std::string SerializeToString(const ECS::World& world);
+    static bool        DeserializeFromString(ECS::World& world, const std::string& jsonStr);
 };
 
 } // namespace GLRenderer

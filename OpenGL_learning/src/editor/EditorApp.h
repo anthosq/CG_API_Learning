@@ -74,12 +74,19 @@ private:
     void SaveSceneAs();
     void OpenScene(const std::filesystem::path& path = {});
 
+    // Play Mode
+    void EnterPlayMode();
+    void ExitPlayMode();
+    bool IsPlaying() const { return m_Editor && m_Editor->GetContext().IsPlaying; }
+
 private:
     // ImGui
     std::unique_ptr<ImGuiLayer> m_ImGuiLayer;
 
     // ECS
-    std::unique_ptr<ECS::World> m_World;
+    std::unique_ptr<ECS::World> m_World;        // 编辑器世界（始终保留）
+    std::unique_ptr<ECS::World> m_PlayWorld;    // 运行时副本（Play 期间有效）
+    std::string m_PlayWorldSnapshot;            // Enter Play 前的 JSON 快照
     std::unique_ptr<ECS::SystemManager> m_SystemManager;
 
     // 场景渲染器

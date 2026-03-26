@@ -24,6 +24,10 @@ struct EditorContext {
     std::function<void()> OnSaveSceneAs;
     std::function<void()> OnOpenScene;
 
+    // Play Mode 回调
+    std::function<void()> OnEnterPlay;
+    std::function<void()> OnExitPlay;
+
     // 选择状态
 
     // 当前选中的实体

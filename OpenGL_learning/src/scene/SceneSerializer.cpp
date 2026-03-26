@@ -300,13 +300,13 @@ static json SerializeEntity(ECS::Entity entity,
     return jEntity;
 }
 
-// ============================================================
-// Serialize
-// ============================================================
+// 前向声明（定义在下方）
+static void DeserializeComponents(ECS::Entity entity, const json& jc,
+                                  std::unordered_map<uint64_t, ECS::Entity>& uuidToEntity,
+                                  std::vector<std::pair<ECS::Entity, uint64_t>>& pendingParents);
 
-bool SceneSerializer::Serialize(const ECS::World& world, const std::filesystem::path& path)
+static json BuildSceneJson(const ECS::World& world)
 {
-    // 构建 entt handle → UUID 的映射（用于父子关系序列化）
     std::unordered_map<uint32_t, uint64_t> handleToUUID;
     {
         auto view = world.View<ECS::IDComponent>();
@@ -326,6 +326,78 @@ bool SceneSerializer::Serialize(const ECS::World& world, const std::filesystem::
         ECS::Entity entity(e, const_cast<ECS::World*>(&world));
         jScene["Entities"].push_back(SerializeEntity(entity, handleToUUID));
     }
+    return jScene;
+}
+
+static bool LoadSceneJson(ECS::World& world, const json& jScene)
+{
+    world.Clear();
+
+    if (jScene.contains("Scene"))
+        std::cout << "[SceneSerializer] 加载场景: " << jScene["Scene"].get<std::string>() << std::endl;
+
+    std::unordered_map<uint64_t, ECS::Entity> uuidToEntity;
+    std::vector<std::pair<ECS::Entity, uint64_t>> pendingParents;
+
+    for (auto& jEntity : jScene["Entities"]) {
+        uint64_t uuid = jEntity.value("UUID", uint64_t(0));
+        std::string name = "Entity";
+        if (jEntity.contains("Components") && jEntity["Components"].contains("Tag"))
+            name = jEntity["Components"]["Tag"].value("Name", "Entity");
+
+        ECS::Entity entity = world.CreateEntityWithUUID(UUID(uuid), name);
+        uuidToEntity[uuid] = entity;
+    }
+
+    for (auto& jEntity : jScene["Entities"]) {
+        uint64_t uuid = jEntity.value("UUID", uint64_t(0));
+        auto it = uuidToEntity.find(uuid);
+        if (it == uuidToEntity.end()) continue;
+
+        if (jEntity.contains("Components"))
+            DeserializeComponents(it->second, jEntity["Components"],
+                                  uuidToEntity, pendingParents);
+    }
+
+    for (auto& [child, parentUUID] : pendingParents) {
+        auto it = uuidToEntity.find(parentUUID);
+        if (it == uuidToEntity.end()) continue;
+
+        ECS::Entity parent = it->second;
+
+        if (child.HasComponent<ECS::TransformComponent>())
+            child.GetComponent<ECS::TransformComponent>().Parent = parent.GetHandle();
+
+        if (!parent.HasComponent<ECS::HierarchyComponent>())
+            parent.AddComponent<ECS::HierarchyComponent>();
+        parent.GetComponent<ECS::HierarchyComponent>().AddChild(child.GetHandle());
+    }
+
+    world.Each<ECS::MeshComponent>([](ECS::Entity /*entity*/, ECS::MeshComponent& meshComp) {
+        if (!meshComp.MeshHandle.IsValid()) return;
+
+        AssetManager::Get().EnsureLoaded(meshComp.MeshHandle);
+
+        if (meshComp.Materials) return;
+
+        auto meshSource = AssetManager::Get().GetAsset<MeshSource>(meshComp.MeshHandle);
+        if (!meshSource) return;
+
+        const auto& defaultMats = meshSource->GetMaterials();
+        if (defaultMats.empty()) return;
+
+        meshComp.Materials = MaterialTable::Create(static_cast<uint32_t>(defaultMats.size()));
+        for (uint32_t i = 0; i < static_cast<uint32_t>(defaultMats.size()); ++i)
+            meshComp.Materials->SetMaterial(i, defaultMats[i]);
+    });
+
+    std::cout << "[SceneSerializer] 加载完成，共 " << world.GetEntityCount() << " 个实体" << std::endl;
+    return true;
+}
+
+bool SceneSerializer::Serialize(const ECS::World& world, const std::filesystem::path& path)
+{
+    json jScene = BuildSceneJson(world);
 
     std::filesystem::create_directories(path.parent_path());
     std::ofstream file(path);
@@ -338,6 +410,23 @@ bool SceneSerializer::Serialize(const ECS::World& world, const std::filesystem::
     std::cout << "[SceneSerializer] 已保存: " << path
               << "  (" << jScene["Entities"].size() << " 个实体)" << std::endl;
     return true;
+}
+
+std::string SceneSerializer::SerializeToString(const ECS::World& world)
+{
+    return BuildSceneJson(world).dump();
+}
+
+bool SceneSerializer::DeserializeFromString(ECS::World& world, const std::string& jsonStr)
+{
+    json jScene;
+    try {
+        jScene = json::parse(jsonStr);
+    } catch (const json::parse_error& e) {
+        std::cerr << "[SceneSerializer] JSON 解析失败: " << e.what() << std::endl;
+        return false;
+    }
+    return LoadSceneJson(world, jScene);
 }
 
 // ============================================================
@@ -606,74 +695,7 @@ bool SceneSerializer::Deserialize(ECS::World& world, const std::filesystem::path
         return false;
     }
 
-    world.Clear();
-
-    if (jScene.contains("Scene"))
-        std::cout << "[SceneSerializer] 加载场景: " << jScene["Scene"].get<std::string>() << std::endl;
-
-    // 第一遍：创建所有实体（用保存的 UUID）
-    std::unordered_map<uint64_t, ECS::Entity> uuidToEntity;
-    std::vector<std::pair<ECS::Entity, uint64_t>> pendingParents;
-
-    for (auto& jEntity : jScene["Entities"]) {
-        uint64_t uuid = jEntity.value("UUID", uint64_t(0));
-        std::string name = "Entity";
-        if (jEntity.contains("Components") && jEntity["Components"].contains("Tag"))
-            name = jEntity["Components"]["Tag"].value("Name", "Entity");
-
-        ECS::Entity entity = world.CreateEntityWithUUID(UUID(uuid), name);
-        uuidToEntity[uuid] = entity;
-    }
-
-    // 第二遍：填充组件
-    for (auto& jEntity : jScene["Entities"]) {
-        uint64_t uuid = jEntity.value("UUID", uint64_t(0));
-        auto it = uuidToEntity.find(uuid);
-        if (it == uuidToEntity.end()) continue;
-
-        if (jEntity.contains("Components"))
-            DeserializeComponents(it->second, jEntity["Components"],
-                                  uuidToEntity, pendingParents);
-    }
-
-    // 第三遍：重建父子关系
-    for (auto& [child, parentUUID] : pendingParents) {
-        auto it = uuidToEntity.find(parentUUID);
-        if (it == uuidToEntity.end()) continue;
-
-        ECS::Entity parent = it->second;
-
-        if (child.HasComponent<ECS::TransformComponent>())
-            child.GetComponent<ECS::TransformComponent>().Parent = parent.GetHandle();
-
-        if (!parent.HasComponent<ECS::HierarchyComponent>())
-            parent.AddComponent<ECS::HierarchyComponent>();
-        parent.GetComponent<ECS::HierarchyComponent>().AddChild(child.GetHandle());
-    }
-
-    // 第四遍：确保文件资产已加载，并自动填充材质覆盖表
-    // 基元资产在上方 DeserializeComponents 中已通过 MeshFactory 直接创建，无需 EnsureLoaded
-    world.Each<ECS::MeshComponent>([](ECS::Entity /*entity*/, ECS::MeshComponent& meshComp) {
-        if (!meshComp.MeshHandle.IsValid()) return;
-
-        // 触发文件资产（如导入模型）的延迟加载
-        AssetManager::Get().EnsureLoaded(meshComp.MeshHandle);
-
-        if (meshComp.Materials) return;
-
-        auto meshSource = AssetManager::Get().GetAsset<MeshSource>(meshComp.MeshHandle);
-        if (!meshSource) return;
-
-        const auto& defaultMats = meshSource->GetMaterials();
-        if (defaultMats.empty()) return;
-
-        meshComp.Materials = MaterialTable::Create(static_cast<uint32_t>(defaultMats.size()));
-        for (uint32_t i = 0; i < static_cast<uint32_t>(defaultMats.size()); ++i)
-            meshComp.Materials->SetMaterial(i, defaultMats[i]);
-    });
-
-    std::cout << "[SceneSerializer] 加载完成，共 " << world.GetEntityCount() << " 个实体" << std::endl;
-    return true;
+    return LoadSceneJson(world, jScene);
 }
 
 } // namespace GLRenderer

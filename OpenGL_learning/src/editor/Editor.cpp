@@ -186,8 +186,13 @@ void Editor::DrawMenuBar() {
 }
 
 void Editor::DrawToolbar() {
+    const bool isPlaying = m_Context.IsPlaying;  // 快照：防止按钮回调在同帧改变状态导致 Push/Pop 不匹配
+
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4, 4));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 4));
+
+    if (isPlaying)
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.45f, 0.22f, 0.0f, 1.0f));
 
     if (ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(),
                                      ImGuiDir_Up, 32.0f,
@@ -231,8 +236,28 @@ void Editor::DrawToolbar() {
                     : EditorContext::GizmoSpace::Local;
         }
 
+        ImGui::SameLine();
+        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+        ImGui::SameLine();
+
+        // Play / Pause / Stop（使用快照 isPlaying，避免回调改状态后 Pop 不匹配）
+        if (!isPlaying) {
+            if (ImGui::Button("Play", ImVec2(50, 24)))
+                if (m_Context.OnEnterPlay) m_Context.OnEnterPlay();
+        } else {
+            const char* pauseLabel = m_Context.IsPaused ? "Resume" : "Pause";
+            if (ImGui::Button(pauseLabel, ImVec2(55, 24)))
+                m_Context.IsPaused = !m_Context.IsPaused;
+            ImGui::SameLine();
+            if (ImGui::Button("Stop", ImVec2(50, 24)))
+                if (m_Context.OnExitPlay) m_Context.OnExitPlay();
+        }
+
         ImGui::End();
     }
+
+    if (isPlaying)
+        ImGui::PopStyleColor();
 
     ImGui::PopStyleVar(2);
 }

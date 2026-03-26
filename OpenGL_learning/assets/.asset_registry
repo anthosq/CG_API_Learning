@@ -1,16 +1,6 @@
 {
   "entries": [
     {
-      "handle": "c18bce3d0af0eb53",
-      "path": "__prim:sphere",
-      "type": "MeshSource"
-    },
-    {
-      "handle": "41a755f2c0db7881",
-      "path": "__prim:cube",
-      "type": "MeshSource"
-    },
-    {
       "handle": "eec599c9615e9497",
       "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_R.tga",
       "type": "Texture"
@@ -21,8 +11,13 @@
       "type": "Texture"
     },
     {
-      "handle": "38111cbfebc65341",
-      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Cerberus_LP.FBX",
+      "handle": "a74b64b7cd78425",
+      "path": "__prim:cube",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "345b92a926351ad2",
+      "path": "__prim:sphere",
       "type": "MeshSource"
     },
     {
@@ -31,9 +26,9 @@
       "type": "Texture"
     },
     {
-      "handle": "66b7df2c5a58cc8d",
-      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_A.tga:srgb",
-      "type": "Texture"
+      "handle": "38111cbfebc65341",
+      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Cerberus_LP.FBX",
+      "type": "MeshSource"
     },
     {
       "handle": "b98ebe28bf84f015",
@@ -41,7 +36,12 @@
       "type": "MeshSource"
     },
     {
-      "handle": "64810c9d3245f2b3",
+      "handle": "66b7df2c5a58cc8d",
+      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_A.tga:srgb",
+      "type": "Texture"
+    },
+    {
+      "handle": "49699444015cf924",
       "path": "__prim:cylinder",
       "type": "MeshSource"
     },

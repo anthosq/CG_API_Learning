@@ -110,6 +110,8 @@ void EditorApp::OnInit() {
         ctx.OnSaveScene   = [this]() { SaveScene(); };
         ctx.OnSaveSceneAs = [this]() { SaveSceneAs(); };
         ctx.OnOpenScene   = [this]() { OpenScene(); };
+        ctx.OnEnterPlay   = [this]() { EnterPlayMode(); };
+        ctx.OnExitPlay    = [this]() { ExitPlayMode(); };
     }
 
     // 添加视口面板
@@ -152,6 +154,7 @@ void EditorApp::OnShutdown() {
 
 void EditorApp::NewScene()
 {
+    if (IsPlaying()) return;
     m_Editor->GetContext().ClearSelection();
     m_World->Clear();
     m_CurrentScenePath.clear();
@@ -160,6 +163,7 @@ void EditorApp::NewScene()
 
 void EditorApp::SaveScene()
 {
+    if (IsPlaying()) return;
     if (m_CurrentScenePath.empty()) {
         m_ShowSaveAsDialog = true;
         return;
@@ -169,14 +173,15 @@ void EditorApp::SaveScene()
 
 void EditorApp::SaveSceneAs()
 {
+    if (IsPlaying()) return;
     m_ShowSaveAsDialog = true;
 }
 
 void EditorApp::OpenScene(const std::filesystem::path& path)
 {
+    if (IsPlaying()) return;
     std::filesystem::path target = path;
     if (target.empty()) {
-        // 没有文件对话框时，打开默认路径（可扩展为 NFD）
         target = "assets/scenes/scene.glscene";
     }
     if (!std::filesystem::exists(target)) {
@@ -186,6 +191,35 @@ void EditorApp::OpenScene(const std::filesystem::path& path)
     m_Editor->GetContext().ClearSelection();
     if (SceneSerializer::Deserialize(*m_World, target))
         m_CurrentScenePath = target;
+}
+
+void EditorApp::EnterPlayMode()
+{
+    if (IsPlaying()) return;
+    m_PlayWorldSnapshot = SceneSerializer::SerializeToString(*m_World);
+    m_PlayWorld = std::make_unique<ECS::World>("PlayWorld");
+    SceneSerializer::DeserializeFromString(*m_PlayWorld, m_PlayWorldSnapshot);
+    m_Editor->GetContext().IsPlaying = true;
+    m_Editor->GetContext().IsPaused  = false;
+    m_Editor->GetContext().ClearSelection();
+    std::cout << "[EditorApp] Enter Play Mode" << std::endl;
+}
+
+void EditorApp::ExitPlayMode()
+{
+    if (!IsPlaying()) return;
+
+    // 必须先将 Context 切回编辑器世界，再销毁 PlayWorld。
+    // 否则当前帧内后续的 ImGui 面板仍会通过 Context.World 访问已释放的 PlayWorld（悬空指针）。
+    m_Editor->GetContext().IsPlaying = false;
+    m_Editor->GetContext().IsPaused  = false;
+    m_Editor->GetContext().ClearSelection();
+    m_Editor->GetContext().World = m_World.get();
+
+    m_PlayWorld.reset();
+    m_PlayWorldSnapshot.clear();
+
+    std::cout << "[EditorApp] Exit Play Mode" << std::endl;
 }
 
 void EditorApp::OnUpdate(float deltaTime) {
@@ -201,9 +235,22 @@ void EditorApp::OnUpdate(float deltaTime) {
     }
 
 
+    // 确定当前活动世界并同步给 Editor
+    ECS::World& activeWorld = IsPlaying() ? *m_PlayWorld : *m_World;
+    if (m_Editor) m_Editor->GetContext().World = &activeWorld;
+
     // 更新 ECS
-    if (m_World && m_SystemManager) {
-        m_SystemManager->Update(*m_World, deltaTime);
+    // Edit 模式：只跑 TransformSystem（更新世界矩阵），行为/物理系统冻结
+    // Play 模式：跑全部系统，Pause 时暂停
+    if (m_SystemManager) {
+        const bool paused = m_Editor->GetContext().IsPaused;
+        if (IsPlaying()) {
+            if (!paused)
+                m_SystemManager->Update(activeWorld, deltaTime);
+        } else {
+            if (auto* ts = m_SystemManager->GetSystem<ECS::TransformSystem>())
+                ts->Update(activeWorld, deltaTime);
+        }
     }
 
     // 更新编辑器
@@ -215,26 +262,25 @@ void EditorApp::OnUpdate(float deltaTime) {
     if (m_ViewportPanel) {
         m_ViewportPanel->ProcessCameraInput(deltaTime);
 
-        // 处理鼠标拾取（仅在点击时读取，返回是否有新的选择）
-        int pickedEntityID = -1;
-        bool hasNewPick = m_ViewportPanel->ProcessMousePicking(pickedEntityID);
+        // Play 中禁用鼠标拾取（运行时不做实体选择）
+        if (!IsPlaying()) {
+            int pickedEntityID = -1;
+            bool hasNewPick = m_ViewportPanel->ProcessMousePicking(pickedEntityID);
 
-        // 处理选择结果
-        if (hasNewPick) {
-            if (pickedEntityID >= 0 && m_World) {
-                // 检查是否是 ECS 实体（ID < 100 是 ECS 实体，>=100 是临时测试 ID）
-                auto& registry = m_World->GetRegistry();
-                auto entity = static_cast<entt::entity>(pickedEntityID);
-                if (registry.valid(entity)) {
-                    ECS::Entity ecsEntity(entity, m_World.get());
-                    m_Editor->GetContext().Select(ecsEntity);
-                    std::cout << "[EditorApp] Selected ECS entity: " << pickedEntityID << std::endl;
+            if (hasNewPick) {
+                if (pickedEntityID >= 0 && m_World) {
+                    auto& registry = m_World->GetRegistry();
+                    auto entity = static_cast<entt::entity>(pickedEntityID);
+                    if (registry.valid(entity)) {
+                        ECS::Entity ecsEntity(entity, m_World.get());
+                        m_Editor->GetContext().Select(ecsEntity);
+                        std::cout << "[EditorApp] Selected ECS entity: " << pickedEntityID << std::endl;
+                    } else {
+                        std::cout << "[EditorApp] Clicked non-ECS object: " << pickedEntityID << std::endl;
+                    }
                 } else {
-                    std::cout << "[EditorApp] Clicked non-ECS object: " << pickedEntityID << std::endl;
+                    m_Editor->GetContext().ClearSelection();
                 }
-            } else {
-                // 点击空白处取消选择
-                m_Editor->GetContext().ClearSelection();
             }
         }
     }
@@ -334,7 +380,8 @@ void EditorApp::RenderSceneToViewport() {
     }
 
     // 渲染场景：HDR FBO → CompositePass（同时复制 EntityID）→ viewport FBO
-    m_SceneRenderer->RenderScene(*m_World, *fbo, camera, aspectRatio, m_LastDeltaTime);
+    ECS::World& renderWorld = IsPlaying() ? *m_PlayWorld : *m_World;
+    m_SceneRenderer->RenderScene(renderWorld, *fbo, camera, aspectRatio, m_LastDeltaTime);
 
     // 渲染编辑器 overlay（billboard），EntityID 覆盖写入 viewport FBO attachment 1
     // picking 直接读 viewport FBO，同时包含几何体和 billboard 的 EntityID
@@ -456,6 +503,7 @@ void EditorApp::LoadEditorIcons() {
 
 void EditorApp::RenderEditorVisuals() {
     if (!m_ViewportPanel || !m_World) return;
+    ECS::World& activeWorld = IsPlaying() ? *m_PlayWorld : *m_World;
 
     Ref<Framebuffer> fbo = m_ViewportPanel->GetFramebuffer();
     if (!fbo || !fbo->IsValid()) return;
@@ -474,7 +522,7 @@ void EditorApp::RenderEditorVisuals() {
 
     // 渲染点光源图标
     if (m_PointLightIcon) {
-        m_World->Each<ECS::TransformComponent, ECS::PointLightComponent>(
+        activeWorld.Each<ECS::TransformComponent, ECS::PointLightComponent>(
             [this](ECS::Entity entity, ECS::TransformComponent& transform, ECS::PointLightComponent& light) {
                 Renderer2D::DrawBillboard(
                     transform.Position,
@@ -488,9 +536,8 @@ void EditorApp::RenderEditorVisuals() {
     }
 
     // 渲染方向光图标和方向箭头
-    m_World->Each<ECS::TransformComponent, ECS::DirectionalLightComponent>(
+    activeWorld.Each<ECS::TransformComponent, ECS::DirectionalLightComponent>(
         [this](ECS::Entity entity, ECS::TransformComponent& transform, ECS::DirectionalLightComponent& light) {
-            // 绘制图标
             if (m_DirectionalLightIcon) {
                 Renderer2D::DrawBillboard(
                     transform.Position,
@@ -501,20 +548,19 @@ void EditorApp::RenderEditorVisuals() {
                 );
             }
 
-            // 绘制方向箭头 (黄色) - 使用 Transform 的 forward 方向
             Renderer2D::DrawDirectionArrow(
                 transform.Position,
                 transform.GetForward(),
-                1.5f,  // 箭头长度
-                glm::vec4(1.0f, 1.0f, 0.0f, 1.0f),  // 黄色
-                3.0f   // 线条粗细
+                1.5f,
+                glm::vec4(1.0f, 1.0f, 0.0f, 1.0f),
+                3.0f
             );
         }
     );
 
     // 渲染聚光灯图标
     if (m_SpotLightIcon) {
-        m_World->Each<ECS::TransformComponent, ECS::SpotLightComponent>(
+        activeWorld.Each<ECS::TransformComponent, ECS::SpotLightComponent>(
             [this](ECS::Entity entity, ECS::TransformComponent& transform, ECS::SpotLightComponent& light) {
                 Renderer2D::DrawBillboard(
                     transform.Position,
@@ -528,7 +574,7 @@ void EditorApp::RenderEditorVisuals() {
     }
 
     // 渲染 SpriteComponent 实体（游戏中的 Billboard/Sprite）
-    m_World->Each<ECS::TransformComponent, ECS::SpriteComponent>(
+    activeWorld.Each<ECS::TransformComponent, ECS::SpriteComponent>(
         [](ECS::Entity entity, ECS::TransformComponent& transform, ECS::SpriteComponent& sprite) {
             Ref<Texture2D> tex;
             if (sprite.TextureHandle.IsValid()) {
