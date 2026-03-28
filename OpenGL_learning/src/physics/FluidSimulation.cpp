@@ -414,7 +414,7 @@ void FluidSimulation::Step(float dt) {
 // TranslateDomain
 // ─────────────────────────────────────────────────────────────────────────────
 
-void FluidSimulation::TranslateDomain(glm::vec3 delta) {
+void FluidSimulation::TranslateDomain(glm::vec3 delta, float frameDt) {
     if (!m_Ready || m_ParticleCount == 0 || !m_TranslateCS) return;
 
     m_BoundaryMin += delta;
@@ -422,9 +422,14 @@ void FluidSimulation::TranslateDomain(glm::vec3 delta) {
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_Buffers.positionSSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_Buffers.predictedSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_Buffers.velocitySSBO);
+
+    // 惯性冲量：容器以 delta/frameDt 速度运动，流体因惯性获得反向速度 → 晃动
+    const glm::vec3 impulse = (frameDt > 1e-6f) ? (-delta / frameDt) : glm::vec3(0.0f);
 
     m_TranslateCS->Bind();
-    m_TranslateCS->SetVec3("u_Delta",         delta);
+    m_TranslateCS->SetVec3("u_Delta",           delta);
+    m_TranslateCS->SetVec3("u_InertialImpulse", impulse);
     m_TranslateCS->SetUint("u_ParticleCount", static_cast<uint32_t>(m_ParticleCount));
     m_TranslateCS->Dispatch(CeilDiv(m_ParticleCount, WORKGROUP_SIZE), 1, 1);
     ComputePipeline::Wait(GL_SHADER_STORAGE_BARRIER_BIT);

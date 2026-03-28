@@ -104,6 +104,7 @@ void SceneRenderer::Shutdown() {
     m_FluidBlurFBO[0].Reset();
     m_FluidBlurFBO[1].Reset();
     m_FluidNormalFBO.Reset();
+    m_FluidSceneColorFBO.Reset();
 
 
     m_Initialized = false;
@@ -2378,6 +2379,7 @@ void SceneRenderer::EnsureFluidResources(uint32_t w, uint32_t h) {
         spec.ColorFormat        = GL_RGBA16F;
         spec.HasColorAttachment = true;
         spec.HasDepthAttachment = false;
+        rebuild(m_FluidSceneColorFBO, spec);
     }
 }
 
@@ -2548,10 +2550,24 @@ void SceneRenderer::FluidShadePass() {
     auto shader = m_ShaderLibrary.Get("fluid_shade");
     if (!shader) return;
 
-    // 直接写入 HDR FBO，叠加在场景颜色之上
-    m_HDRFramebuffer->Bind();
     const uint32_t w = m_HDRFramebuffer->GetWidth();
     const uint32_t h = m_HDRFramebuffer->GetHeight();
+
+    // 快照场景颜色：在写入 HDR 之前 blit 一份，打破 read+write 同一附件的 feedback loop
+    // 参考实现（PositionBasedFluids）使用独立的 uSceneColorTexture FBO，此处等价
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_HDRFramebuffer->GetID());
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_FluidSceneColorFBO->GetID());
+    {
+        GLenum drawBuf = GL_COLOR_ATTACHMENT0;
+        glDrawBuffers(1, &drawBuf);
+    }
+    glBlitFramebuffer(0, 0, (GLint)w, (GLint)h,
+                      0, 0, (GLint)w, (GLint)h,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    // 写入 HDR FBO
+    m_HDRFramebuffer->Bind();
     RenderCommand::SetViewport(0, 0, w, h);
 
     // 排除整型附件（EntityID），避免 blend + integer format 触发 GL_INVALID_OPERATION
@@ -2577,7 +2593,7 @@ void SceneRenderer::FluidShadePass() {
     shader->SetInt("u_FluidThickness", 2);
 
     glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetColorAttachment());
+    glBindTexture(GL_TEXTURE_2D, m_FluidSceneColorFBO->GetColorAttachment());
     shader->SetInt("u_SceneColor", 3);
 
     glActiveTexture(GL_TEXTURE4);

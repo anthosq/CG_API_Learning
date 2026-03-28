@@ -64,11 +64,11 @@ public:
                     glm::any(glm::greaterThan(glm::abs(newMin - fluid.BoundaryMin), glm::vec3(kEps)));
 
                 if (posChanged && !sizeChanged && fluid.Runtime) {
-                    // 纯平移：同步移动粒子，保留速度场和仿真状态
+                    // 纯平移：移动粒子 + 注入惯性冲量，产生流体晃动效果
                     const glm::vec3 delta = newMin - fluid.BoundaryMin;
                     fluid.BoundaryMin = newMin;
                     fluid.BoundaryMax = newMax;
-                    fluid.Runtime->TranslateDomain(delta);
+                    fluid.Runtime->TranslateDomain(delta, deltaTime);
                 } else if (sizeChanged) {
                     // 尺寸变化 → grid 结构改变，必须重置模拟
                     fluid.BoundaryMin = newMin;

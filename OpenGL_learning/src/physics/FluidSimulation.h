@@ -23,8 +23,9 @@ public:
     // 推进一个子步，dt 已由调用方除以 substeps
     void Step(float dt);
 
-    // 平移仿真域和所有粒子，不重置模拟（纯平移时调用，保留速度场）
-    void TranslateDomain(glm::vec3 delta);
+    // 平移仿真域和所有粒子，并注入惯性冲量产生晃动效果。
+    // frameDt：本帧实际经过的时间（秒），用于计算 impulse = -delta/frameDt。
+    void TranslateDomain(glm::vec3 delta, float frameDt);
 
     // 渲染侧只读接口（Phase 12 零拷贝渲染用）
     GLuint GetPositionSSBO()  const { return m_Buffers.positionSSBO; }
@@ -112,7 +113,7 @@ private:
     float     m_MassInverse    = 1.0f;      // 1 / mass
     float     m_Viscosity      = 0.01f;
     float     m_VorticityEps   = 0.0f;
-    float     m_Restitution    = 1.0f;      // 边界碰撞弹性系数（1.0 = 完全弹性）
+    float     m_Restitution    = 0.05f;     // 边界碰撞弹性系数（0 = 完全阻尼，1 = 完全弹性；0.05 防止弹性堆积同时保留轻微反弹）
     glm::vec3 m_BoundaryMin    = {-0.5f, 0.0f, -0.5f};
     glm::vec3 m_BoundaryMax    = { 0.5f, 2.0f,  0.5f};
 
