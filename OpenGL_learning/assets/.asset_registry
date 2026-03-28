@@ -11,12 +11,12 @@
       "type": "Texture"
     },
     {
-      "handle": "a74b64b7cd78425",
+      "handle": "df5e36c671d1c5d5",
       "path": "__prim:cube",
       "type": "MeshSource"
     },
     {
-      "handle": "345b92a926351ad2",
+      "handle": "5d7076e955e1287a",
       "path": "__prim:sphere",
       "type": "MeshSource"
     },
@@ -31,7 +31,7 @@
       "type": "MeshSource"
     },
     {
-      "handle": "b98ebe28bf84f015",
+      "handle": "726626db930d8f2e",
       "path": "__prim:plane",
       "type": "MeshSource"
     },
@@ -41,7 +41,7 @@
       "type": "Texture"
     },
     {
-      "handle": "49699444015cf924",
+      "handle": "6eb18dc00f629fe3",
       "path": "__prim:cylinder",
       "type": "MeshSource"
     },

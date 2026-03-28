@@ -3,6 +3,7 @@
 #include "graphics/Buffer.h"
 #include "graphics/ComputePipeline.h"
 #include "renderer/RenderTypes.h"
+#include "core/Ref.h"
 #include <glm/glm.hpp>
 #include <cstdint>
 
@@ -46,7 +47,7 @@ struct EmitParams {
     float     _pad1;
 };
 
-class ParticleSystem {
+class ParticleSystem : public RefCounter {
 public:
     ParticleSystem(int maxParticles, uint32_t seed = 12345u);
     ~ParticleSystem();

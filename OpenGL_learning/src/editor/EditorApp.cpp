@@ -1,5 +1,6 @@
 #include "EditorApp.h"
 #include "core/Input.h"
+#include "physics/PhysicsSystem.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -65,6 +66,7 @@ void EditorApp::OnInit() {
     m_SystemManager = std::make_unique<ECS::SystemManager>();
     m_SystemManager->AddSystem<ECS::TransformSystem>();
     m_SystemManager->AddSystem<ECS::BehaviorSystem>();
+    m_SystemManager->AddSystem<PhysicsSystem>();
 
     // 创建场景实体
     std::cout << "[EditorApp] Creating scene entities..." << std::endl;
@@ -591,6 +593,43 @@ void EditorApp::RenderEditorVisuals() {
             );
         }
     );
+
+    // 已选中实体有 FluidComponent 时，绘制仿真域边框
+    if (m_Editor) {
+        ECS::Entity sel = m_Editor->GetContext().SelectedEntity;
+        if (sel.IsValid() && sel.HasComponent<ECS::FluidComponent>()) {
+            const auto& f = sel.GetComponent<ECS::FluidComponent>();
+
+            // 编辑模式下 PhysicsSystem 未运行，直接从 Transform 计算边框
+            glm::vec3 lo = f.BoundaryMin;
+            glm::vec3 hi = f.BoundaryMax;
+            if (sel.HasComponent<ECS::TransformComponent>()) {
+                const auto& tr = sel.GetComponent<ECS::TransformComponent>();
+                const float hw = tr.Scale.x * 0.5f;
+                const float hd = tr.Scale.z * 0.5f;
+                lo = { tr.Position.x - hw, tr.Position.y,              tr.Position.z - hd };
+                hi = { tr.Position.x + hw, tr.Position.y + tr.Scale.y, tr.Position.z + hd };
+            }
+            const glm::vec4 boxColor(0.2f, 0.8f, 1.0f, 0.9f);
+            const float lw = 1.5f;
+
+            // 底面
+            Renderer2D::DrawLine({lo.x, lo.y, lo.z}, {hi.x, lo.y, lo.z}, boxColor, lw);
+            Renderer2D::DrawLine({hi.x, lo.y, lo.z}, {hi.x, lo.y, hi.z}, boxColor, lw);
+            Renderer2D::DrawLine({hi.x, lo.y, hi.z}, {lo.x, lo.y, hi.z}, boxColor, lw);
+            Renderer2D::DrawLine({lo.x, lo.y, hi.z}, {lo.x, lo.y, lo.z}, boxColor, lw);
+            // 顶面
+            Renderer2D::DrawLine({lo.x, hi.y, lo.z}, {hi.x, hi.y, lo.z}, boxColor, lw);
+            Renderer2D::DrawLine({hi.x, hi.y, lo.z}, {hi.x, hi.y, hi.z}, boxColor, lw);
+            Renderer2D::DrawLine({hi.x, hi.y, hi.z}, {lo.x, hi.y, hi.z}, boxColor, lw);
+            Renderer2D::DrawLine({lo.x, hi.y, hi.z}, {lo.x, hi.y, lo.z}, boxColor, lw);
+            // 四条竖边
+            Renderer2D::DrawLine({lo.x, lo.y, lo.z}, {lo.x, hi.y, lo.z}, boxColor, lw);
+            Renderer2D::DrawLine({hi.x, lo.y, lo.z}, {hi.x, hi.y, lo.z}, boxColor, lw);
+            Renderer2D::DrawLine({hi.x, lo.y, hi.z}, {hi.x, hi.y, hi.z}, boxColor, lw);
+            Renderer2D::DrawLine({lo.x, lo.y, hi.z}, {lo.x, hi.y, hi.z}, boxColor, lw);
+        }
+    }
 
     Renderer2D::EndScene();
 

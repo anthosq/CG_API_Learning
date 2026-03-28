@@ -23,12 +23,12 @@
 #include "core/UUID.h"
 #include "core/Ref.h"
 #include "asset/AssetTypes.h"
-#include "asset/MaterialAsset.h"  // MaterialTable 完整定义
+#include "asset/MaterialAsset.h"          // MaterialTable 完整定义
+#include "renderer/ParticleSystem.h"      // Ref<ParticleSystem> 需要完整类型
+#include "physics/FluidSimulation.h"      // Ref<FluidSimulation> 需要完整类型
 
 namespace GLRenderer {
 
-// 前向声明（ParticleComponent 需要引用渲染器中的 ParticleSystem）
-class ParticleSystem;
 
 namespace ECS {
 
@@ -298,7 +298,32 @@ struct ParticleComponent {
 
     // 运行时状态（非序列化）
     float EmitAccumulator = 0.0f;
-    std::shared_ptr<GLRenderer::ParticleSystem> RuntimeSystem;
+    Ref<GLRenderer::ParticleSystem> RuntimeSystem;
+};
+
+// 物理组件
+
+// PBF 流体模拟组件。
+// Runtime 在 Play 模式首次 PhysicsSystem::Update() 时懒创建，
+// 随 PlayWorld 析构自动释放 GPU 资源。
+//
+// 仿真域由 TransformComponent 驱动：
+//   Position = 域底面中心（XZ 居中，Y 为底）
+//   Scale    = 域宽 × 域高 × 域深（米）
+//   → BoundaryMin/Max 在 PhysicsSystem::Update() 中自动同步，无需手动编辑
+struct FluidComponent {
+    float     ParticleRadius = 0.01f;
+    float     RestDensity    = 1000.0f;   // kg/m³，水≈1000
+    float     Viscosity      = 0.005f;    // XSPH 系数，0=无粘性（参考实现默认 0.005）
+    float     VorticityEps   = 0.0f;      // 涡旋约束强度，0=关闭
+    int       MaxParticles   = 131072;  // 128k：1m×1m 域平衡水位约 75%（原 65536 仅 38%）
+    int       SolverIters    = 4;         // 密度约束迭代次数（参考：4）
+    int       Substeps       = 1;         // 已废弃：步长策略改为固定 dt=0.0016s，此字段保留序列化兼容
+    glm::vec3 BoundaryMin    = {-0.5f, 0.0f, -0.5f};  // 由 Transform 自动覆盖
+    glm::vec3 BoundaryMax    = { 0.5f, 2.0f,  0.5f};  // 对应 Scale=(1,2,1)
+
+    // 运行时状态（非序列化）
+    Ref<GLRenderer::FluidSimulation> Runtime;
 };
 
 // 调试组件

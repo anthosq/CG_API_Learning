@@ -62,6 +62,9 @@ void SceneRenderer::Initialize() {
     m_TileLightCountSSBO = StorageBuffer::Create(sizeof(int) * 1);   // 懒扩容
     m_TileLightIndexSSBO = StorageBuffer::Create(sizeof(int) * 1);   // 懒扩容
 
+    // 流体 Point Sprite 用空 VAO（无顶点属性，位置从 SSBO 读取）
+    glGenVertexArrays(1, &m_FluidEmptyVAO);
+
     // HDR FBO 在首次 FlushDrawList 时根据 TargetFramebuffer 尺寸懒创建
     m_Initialized = true;
     std::cout << "[SceneRenderer] Initialized" << std::endl;
@@ -95,6 +98,12 @@ void SceneRenderer::Shutdown() {
     if (m_BackFaceDepthFBO)  { glDeleteFramebuffers(1, &m_BackFaceDepthFBO); m_BackFaceDepthFBO = 0; }
     m_HiZPipeline.Reset();
     m_SSRPipeline.Reset();
+
+    if (m_FluidEmptyVAO) { glDeleteVertexArrays(1, &m_FluidEmptyVAO); m_FluidEmptyVAO = 0; }
+    m_FluidDepthFBO.Reset();
+    m_FluidBlurFBO[0].Reset();
+    m_FluidBlurFBO[1].Reset();
+    m_FluidNormalFBO.Reset();
 
     m_Initialized = false;
     std::cout << "[SceneRenderer] Shutdown" << std::endl;
@@ -206,6 +215,7 @@ void SceneRenderer::BeginScene(const Camera& camera, float aspectRatio) {
     m_LightEntities.clear();
     m_WorldAABBs.clear();
     m_ParticleDrawList.clear();
+    m_FluidDrawList.clear();
 
     // 缓存相机数据
     m_ViewMatrix       = camera.GetViewMatrix();
@@ -368,7 +378,7 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
 
             // 懒初始化 RuntimeSystem
             if (!particle.RuntimeSystem) {
-                particle.RuntimeSystem = std::make_shared<ParticleSystem>(particle.MaxParticles);
+                particle.RuntimeSystem = Ref<ParticleSystem>::Create(particle.MaxParticles);
             }
 
             // 计算本帧应发射的粒子数
@@ -398,6 +408,21 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
             entry.System = particle.RuntimeSystem;
             entry.Params = params;
             m_ParticleDrawList.push_back(std::move(entry));
+        }
+    );
+
+    // 收集流体组件（零拷贝：直接引用 positionSSBO）
+    world.Each<ECS::FluidComponent>(
+        [this](ECS::Entity /*entity*/, ECS::FluidComponent& fluid) {
+            if (!fluid.Runtime || !fluid.Runtime->IsReady()) return;
+            FluidDrawEntry entry;
+            entry.positionSSBO   = fluid.Runtime->GetPositionSSBO();
+            entry.velocitySSBO   = fluid.Runtime->GetVelocitySSBO();
+            entry.particleCount  = fluid.Runtime->GetParticleCount();
+            entry.particleRadius = fluid.ParticleRadius;
+            entry.boundaryMin    = fluid.BoundaryMin;
+            entry.boundaryMax    = fluid.BoundaryMax;
+            m_FluidDrawList.push_back(entry);
         }
     );
 
@@ -512,6 +537,21 @@ void SceneRenderer::FlushDrawList() {
             ParticlePass();
 
         m_HDRFramebuffer->Unbind();
+
+        // 10. 流体渲染：SSFR 后处理 或 粒子调试视图（二选一）
+        if (!m_FluidDrawList.empty()) {
+            if (m_Settings.ShowFluidParticles) {
+                m_HDRFramebuffer->Bind();
+                FluidParticleDebugPass();
+                m_HDRFramebuffer->Unbind();
+            } else if (m_Settings.EnableFluidRendering) {
+                EnsureFluidResources(viewportWidth, viewportHeight);
+                FluidDepthPass();
+                FluidBlurPass();
+                FluidNormalPass();
+                FluidShadePass();
+            }
+        }
     } else {
         // === Tiled Forward+ 路径（原有逻辑不变）===
 
@@ -568,6 +608,21 @@ void SceneRenderer::FlushDrawList() {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         m_HDRFramebuffer->Unbind();
+
+        // 8. 流体渲染：SSFR 后处理 或 粒子调试视图（二选一）
+        if (!m_FluidDrawList.empty()) {
+            if (m_Settings.ShowFluidParticles) {
+                m_HDRFramebuffer->Bind();
+                FluidParticleDebugPass();
+                m_HDRFramebuffer->Unbind();
+            } else if (m_Settings.EnableFluidRendering) {
+                EnsureFluidResources(viewportWidth, viewportHeight);
+                FluidDepthPass();
+                FluidBlurPass();
+                FluidNormalPass();
+                FluidShadePass();
+            }
+        }
     }
 
     // 后处理阶段：全屏四边形，不需要深度测试，统一在此关闭
@@ -1600,7 +1655,7 @@ void SceneRenderer::EnsureHDRFramebuffer(uint32_t width, uint32_t height) {
     spec.ColorFormat          = GL_RGBA16F;   // HDR，存储 >1.0 的线性值
     spec.HasColorAttachment   = true;
     spec.HasDepthAttachment   = true;
-    spec.DepthAsTexture       = false;
+    spec.DepthAsTexture       = true;          // 流体着色 pass 需要采样场景深度做遮挡测试
     spec.HasEntityIDAttachment = true;        // 鼠标拾取用
     spec.Samples              = 1;
 
@@ -2262,6 +2317,269 @@ void SceneRenderer::SSAOBlurPass() {
     shader->Unbind();
     m_SSAOBlurFBO->Unbind();
     glEnable(GL_DEPTH_TEST);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 屏幕空间流体渲染（Phase 12）
+// ─────────────────────────────────────────────────────────────────────────────
+
+void SceneRenderer::EnsureFluidResources(uint32_t w, uint32_t h) {
+    auto rebuild = [&](Ref<Framebuffer>& fbo, FramebufferSpec spec) {
+        if (!fbo || fbo->GetWidth() != w || fbo->GetHeight() != h)
+            fbo = Framebuffer::Create(spec);
+    };
+
+    // Depth FBO：颜色 = 厚度(R16F)，深度 = 球面深度(D32F)
+    {
+        FramebufferSpec spec;
+        spec.Width              = w;
+        spec.Height             = h;
+        spec.ColorFormat        = GL_R16F;
+        spec.HasColorAttachment = true;
+        spec.HasDepthAttachment = true;
+        spec.DepthAsTexture     = true;
+        rebuild(m_FluidDepthFBO, spec);
+    }
+
+    // Blur ping-pong：仅颜色(R32F)，无深度
+    {
+        FramebufferSpec spec;
+        spec.Width              = w;
+        spec.Height             = h;
+        spec.ColorFormat        = GL_R32F;
+        spec.HasColorAttachment = true;
+        spec.HasDepthAttachment = false;
+        rebuild(m_FluidBlurFBO[0], spec);
+        rebuild(m_FluidBlurFBO[1], spec);
+    }
+
+    // Normal FBO：颜色(RGBA16F)，无深度
+    {
+        FramebufferSpec spec;
+        spec.Width              = w;
+        spec.Height             = h;
+        spec.ColorFormat        = GL_RGBA16F;
+        spec.HasColorAttachment = true;
+        spec.HasDepthAttachment = false;
+        rebuild(m_FluidNormalFBO, spec);
+    }
+}
+
+void SceneRenderer::FluidParticleDebugPass() {
+    auto shader = m_ShaderLibrary.Get("fluid_particle_debug");
+    if (!shader) return;
+
+    // 排除整型附件（EntityID），避免 blend + integer format 触发 GL_INVALID_OPERATION
+    GLenum bufs[] = { GL_COLOR_ATTACHMENT0, GL_NONE };
+    glDrawBuffers(2, bufs);
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_CULL_FACE);
+
+    shader->Bind();
+    shader->SetMat4 ("u_ViewProjection", m_ProjectionMatrix * m_ViewMatrix);
+    shader->SetFloat("u_ViewportH",      static_cast<float>(m_HDRFramebuffer->GetHeight()));
+
+    glBindVertexArray(m_FluidEmptyVAO);
+    for (auto& entry : m_FluidDrawList) {
+        shader->SetFloat("u_ParticleRadius", entry.particleRadius);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, entry.positionSSBO);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, entry.velocitySSBO);
+        glDrawArrays(GL_POINTS, 0, entry.particleCount);
+    }
+    glBindVertexArray(0);
+
+    GLenum allBufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, allBufs);
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glDisable(GL_PROGRAM_POINT_SIZE);
+    shader->Unbind();
+}
+
+void SceneRenderer::FluidDepthPass() {
+    auto shader = m_ShaderLibrary.Get("fluid_depth");
+    if (!shader) return;
+
+    m_FluidDepthFBO->Bind();
+    RenderCommand::SetViewport(0, 0, m_FluidDepthFBO->GetWidth(), m_FluidDepthFBO->GetHeight());
+
+    // 深度缓冲清为最远，厚度颜色清零
+    glClearDepthf(1.0f);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    float clearColor[4] = {0, 0, 0, 0};
+    glClearBufferfv(GL_COLOR, 0, clearColor);
+
+    glEnable(GL_PROGRAM_POINT_SIZE);
+
+    shader->Bind();
+    shader->SetMat4 ("u_View",           m_ViewMatrix);
+    shader->SetMat4 ("u_Proj",           m_ProjectionMatrix);
+    shader->SetFloat("u_ViewportH",      static_cast<float>(m_FluidDepthFBO->GetHeight()));
+
+    glBindVertexArray(m_FluidEmptyVAO);
+
+    const float radiusScale = m_Settings.FluidRenderRadiusScale;
+
+    // Sub-pass 1：深度写入（关闭颜色写入）
+    // 仅将球面最近深度写入深度缓冲，供后续 blur/normal pass 使用
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    for (auto& entry : m_FluidDrawList) {
+        shader->SetFloat("u_ParticleRadius", entry.particleRadius * radiusScale);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, entry.positionSSBO);
+        glDrawArrays(GL_POINTS, 0, entry.particleCount);
+    }
+
+    // Sub-pass 2：厚度累积（关闭深度测试与写入，加法混合）
+    // 所有粒子均贡献厚度，无论遮挡关系
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    for (auto& entry : m_FluidDrawList) {
+        shader->SetFloat("u_ParticleRadius", entry.particleRadius * radiusScale);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, entry.positionSSBO);
+        glDrawArrays(GL_POINTS, 0, entry.particleCount);
+    }
+
+    glBindVertexArray(0);
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_DEPTH_TEST);
+    glDisable(GL_PROGRAM_POINT_SIZE);
+    m_FluidDepthFBO->Unbind();
+}
+
+void SceneRenderer::FluidBlurPass() {
+    auto shader = m_ShaderLibrary.Get("fluid_blur");
+    if (!shader) return;
+
+    const float w = static_cast<float>(m_FluidBlurFBO[0]->GetWidth());
+    const float h = static_cast<float>(m_FluidBlurFBO[0]->GetHeight());
+
+    glDisable(GL_DEPTH_TEST);
+    glBindVertexArray(m_FluidEmptyVAO);
+    shader->Bind();
+    shader->SetFloat("u_SigmaS",       m_Settings.FluidBlurSigmaS);
+    shader->SetFloat("u_SigmaD",       m_Settings.FluidBlurSigmaD);
+    shader->SetInt  ("u_KernelRadius", m_Settings.FluidBlurRadius);
+
+    // 水平 pass：FluidDepth → BlurFBO[0]
+    m_FluidBlurFBO[0]->Bind();
+    RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_FluidDepthFBO->GetDepthAttachment());
+    shader->SetInt  ("u_FluidDepth", 0);
+    shader->SetVec2 ("u_TexelSize",  glm::vec2(1.0f / w, 1.0f / h));
+    shader->SetInt  ("u_Direction",  0);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // 垂直 pass：BlurFBO[0] → BlurFBO[1]
+    m_FluidBlurFBO[1]->Bind();
+    RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[0]->GetColorAttachment());
+    shader->SetInt ("u_Direction", 1);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    m_FluidBlurFBO[1]->Unbind();
+    glBindVertexArray(0);
+}
+
+void SceneRenderer::FluidNormalPass() {
+    auto shader = m_ShaderLibrary.Get("fluid_normal");
+    if (!shader) return;
+
+    m_FluidNormalFBO->Bind();
+    const float w = static_cast<float>(m_FluidNormalFBO->GetWidth());
+    const float h = static_cast<float>(m_FluidNormalFBO->GetHeight());
+    RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    shader->Bind();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[1]->GetColorAttachment());
+    shader->SetInt ("u_FluidDepthSmooth", 0);
+    shader->SetMat4("u_InvProj", glm::inverse(m_ProjectionMatrix));
+    shader->SetVec2("u_TexelSize", glm::vec2(1.0f / w, 1.0f / h));
+
+    glBindVertexArray(m_FluidEmptyVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+
+    m_FluidNormalFBO->Unbind();
+}
+
+void SceneRenderer::FluidShadePass() {
+    auto shader = m_ShaderLibrary.Get("fluid_shade");
+    if (!shader) return;
+
+    // 直接写入 HDR FBO，叠加在场景颜色之上
+    m_HDRFramebuffer->Bind();
+    const uint32_t w = m_HDRFramebuffer->GetWidth();
+    const uint32_t h = m_HDRFramebuffer->GetHeight();
+    RenderCommand::SetViewport(0, 0, w, h);
+
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    shader->Bind();
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_FluidNormalFBO->GetColorAttachment());
+    shader->SetInt("u_FluidNormal", 0);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[1]->GetColorAttachment());
+    shader->SetInt("u_FluidDepthSmooth", 1);
+
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, m_FluidDepthFBO->GetColorAttachment());
+    shader->SetInt("u_FluidThickness", 2);
+
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetColorAttachment());
+    shader->SetInt("u_SceneColor", 3);
+
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, m_HDRFramebuffer->GetDepthAttachment());
+    shader->SetInt("u_SceneDepth", 4);
+
+    // 环境贴图（反射）
+    if (m_Environment.IBLEnvironment && m_Environment.IBLEnvironment->EnvMap) {
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, m_Environment.IBLEnvironment->EnvMap->GetID());
+        shader->SetInt("u_EnvCubemap", 5);
+    }
+
+    shader->SetMat4 ("u_InvProj",          glm::inverse(m_ProjectionMatrix));
+    shader->SetMat4 ("u_InvView",          glm::inverse(m_ViewMatrix));
+    shader->SetVec3 ("u_WaterColor",       m_Settings.FluidWaterColor);
+    shader->SetVec3 ("u_Extinction",       m_Settings.FluidExtinction);
+    shader->SetFloat("u_RefractStrength",  m_Settings.FluidRefractStrength);
+    shader->SetFloat("u_ThicknessScale",   m_Settings.FluidThicknessScale);
+    shader->SetFloat("u_EnvIntensity",     m_Environment.EnvironmentIntensity);
+
+    glBindVertexArray(m_FluidEmptyVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+    m_HDRFramebuffer->Unbind();
 }
 
 } // namespace GLRenderer

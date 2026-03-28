@@ -3,6 +3,80 @@
     {
       "Components": {
         "Mesh": {
+          "Materials": [
+            {
+              "AOMap": "",
+              "AlbedoColor": [
+                1.0,
+                0.0,
+                0.0
+              ],
+              "AlbedoMap": "",
+              "Emission": 0.0,
+              "EmissiveMap": "",
+              "Metallic": 0.0,
+              "MetallicMap": "",
+              "NormalMap": "",
+              "Roughness": 0.5,
+              "RoughnessMap": "",
+              "Slot": 0,
+              "Transparent": false,
+              "UseNormalMap": false
+            }
+          ],
+          "PrimitiveType": "cube",
+          "Visible": true
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Cube_0",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            -2.499788761138916,
+            4.3482770919799805,
+            -3.438377618789673
+          ],
+          "Rotation": [
+            0.9065616130828857,
+            0.4220735430717468,
+            0.0,
+            0.0
+          ],
+          "Scale": [
+            1.0,
+            0.9999998807907104,
+            0.9999998807907104
+          ]
+        }
+      },
+      "UUID": 8532261110736204568
+    },
+    {
+      "Components": {
+        "Mesh": {
+          "Materials": [
+            {
+              "AOMap": "",
+              "AlbedoColor": [
+                1.0,
+                0.0,
+                0.8354430198669434
+              ],
+              "AlbedoMap": "",
+              "Emission": 0.0,
+              "EmissiveMap": "",
+              "Metallic": 0.0,
+              "MetallicMap": "",
+              "NormalMap": "",
+              "Roughness": 0.5,
+              "RoughnessMap": "",
+              "Slot": 0,
+              "Transparent": false,
+              "UseNormalMap": false
+            }
+          ],
           "PrimitiveType": "sphere",
           "Visible": true
         },
@@ -13,8 +87,8 @@
         },
         "Transform": {
           "Position": [
-            -1.3929063081741333,
-            2.2715063095092773,
+            -0.4533819556236267,
+            1.6848719120025635,
             0.0
           ],
           "Rotation": [
@@ -35,6 +109,27 @@
     {
       "Components": {
         "Mesh": {
+          "Materials": [
+            {
+              "AOMap": "",
+              "AlbedoColor": [
+                0.0,
+                0.8860759735107422,
+                1.0
+              ],
+              "AlbedoMap": "",
+              "Emission": 0.0,
+              "EmissiveMap": "",
+              "Metallic": 1.0,
+              "MetallicMap": "",
+              "NormalMap": "",
+              "Roughness": 0.3240000009536743,
+              "RoughnessMap": "",
+              "Slot": 0,
+              "Transparent": false,
+              "UseNormalMap": false
+            }
+          ],
           "PrimitiveType": "cube",
           "Visible": true
         },
@@ -45,9 +140,9 @@
         },
         "Transform": {
           "Position": [
-            -1.8526465892791748,
-            1.727348804473877,
-            0.0
+            -2.0011701583862305,
+            1.9133225679397583,
+            -0.30443239212036133
           ],
           "Rotation": [
             1.0,
@@ -87,9 +182,9 @@
         },
         "Transform": {
           "Position": [
-            -1.5136160850524902,
+            -2.8739864826202393,
             2.180842876434326,
-            1.6163809299468994
+            1.0874667167663574
           ],
           "Rotation": [
             1.0,
@@ -194,7 +289,7 @@
         "Transform": {
           "Position": [
             0.0,
-            1.2315583229064941,
+            1.2612398862838745,
             0.0
           ],
           "Rotation": [
@@ -292,6 +387,14 @@
           "MeshPath": "assets\\model\\Cerberus_by_Andrew_Maximov\\Cerberus_LP.FBX",
           "Visible": true
         },
+        "Rotator": {
+          "Axis": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "Speed": 45.0
+        },
         "Tag": {
           "Active": true,
           "Name": "Cerberus_LP",
@@ -299,24 +402,88 @@
         },
         "Transform": {
           "Position": [
-            -0.14553490281105042,
-            2.947944402694702,
-            -0.669782280921936
+            0.17387284338474274,
+            1.872707724571228,
+            -2.0498578548431396
           ],
           "Rotation": [
-            0.8095918297767639,
-            -0.27946266531944275,
-            -0.48924145102500916,
+            0.8095921277999878,
+            -0.27946236729621887,
+            -0.48924127221107483,
             0.16463415324687958
           ],
           "Scale": [
-            0.9999999403953552,
-            0.9999998807907104,
-            1.0
+            0.9999997019767761,
+            0.9999998211860657,
+            0.9999992251396179
           ]
         }
       },
       "UUID": 7389993089771171398
+    },
+    {
+      "Components": {
+        "Particle": {
+          "ColorBegin": [
+            1.0,
+            0.6000000238418579,
+            0.10000000149011612,
+            1.0
+          ],
+          "ColorEnd": [
+            0.20000000298023224,
+            0.20000000298023224,
+            0.20000000298023224,
+            0.0
+          ],
+          "EmitDirection": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "EmitRate": 22.0,
+          "EmitSpread": 1.5707963705062866,
+          "Gravity": [
+            0.20000000298023224,
+            0.30000001192092896,
+            0.20000000298023224
+          ],
+          "LifetimeMax": 30.0,
+          "LifetimeMin": 0.46000000834465027,
+          "Looping": true,
+          "MaxParticles": 4096,
+          "Playing": true,
+          "SizeBegin": 0.15000000596046448,
+          "SizeEnd": 0.0,
+          "SpeedMax": 1.100000023841858,
+          "SpeedMin": 0.25,
+          "TextureHandle": "17522f61498e5040"
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "New Entity",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            0.27125486731529236,
+            1.6274333000183105,
+            -1.0067341327667236
+          ],
+          "Rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "Scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "UUID": 3235911891451377819
     }
   ],
   "Scene": "EditorWorld",

@@ -32,6 +32,7 @@
 #include "core/Frustum.h"
 #include "scene/BVH.h"
 #include "renderer/ParticleSystem.h"
+#include "physics/FluidSimulation.h"
 
 #include <memory>
 #include <vector>
@@ -73,6 +74,23 @@ struct SceneRenderSettings {
     bool      EnableOutline = true;
     glm::vec4 OutlineColor  = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
     int       OutlineWidth  = 2;
+
+    // 屏幕空间流体渲染（Phase 12）
+    bool  EnableFluidRendering      = true;
+    bool  ShowFluidParticles        = false;   // 粒子调试视图：按速度大小着色的点精灵
+    int   FluidBlurRadius           = 15;      // 双边滤波卷积半径（参考：15）
+    float FluidBlurSigmaS           = 6.0f;    // 空间高斯 σ
+    float FluidBlurSigmaD           = 0.08f;   // 深度差高斯 σ
+    float FluidRefractStrength      = 0.025f;  // 折射 UV 偏移强度（参考：0.025）
+    float FluidRenderRadiusScale    = 2.0f;    // 渲染粒子半径缩放（参考：2.0，使点精灵覆盖粒子间隙）
+    // ThicknessScale 说明：
+    //   参考实现片元输出 dz * 0.05（无量纲）；我们输出 dz * 2r = dz * 0.02m（米制）。
+    //   等效缩放：0.05 / 0.02 = 2.5，使有效厚度与参考一致。
+    float FluidThicknessScale       = 2.5f;   // 厚度缩放（参考等效 2.5：0.05/0.02m）
+    // 消光系数：按物理水体校准（厚 0.2m 时红光吸收 ~70%，蓝光几乎不变）
+    // 与参考等效：extinction_ours = extinction_ref × (ref_thickness / our_thickness) = 0.741 × 2.5
+    glm::vec3 FluidWaterColor  = {0.259f, 0.518f, 0.957f};  // 仅用于 UI 显示参考色，shader 已不使用
+    glm::vec3 FluidExtinction  = {0.741f, 0.482f, 0.043f};  // 与参考一致（ThicknessScale 已补偿单位）
 
     // SSR 屏幕空间反射（仅 Deferred 路径）
     bool  EnableSSR          = false;
@@ -295,7 +313,7 @@ private:
 
     // 粒子绘制列表（每帧从 ECS 收集）
     struct ParticleDrawEntry {
-        std::shared_ptr<ParticleSystem> System;
+        Ref<ParticleSystem> System;
         EmitParams Params;
     };
     std::vector<ParticleDrawEntry> m_ParticleDrawList;
@@ -406,6 +424,29 @@ private:
 
     // === Deferred Shading ===
     Ref<GBuffer>               m_GBuffer;        // 几何缓冲区（Deferred 路径使用）
+
+    // === 屏幕空间流体渲染（Phase 12）===
+    struct FluidDrawEntry {
+        GLuint positionSSBO  = 0;
+        GLuint velocitySSBO  = 0;
+        int    particleCount = 0;
+        float  particleRadius = 0.05f;
+        glm::vec3 boundaryMin = {-0.5f, 0.0f, -0.5f};
+        glm::vec3 boundaryMax = { 0.5f, 2.0f,  0.5f};
+    };
+    std::vector<FluidDrawEntry> m_FluidDrawList;
+
+    Ref<Framebuffer>  m_FluidDepthFBO;     // 球面深度 + 厚度
+    Ref<Framebuffer>  m_FluidBlurFBO[2];   // Ping-pong 双边滤波
+    Ref<Framebuffer>  m_FluidNormalFBO;    // 视空间法线
+    GLuint            m_FluidEmptyVAO = 0; // 无属性 VAO（point sprite 用）
+
+    void FluidDepthPass();
+    void FluidBlurPass();
+    void FluidNormalPass();
+    void FluidShadePass();
+    void FluidParticleDebugPass();
+    void EnsureFluidResources(uint32_t w, uint32_t h);
 };
 
 } // namespace GLRenderer

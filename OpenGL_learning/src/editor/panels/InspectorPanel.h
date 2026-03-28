@@ -22,6 +22,7 @@ private:
     void DrawRotatorComponent(ECS::RotatorComponent& rotator);
     void DrawFloatingComponent(ECS::FloatingComponent& floating);
     void DrawParticleComponent(ECS::ParticleComponent& particle);
+    void DrawFluidComponent(ECS::FluidComponent& fluid);
 
     // 材质编辑器 (Hazel 风格)
     void DrawMaterialEditor(Ref<MaterialAsset> matAsset);

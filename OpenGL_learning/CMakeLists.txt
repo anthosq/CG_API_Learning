@@ -84,6 +84,12 @@ file(GLOB UTILS_SOURCES CONFIGURE_DEPENDS
     "${SOURCE_DIR}/utils/*.cpp"
 )
 
+# 物理模块
+file(GLOB PHYSICS_SOURCES CONFIGURE_DEPENDS
+    "${SOURCE_DIR}/physics/*.h"
+    "${SOURCE_DIR}/physics/*.cpp"
+)
+
 # 旧版源文件（保持兼容）
 file(GLOB LEGACY_SOURCES CONFIGURE_DEPENDS
     "${SOURCE_DIR}/*.h"
@@ -118,6 +124,7 @@ add_library(GLRendererEngine STATIC
     ${ASSET_SOURCES}
     ${UI_SOURCES}
     ${UTILS_SOURCES}
+    ${PHYSICS_SOURCES}
     ${LEGACY_SOURCES}
     ${EDITOR_SOURCES}
 )

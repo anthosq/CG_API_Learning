@@ -286,6 +286,22 @@ static json SerializeEntity(ECS::Entity entity,
         };
     }
 
+    // FluidComponent（跳过 Runtime，Play 时由 PhysicsSystem 懒创建）
+    if (entity.HasComponent<ECS::FluidComponent>()) {
+        auto& c = entity.GetComponent<ECS::FluidComponent>();
+        jc["Fluid"] = {
+            {"ParticleRadius", c.ParticleRadius},
+            {"RestDensity",    c.RestDensity},
+            {"Viscosity",      c.Viscosity},
+            {"VorticityEps",   c.VorticityEps},
+            {"MaxParticles",   c.MaxParticles},
+            {"SolverIters",    c.SolverIters},
+            {"Substeps",       c.Substeps},
+            {"BoundaryMin",    ToJson(c.BoundaryMin)},
+            {"BoundaryMax",    ToJson(c.BoundaryMax)}
+        };
+    }
+
     // DebugDrawComponent
     if (entity.HasComponent<ECS::DebugDrawComponent>()) {
         auto& c = entity.GetComponent<ECS::DebugDrawComponent>();
@@ -662,6 +678,22 @@ static void DeserializeComponents(ECS::Entity entity, const json& jc,
         c.Looping      = jp.value("Looping",      true);
         c.Playing      = jp.value("Playing",      true);
         c.TextureHandle = StrToHandle(jp.value("TextureHandle", "0"));
+    }
+
+    // FluidComponent
+    if (has("Fluid")) {
+        auto& jf = jc["Fluid"];
+        auto& c  = entity.AddComponent<ECS::FluidComponent>();
+        c.ParticleRadius = jf.value("ParticleRadius", 0.05f);
+        c.RestDensity    = jf.value("RestDensity",    1000.0f);
+        c.Viscosity      = jf.value("Viscosity",      0.01f);
+        c.VorticityEps   = jf.value("VorticityEps",   0.0f);
+        c.MaxParticles   = jf.value("MaxParticles",   32768);
+        c.SolverIters    = jf.value("SolverIters",    4);
+        c.Substeps       = jf.value("Substeps",       1);
+        if (jf.contains("BoundaryMin")) c.BoundaryMin = Vec3(jf["BoundaryMin"]);
+        if (jf.contains("BoundaryMax")) c.BoundaryMax = Vec3(jf["BoundaryMax"]);
+        // Runtime 不反序列化，PhysicsSystem 在首帧 Update 时懒创建
     }
 
     // DebugDrawComponent

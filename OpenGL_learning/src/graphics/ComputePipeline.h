@@ -65,6 +65,7 @@ public:
 
     // Uniform 设置方法
     void SetInt(const std::string& name, int value) const;
+    void SetUint(const std::string& name, uint32_t value) const;
     void SetIVec2(const std::string& name, const glm::ivec2& value) const;
     void SetFloat(const std::string& name, float value) const;
     void SetVec2(const std::string& name, const glm::vec2& value) const;

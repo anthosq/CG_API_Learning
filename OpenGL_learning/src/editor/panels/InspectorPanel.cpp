@@ -9,6 +9,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "renderer/ParticleSystem.h"
+#include "physics/FluidSimulation.h"
 #include <functional>
 
 namespace GLRenderer {
@@ -163,6 +164,13 @@ void InspectorPanel::OnDraw(EditorContext& context) {
     if (entity.HasComponent<ECS::ParticleComponent>()) {
         if (DrawComponentHeader<ECS::ParticleComponent>(entity, "Particle System")) {
             DrawParticleComponent(entity.GetComponent<ECS::ParticleComponent>());
+        }
+    }
+
+    // FluidComponent
+    if (entity.HasComponent<ECS::FluidComponent>()) {
+        if (DrawComponentHeader<ECS::FluidComponent>(entity, "Fluid Simulation")) {
+            DrawFluidComponent(entity.GetComponent<ECS::FluidComponent>());
         }
     }
 
@@ -611,6 +619,21 @@ void InspectorPanel::DrawAddComponentButton(ECS::Entity entity) {
             }
         }
 
+        if (!entity.HasComponent<ECS::FluidComponent>()) {
+            if (ImGui::MenuItem("Fluid Simulation")) {
+                auto& f = entity.AddComponent<ECS::FluidComponent>();
+                // 用 Transform 初始化仿真域（若无 Transform 则保留默认值）
+                if (entity.HasComponent<ECS::TransformComponent>()) {
+                    const auto& tr = entity.GetComponent<ECS::TransformComponent>();
+                    const float hw = tr.Scale.x * 0.5f;
+                    const float hd = tr.Scale.z * 0.5f;
+                    f.BoundaryMin = { tr.Position.x - hw, tr.Position.y,              tr.Position.z - hd };
+                    f.BoundaryMax = { tr.Position.x + hw, tr.Position.y + tr.Scale.y, tr.Position.z + hd };
+                }
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
         ImGui::EndPopup();
     }
 }
@@ -678,7 +701,7 @@ void InspectorPanel::DrawParticleComponent(ECS::ParticleComponent& p) {
     int maxP = p.MaxParticles;
     if (ImGui::DragInt("##MaxParticles", &maxP, 64, 64, 1048576)) {
         p.MaxParticles = maxP;
-        p.RuntimeSystem.reset();  // 参数变化时重建 GPU buffer
+        p.RuntimeSystem = nullptr;  // 参数变化时重建 GPU buffer
     }
     ImGui::NextColumn();
 
@@ -697,6 +720,96 @@ void InspectorPanel::DrawParticleComponent(ECS::ParticleComponent& p) {
     }
 }
 
+void InspectorPanel::DrawFluidComponent(ECS::FluidComponent& f) {
+    const float colW = 130.0f;
+    bool reset = false;   // 参数变化时重建模拟
+
+    ImGui::Columns(2);
+    ImGui::SetColumnWidth(0, colW);
+
+    // 粒子参数
+    ImGui::SeparatorText("Particle");
+
+    ImGui::Text("Radius");        ImGui::NextColumn();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Particle radius in meters (ref: 0.01m).\nKernel radius = 4x particle radius.");
+    if (ImGui::DragFloat("##Radius", &f.ParticleRadius, 0.001f, 0.005f, 0.1f, "%.3f m"))
+        reset = true;
+    ImGui::NextColumn();
+
+    ImGui::Text("Rest Density");  ImGui::NextColumn();
+    if (ImGui::DragFloat("##RestDensity", &f.RestDensity, 1.0f, 100.0f, 5000.0f, "%.0f kg/m³"))
+        reset = true;
+    ImGui::NextColumn();
+
+    ImGui::Text("Max Particles"); ImGui::NextColumn();
+    if (ImGui::DragInt("##MaxParticles", &f.MaxParticles, 512, 512, 524288, "%d"))
+        reset = true;
+    ImGui::NextColumn();
+
+    // 求解器参数
+    ImGui::SeparatorText("Solver");
+
+    ImGui::Text("Iterations");    ImGui::NextColumn();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("PBF constraint solver iterations per substep (4 is typical)");
+    ImGui::DragInt("##SolverIters", &f.SolverIters, 1, 1, 16);
+    ImGui::NextColumn();
+
+    ImGui::Text("Substeps (min)"); ImGui::NextColumn();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Minimum substeps per frame.\nSystem auto-increases to keep sub-dt <= 2ms (~ref 1.6ms).\nAt 60fps: auto ~9 substeps.");
+    ImGui::DragInt("##Substeps", &f.Substeps, 1, 1, 32);
+    ImGui::NextColumn();
+
+    // 效果参数（运行时可调，不需要重建）
+    ImGui::SeparatorText("Effects");
+
+    ImGui::Text("Viscosity");     ImGui::NextColumn();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("XSPH viscosity coefficient c (ref default: 0.01).\nFormula: dv = c * (1/rho0) * sum W");
+    ImGui::DragFloat("##Viscosity", &f.Viscosity, 0.001f, 0.0f, 0.5f, "%.3f");
+    ImGui::NextColumn();
+
+    ImGui::Text("Vorticity");     ImGui::NextColumn();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Vorticity confinement strength (0 = disabled).\nCompensates numerical damping.");
+    ImGui::DragFloat("##VorticityEps", &f.VorticityEps, 0.01f, 0.0f, 10.0f, "%.2f");
+    ImGui::NextColumn();
+
+    ImGui::Columns(1);
+
+    // 仿真域（由 TransformComponent 驱动，这里只读显示）
+    ImGui::SeparatorText("Domain (from Transform)");
+    ImGui::TextDisabled("Position = domain floor center");
+    ImGui::TextDisabled("Scale    = domain width x height x depth");
+    glm::vec3 size = f.BoundaryMax - f.BoundaryMin;
+    ImGui::TextDisabled("Current:  %.2f x %.2f x %.2f m", size.x, size.y, size.z);
+    ImGui::TextDisabled("Min: (%.2f, %.2f, %.2f)", f.BoundaryMin.x, f.BoundaryMin.y, f.BoundaryMin.z);
+    ImGui::TextDisabled("Max: (%.2f, %.2f, %.2f)", f.BoundaryMax.x, f.BoundaryMax.y, f.BoundaryMax.z);
+
+    // 运行时信息
+    ImGui::SeparatorText("Runtime");
+    if (f.Runtime && f.Runtime->IsReady()) {
+        int N = f.Runtime->GetParticleCount();
+        ImGui::TextDisabled("Particles: %d / %d", N, f.MaxParticles);
+        ImGui::TextDisabled("Cells:     %d", f.Runtime->GetCellCount());
+        auto g = f.Runtime->GetGridDims();
+        ImGui::TextDisabled("Grid:      %dx%dx%d", g.x, g.y, g.z);
+        ImGui::TextDisabled("Mass:      %.6f kg  (6.4 r^3 rho0)", 6.4f * f.ParticleRadius * f.ParticleRadius * f.ParticleRadius * f.RestDensity);
+        ImGui::TextDisabled("Kernel r:  %.3f m  (4x particle r)", f.ParticleRadius * 4.0f);
+        // neighborIdx SSBO 内存 = N × MAX_NEIGHBORS × 4B
+        float neighborMB = N * 64 * 4 / (1024.0f * 1024.0f);
+        ImGui::TextDisabled("NeighborBuf: %.1f MB  (N x 64 x 4)", neighborMB);
+    } else {
+        ImGui::TextDisabled("(not initialized — starts on Play)");
+    }
+
+    // 重置按钮
+    ImGui::Spacing();
+    if (ImGui::Button("Reset Simulation") || reset)
+        f.Runtime = nullptr;
+}
+
 // 显式实例化模板
 template bool InspectorPanel::DrawComponentHeader<ECS::TagComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::TransformComponent>(ECS::Entity, const char*);
@@ -706,5 +819,6 @@ template bool InspectorPanel::DrawComponentHeader<ECS::DirectionalLightComponent
 template bool InspectorPanel::DrawComponentHeader<ECS::RotatorComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::FloatingComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::ParticleComponent>(ECS::Entity, const char*);
+template bool InspectorPanel::DrawComponentHeader<ECS::FluidComponent>(ECS::Entity, const char*);
 
 } // namespace GLRenderer

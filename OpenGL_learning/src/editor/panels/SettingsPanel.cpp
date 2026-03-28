@@ -269,6 +269,28 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         }
     }
 
+    // 流体渲染设置
+    if (ImGui::CollapsingHeader("Fluid")) {
+        ImGui::Checkbox("Enable SSFR##fluid",        &settings.EnableFluidRendering);
+        ImGui::Checkbox("Particle Debug View##fluid", &settings.ShowFluidParticles);
+        if (settings.EnableFluidRendering && !settings.ShowFluidParticles) {
+            ImGui::Indent();
+            if (ImGui::CollapsingHeader("Depth & Blur##fluid")) {
+                ImGui::SliderFloat("Sprite Scale##fluid",  &settings.FluidRenderRadiusScale, 0.5f, 5.0f,  "%.2f");
+                ImGui::SliderInt  ("Blur Radius##fluid",   &settings.FluidBlurRadius,        1,    32);
+                ImGui::SliderFloat("Blur SigmaS##fluid",   &settings.FluidBlurSigmaS,        1.0f, 20.0f, "%.1f");
+                ImGui::SliderFloat("Blur SigmaD##fluid",   &settings.FluidBlurSigmaD,        0.01f, 0.5f, "%.3f");
+            }
+            if (ImGui::CollapsingHeader("Shading##fluid")) {
+                ImGui::SliderFloat("Thickness Scale##fluid", &settings.FluidThicknessScale,  0.1f, 10.0f, "%.2f");
+                ImGui::SliderFloat3("Extinction##fluid",     &settings.FluidExtinction.x,    0.0f, 5.0f,  "%.3f");
+                ImGui::SliderFloat("Refract##fluid",         &settings.FluidRefractStrength, 0.0f, 0.1f,  "%.3f");
+                ImGui::ColorEdit3 ("Water Color##fluid",     &settings.FluidWaterColor.x);
+            }
+            ImGui::Unindent();
+        }
+    }
+
     // 裁剪统计
     if (ImGui::CollapsingHeader("Statistics")) {
         const auto& stats = m_SceneRenderer->GetCullingStats();
