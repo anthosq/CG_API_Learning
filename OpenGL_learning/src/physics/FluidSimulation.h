@@ -23,6 +23,9 @@ public:
     // 推进一个子步，dt 已由调用方除以 substeps
     void Step(float dt);
 
+    // 平移仿真域和所有粒子，不重置模拟（纯平移时调用，保留速度场）
+    void TranslateDomain(glm::vec3 delta);
+
     // 渲染侧只读接口（Phase 12 零拷贝渲染用）
     GLuint GetPositionSSBO()  const { return m_Buffers.positionSSBO; }
     GLuint GetVelocitySSBO()  const { return m_Buffers.velocitySSBO; }
@@ -93,6 +96,9 @@ private:
     // Phase 11-E：粘性 + 涡旋
     Ref<ComputePipeline> m_XSPHViscosityCS;     // XSPH 速度平滑
     Ref<ComputePipeline> m_VorticityCS;         // 涡旋约束
+
+    // 平移辅助
+    Ref<ComputePipeline> m_TranslateCS;         // translate.glsl：平移 positions/predicted
 
     // ─── Simulation parameters ───────────────────────────────────────────
     int       m_ParticleCount  = 0;

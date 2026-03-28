@@ -69,8 +69,11 @@ void main() {
     float cosTheta = max(dot(normal, viewDir), 0.0);
     float fresnel  = F0_WATER + (1.0 - F0_WATER) * pow(1.0 - cosTheta, 5.0);
 
-    // 折射：偏移 UV 采样背景场景颜色
-    vec2  refractUV    = v_UV + normal.xy * u_RefractStrength;
+    // 折射：屏幕空间近似 v_UV + normal.xy * strength 仅对朝向摄像机的面有效。
+    // 侧面（normal.z 小）时 normal.xy 很大，偏移量过大会采到容器外部背景 → 竖向条纹。
+    // 用 normal.z² 缩放：侧面（z≈0.4）偏移缩减到 16%，顶面（z≈0.99）几乎不变。
+    float facingCamera = normal.z * normal.z;
+    vec2  refractUV    = v_UV + normal.xy * u_RefractStrength * facingCamera;
     refractUV          = clamp(refractUV, vec2(0.001), vec2(0.999));
     vec3  refractColor = texture(u_SceneColor, refractUV).rgb;
 

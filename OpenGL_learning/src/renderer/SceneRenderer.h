@@ -79,10 +79,11 @@ struct SceneRenderSettings {
     bool  EnableFluidRendering      = true;
     bool  ShowFluidParticles        = false;   // 粒子调试视图：按速度大小着色的点精灵
     int   FluidBlurRadius           = 15;      // 双边滤波卷积半径（参考：15）
+    int   FluidBlurIterations       = 5;       // 迭代次数：多次迭代才能抹平球面纹路（参考：多次）
     float FluidBlurSigmaS           = 6.0f;    // 空间高斯 σ
-    float FluidBlurSigmaD           = 0.08f;   // 深度差高斯 σ
+    float FluidBlurSigmaD           = 1.0f;    // 深度差高斯 σ（=1.0 ≈ 纯空间高斯，参考实现值）
     float FluidRefractStrength      = 0.025f;  // 折射 UV 偏移强度（参考：0.025）
-    float FluidRenderRadiusScale    = 2.0f;    // 渲染粒子半径缩放（参考：2.0，使点精灵覆盖粒子间隙）
+    float FluidRenderRadiusScale    = 3.0f;    // 渲染粒子半径缩放（斜视角需更大覆盖防间隙，3.0~4.0）
     // ThicknessScale 说明：
     //   参考实现片元输出 dz * 0.05（无量纲）；我们输出 dz * 2r = dz * 0.02m（米制）。
     //   等效缩放：0.05 / 0.02 = 2.5，使有效厚度与参考一致。
@@ -436,7 +437,7 @@ private:
     };
     std::vector<FluidDrawEntry> m_FluidDrawList;
 
-    Ref<Framebuffer>  m_FluidDepthFBO;     // 球面深度 + 厚度
+    Ref<Framebuffer>  m_FluidDepthFBO;       // 球面深度 + 厚度
     Ref<Framebuffer>  m_FluidBlurFBO[2];   // Ping-pong 双边滤波
     Ref<Framebuffer>  m_FluidNormalFBO;    // 视空间法线
     GLuint            m_FluidEmptyVAO = 0; // 无属性 VAO（point sprite 用）

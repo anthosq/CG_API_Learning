@@ -164,7 +164,7 @@ void FluidSimulation::InitParticles() {
     glm::vec3 fillMin = m_BoundaryMin + glm::vec3(padding);
     glm::vec3 fillMax = glm::vec3(
         m_BoundaryMax.x - padding,
-        fillMin.y + validH * 0.9f,
+        fillMin.y + validH * 0.75f,
         m_BoundaryMax.z - padding
     );
 
@@ -224,6 +224,7 @@ void FluidSimulation::LoadShaders() {
     m_VelocityUpdateCS   = Load("assets/shaders/physics/velocity_update.glsl");
     m_XSPHViscosityCS    = Load("assets/shaders/physics/xsph_viscosity.glsl");
     m_VorticityCS        = Load("assets/shaders/physics/vorticity.glsl");
+    m_TranslateCS        = Load("assets/shaders/physics/translate.glsl");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -262,7 +263,6 @@ void FluidSimulation::Step(float dt) {
         m_IntegrateCS->Bind();
         m_IntegrateCS->SetVec3 ("u_Gravity",      glm::vec3(0.0f, -9.8f, 0.0f));
         m_IntegrateCS->SetFloat("u_DeltaTime",     dt);
-        m_IntegrateCS->SetFloat("u_MassInverse",   m_MassInverse);
         m_IntegrateCS->SetUint ("u_ParticleCount", N);
         m_IntegrateCS->Dispatch(pGroups, 1, 1);
         ComputePipeline::Wait(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -408,6 +408,26 @@ void FluidSimulation::Step(float dt) {
         m_VorticityCS->Dispatch(pGroups, 1, 1);
         ComputePipeline::Wait(GL_SHADER_STORAGE_BARRIER_BIT);
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TranslateDomain
+// ─────────────────────────────────────────────────────────────────────────────
+
+void FluidSimulation::TranslateDomain(glm::vec3 delta) {
+    if (!m_Ready || m_ParticleCount == 0 || !m_TranslateCS) return;
+
+    m_BoundaryMin += delta;
+    m_BoundaryMax += delta;
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_Buffers.positionSSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_Buffers.predictedSSBO);
+
+    m_TranslateCS->Bind();
+    m_TranslateCS->SetVec3("u_Delta",         delta);
+    m_TranslateCS->SetUint("u_ParticleCount", static_cast<uint32_t>(m_ParticleCount));
+    m_TranslateCS->Dispatch(CeilDiv(m_ParticleCount, WORKGROUP_SIZE), 1, 1);
+    ComputePipeline::Wait(GL_SHADER_STORAGE_BARRIER_BIT);
 }
 
 } // namespace GLRenderer

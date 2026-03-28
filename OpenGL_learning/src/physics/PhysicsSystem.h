@@ -56,15 +56,24 @@ public:
                                            tr.Position.z + hd };
 
                 constexpr float kEps = 1e-4f;
-                bool changed =
-                    glm::any(glm::greaterThan(glm::abs(newMin - fluid.BoundaryMin), glm::vec3(kEps))) ||
-                    glm::any(glm::greaterThan(glm::abs(newMax - fluid.BoundaryMax), glm::vec3(kEps)));
+                const glm::vec3 oldSize = fluid.BoundaryMax - fluid.BoundaryMin;
+                const glm::vec3 newSize = newMax - newMin;
+                bool sizeChanged =
+                    glm::any(glm::greaterThan(glm::abs(newSize - oldSize), glm::vec3(kEps)));
+                bool posChanged =
+                    glm::any(glm::greaterThan(glm::abs(newMin - fluid.BoundaryMin), glm::vec3(kEps)));
 
-                if (changed) {
+                if (posChanged && !sizeChanged && fluid.Runtime) {
+                    // 纯平移：同步移动粒子，保留速度场和仿真状态
+                    const glm::vec3 delta = newMin - fluid.BoundaryMin;
+                    fluid.BoundaryMin = newMin;
+                    fluid.BoundaryMax = newMax;
+                    fluid.Runtime->TranslateDomain(delta);
+                } else if (sizeChanged) {
+                    // 尺寸变化 → grid 结构改变，必须重置模拟
                     fluid.BoundaryMin = newMin;
                     fluid.BoundaryMax = newMax;
                     if (fluid.Runtime) {
-                        // 边界变化 → 重建 grid，需重置模拟
                         m_PhysicsWorld.UnregisterFluid(entity.GetHandle());
                         fluid.Runtime = nullptr;
                     }
