@@ -103,6 +103,7 @@ void SceneRenderer::Shutdown() {
     m_FluidDepthFBO.Reset();
     m_FluidBlurFBO[0].Reset();
     m_FluidBlurFBO[1].Reset();
+    m_FluidThicknessFBO.Reset();
     m_FluidNormalFBO.Reset();
     m_FluidSceneColorFBO.Reset();
 
@@ -2360,6 +2361,17 @@ void SceneRenderer::EnsureFluidResources(uint32_t w, uint32_t h) {
         rebuild(m_FluidBlurFBO[1], spec);
     }
 
+    // Thickness FBO：经厚度扩散后的厚度图（R32F），供 ShadePass 使用
+    {
+        FramebufferSpec spec;
+        spec.Width              = w;
+        spec.Height             = h;
+        spec.ColorFormat        = GL_R32F;
+        spec.HasColorAttachment = true;
+        spec.HasDepthAttachment = false;
+        rebuild(m_FluidThicknessFBO, spec);
+    }
+
     // Normal FBO：颜色(RGBA16F)，无深度
     {
         FramebufferSpec spec;
@@ -2484,41 +2496,70 @@ void SceneRenderer::FluidBlurPass() {
 
     const float w = static_cast<float>(m_FluidBlurFBO[0]->GetWidth());
     const float h = static_cast<float>(m_FluidBlurFBO[0]->GetHeight());
-    const int   iters = std::max(1, m_Settings.FluidBlurIterations);
 
     glDisable(GL_DEPTH_TEST);
     glBindVertexArray(m_FluidEmptyVAO);
     shader->Bind();
-    shader->SetFloat("u_SigmaS",       m_Settings.FluidBlurSigmaS);
-    shader->SetFloat("u_SigmaD",       m_Settings.FluidBlurSigmaD);
-    shader->SetInt  ("u_KernelRadius", m_Settings.FluidBlurRadius);
-    shader->SetInt  ("u_FluidDepth",   0);
-    shader->SetVec2 ("u_TexelSize",    glm::vec2(1.0f / w, 1.0f / h));
+    shader->SetFloat("u_SigmaS",    m_Settings.FluidBlurSigmaS);
+    shader->SetFloat("u_Threshold", m_Settings.FluidNRFThreshold);
+    shader->SetInt  ("u_InputTex",  0);
+    shader->SetVec2 ("u_TexelSize", glm::vec2(1.0f / w, 1.0f / h));
 
-    for (int i = 0; i < iters; ++i) {
-        // 水平 pass：第一次从原始深度图读取，后续迭代从上一轮结果读取
-        m_FluidBlurFBO[0]->Bind();
-        RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glActiveTexture(GL_TEXTURE0);
-        if (i == 0)
-            glBindTexture(GL_TEXTURE_2D, m_FluidDepthFBO->GetDepthAttachment());
-        else
-            glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[1]->GetColorAttachment());
-        shader->SetInt("u_Direction", 0);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+    // ── NRF 深度平滑（3 pass）──────────────────────────────────────────
+    // Pass 1：水平 NRF（原始深度 → BlurFBO[0]）
+    m_FluidBlurFBO[0]->Bind();
+    RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_FluidDepthFBO->GetDepthAttachment());
+    shader->SetInt("u_Direction",    0);
+    shader->SetInt("u_KernelRadius", m_Settings.FluidBlurRadius);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
 
-        // 垂直 pass：BlurFBO[0] → BlurFBO[1]
-        m_FluidBlurFBO[1]->Bind();
-        RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[0]->GetColorAttachment());
-        shader->SetInt("u_Direction", 1);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-    }
+    // Pass 2：垂直 NRF（BlurFBO[0] → BlurFBO[1]）
+    m_FluidBlurFBO[1]->Bind();
+    RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[0]->GetColorAttachment());
+    shader->SetInt("u_Direction",    1);
+    shader->SetInt("u_KernelRadius", m_Settings.FluidBlurRadius);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
 
-    m_FluidBlurFBO[1]->Unbind();
+    // Pass 3：2D 清理（BlurFBO[1] → BlurFBO[0]，最终平滑深度在 BlurFBO[0]）
+    m_FluidBlurFBO[0]->Bind();
+    RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[1]->GetColorAttachment());
+    shader->SetInt("u_Direction",    2);
+    shader->SetInt("u_KernelRadius", m_Settings.FluidNRFCleanupRadius);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // ── 厚度图空间高斯扩散（2 pass）──────────────────────────────────
+    // 修复 NRF 间隙填充后边界透明光晕：深度被填充但厚度=0 → Beer-Lambert 透明。
+    // 用纯空间高斯把厚度向粒子间隙扩散，使边界区域具有连续厚度。
+    // Pass 4：水平厚度扩散（原始厚度 → BlurFBO[1] 作为临时缓冲）
+    m_FluidBlurFBO[1]->Bind();
+    RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_FluidDepthFBO->GetColorAttachment());
+    shader->SetInt("u_Direction",    3);
+    shader->SetInt("u_KernelRadius", m_Settings.FluidBlurRadius);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // Pass 5：垂直厚度扩散（BlurFBO[1] → ThicknessFBO，最终扩散厚度）
+    m_FluidThicknessFBO->Bind();
+    RenderCommand::SetViewport(0, 0, (uint32_t)w, (uint32_t)h);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[1]->GetColorAttachment());
+    shader->SetInt("u_Direction",    4);
+    shader->SetInt("u_KernelRadius", m_Settings.FluidBlurRadius);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    m_FluidThicknessFBO->Unbind();
     glBindVertexArray(0);
 }
 
@@ -2534,7 +2575,7 @@ void SceneRenderer::FluidNormalPass() {
 
     shader->Bind();
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[1]->GetColorAttachment());
+    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[0]->GetColorAttachment());  // NRF 最终结果在 FBO[0]
     shader->SetInt ("u_FluidDepthSmooth", 0);
     shader->SetMat4("u_InvProj", glm::inverse(m_ProjectionMatrix));
     shader->SetVec2("u_TexelSize", glm::vec2(1.0f / w, 1.0f / h));
@@ -2585,11 +2626,11 @@ void SceneRenderer::FluidShadePass() {
     shader->SetInt("u_FluidNormal", 0);
 
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[1]->GetColorAttachment());
+    glBindTexture(GL_TEXTURE_2D, m_FluidBlurFBO[0]->GetColorAttachment());  // NRF 最终结果在 FBO[0]
     shader->SetInt("u_FluidDepthSmooth", 1);
 
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, m_FluidDepthFBO->GetColorAttachment());
+    glBindTexture(GL_TEXTURE_2D, m_FluidThicknessFBO->GetColorAttachment());  // 空间高斯扩散后的厚度
     shader->SetInt("u_FluidThickness", 2);
 
     glActiveTexture(GL_TEXTURE3);
@@ -2613,6 +2654,7 @@ void SceneRenderer::FluidShadePass() {
     shader->SetVec3 ("u_Extinction",       m_Settings.FluidExtinction);
     shader->SetFloat("u_RefractStrength",  m_Settings.FluidRefractStrength);
     shader->SetFloat("u_ThicknessScale",   m_Settings.FluidThicknessScale);
+    shader->SetFloat("u_MinThickness",     m_Settings.FluidMinThickness);
     shader->SetFloat("u_EnvIntensity",     m_Environment.EnvironmentIntensity);
 
     glBindVertexArray(m_FluidEmptyVAO);

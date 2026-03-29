@@ -78,16 +78,17 @@ struct SceneRenderSettings {
     // 屏幕空间流体渲染（Phase 12）
     bool  EnableFluidRendering      = true;
     bool  ShowFluidParticles        = false;   // 粒子调试视图：按速度大小着色的点精灵
-    int   FluidBlurRadius           = 15;      // 双边滤波卷积半径（参考：15）
-    int   FluidBlurIterations       = 5;       // 迭代次数：多次迭代才能抹平球面纹路（参考：多次）
-    float FluidBlurSigmaS           = 6.0f;    // 空间高斯 σ
-    float FluidBlurSigmaD           = 1.0f;    // 深度差高斯 σ（=1.0 ≈ 纯空间高斯，参考实现值）
+    int   FluidBlurRadius           = 15;      // NRF 1D 核半径（像素）
+    float FluidBlurSigmaS           = 8.0f;    // 空间高斯 σ（像素）
+    float FluidNRFThreshold         = 0.02f;   // NRF 深度阈值（NDC，区分前后表面，典型 0.01~0.05）
+    int   FluidNRFCleanupRadius     = 3;       // 2D Cleanup pass 核半径（像素，典型 2~5）
     float FluidRefractStrength      = 0.025f;  // 折射 UV 偏移强度（参考：0.025）
     float FluidRenderRadiusScale    = 2.0f;    // 渲染粒子半径缩放（参考：2.0，使点精灵覆盖粒子间隙）
     // ThicknessScale 说明：
     //   参考实现片元输出 dz * 0.05（无量纲）；我们输出 dz * 2r = dz * 0.02m（米制）。
     //   等效缩放：0.05 / 0.02 = 2.5，使有效厚度与参考一致。
     float FluidThicknessScale       = 2.5f;   // 厚度缩放（参考等效 2.5：0.05/0.02m）
+    float FluidMinThickness         = 0.04f;  // 厚度下限（原始单位，低于此值的外围像素不渲染，消除透明光晕）
     // 消光系数：按物理水体校准（厚 0.2m 时红光吸收 ~70%，蓝光几乎不变）
     // 与参考等效：extinction_ours = extinction_ref × (ref_thickness / our_thickness) = 0.741 × 2.5
     glm::vec3 FluidWaterColor  = {0.259f, 0.518f, 0.957f};  // 仅用于 UI 显示参考色，shader 已不使用
@@ -437,10 +438,11 @@ private:
     };
     std::vector<FluidDrawEntry> m_FluidDrawList;
 
-    Ref<Framebuffer>  m_FluidDepthFBO;           // 球面深度 + 厚度
-    Ref<Framebuffer>  m_FluidBlurFBO[2];       // Ping-pong 双边滤波
-    Ref<Framebuffer>  m_FluidNormalFBO;        // 视空间法线
-    Ref<Framebuffer>  m_FluidSceneColorFBO;    // 场景颜色快照（ShadePass 前 blit，打破 feedback loop）
+    Ref<Framebuffer>  m_FluidDepthFBO;           // 球面深度（深度附件）+ 原始厚度（颜色附件 R32F）
+    Ref<Framebuffer>  m_FluidBlurFBO[2];         // NRF ping-pong，最终平滑深度在 [0]
+    Ref<Framebuffer>  m_FluidThicknessFBO;       // 经过空间高斯扩散的厚度图（R32F）
+    Ref<Framebuffer>  m_FluidNormalFBO;          // 视空间法线
+    Ref<Framebuffer>  m_FluidSceneColorFBO;      // 场景颜色快照（ShadePass 前 blit，打破 feedback loop）
     GLuint            m_FluidEmptyVAO = 0; // 无属性 VAO（point sprite 用）
 
     void FluidDepthPass();

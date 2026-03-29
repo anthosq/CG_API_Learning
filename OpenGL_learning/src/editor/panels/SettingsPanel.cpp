@@ -275,14 +275,16 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         ImGui::Checkbox("Particle Debug View##fluid", &settings.ShowFluidParticles);
         if (settings.EnableFluidRendering && !settings.ShowFluidParticles) {
             ImGui::Indent();
-            if (ImGui::CollapsingHeader("Depth & Blur##fluid")) {
-                ImGui::SliderFloat("Sprite Scale##fluid",  &settings.FluidRenderRadiusScale, 0.5f, 5.0f,  "%.2f");
-                ImGui::SliderInt  ("Blur Radius##fluid",   &settings.FluidBlurRadius,        1,    32);
-                ImGui::SliderFloat("Blur SigmaS##fluid",   &settings.FluidBlurSigmaS,        1.0f, 20.0f, "%.1f");
-                ImGui::SliderFloat("Blur SigmaD##fluid",   &settings.FluidBlurSigmaD,        0.01f, 0.5f, "%.3f");
+            if (ImGui::CollapsingHeader("Depth & NRF##fluid")) {
+                ImGui::SliderFloat("Sprite Scale##fluid",    &settings.FluidRenderRadiusScale, 0.5f, 5.0f,  "%.2f");
+                ImGui::SliderInt  ("NRF Radius##fluid",      &settings.FluidBlurRadius,        1,    40);
+                ImGui::SliderFloat("NRF SigmaS##fluid",      &settings.FluidBlurSigmaS,        1.0f, 20.0f, "%.1f");
+                ImGui::SliderFloat("NRF Threshold##fluid",   &settings.FluidNRFThreshold,      0.001f, 0.1f, "%.4f");
+                ImGui::SliderInt  ("Cleanup Radius##fluid",  &settings.FluidNRFCleanupRadius,  1,    10);
             }
             if (ImGui::CollapsingHeader("Shading##fluid")) {
                 ImGui::SliderFloat("Thickness Scale##fluid", &settings.FluidThicknessScale,  0.1f, 10.0f, "%.2f");
+                ImGui::SliderFloat("Min Thickness##fluid",   &settings.FluidMinThickness,    0.0f, 0.2f,  "%.4f");
                 ImGui::SliderFloat3("Extinction##fluid",     &settings.FluidExtinction.x,    0.0f, 5.0f,  "%.3f");
                 ImGui::SliderFloat("Refract##fluid",         &settings.FluidRefractStrength, 0.0f, 0.1f,  "%.3f");
                 ImGui::ColorEdit3 ("Water Color##fluid",     &settings.FluidWaterColor.x);

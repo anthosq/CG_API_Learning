@@ -35,6 +35,7 @@ uniform vec3  u_WaterColor;             // 基础水色（参考 rgb(66,132,244)
 uniform vec3  u_Extinction;             // Beer-Lambert 消光系数（= 1 - WaterColor）
 uniform float u_RefractStrength;        // 折射 UV 偏移强度（参考：0.025）
 uniform float u_ThicknessScale;         // 厚度缩放（参考：0.05，防止吸收过强）
+uniform float u_MinThickness;           // 厚度下限：低于此值的像素视为流体外围，不渲染（消除透明光晕）
 uniform float u_EnvIntensity;           // 环境贴图亮度缩放
 
 const float F0_WATER = 0.02;           // 水的 Fresnel 反射率（n≈1.33）
@@ -56,8 +57,18 @@ void main() {
         return;
     }
 
-    vec3  normal    = normalize(normalSample.xyz);
-    float thickness = texture(u_FluidThickness, v_UV).r * u_ThicknessScale;
+    vec3  normal       = normalize(normalSample.xyz);
+    float rawThickness = texture(u_FluidThickness, v_UV).r;
+
+    // 厚度下限剔除：NRF 间隙填充会将流体外围（距最近粒子约 BlurRadius 像素内）的
+    // 背景像素填充为流体深度，但这些像素的扩散厚度接近零，Beer-Lambert 几乎不吸收
+    // → 呈现透明光晕。低于 u_MinThickness 的像素属于流体"气泡外壳"，回退为背景。
+    if (rawThickness < u_MinThickness) {
+        out_Color = vec4(texture(u_SceneColor, v_UV).rgb, 1.0);
+        return;
+    }
+
+    float thickness = rawThickness * u_ThicknessScale;
 
     // 视方向（视空间，朝向摄像机）
     vec4  ndc          = vec4(v_UV * 2.0 - 1.0, fluidDepth * 2.0 - 1.0, 1.0);
