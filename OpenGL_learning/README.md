@@ -1,7 +1,7 @@
 # GLRenderer
 
 - 基于 OpenGL 4.3+ 构建的实时渲染引擎，实现了物理渲染管线、GPU 加速流体仿真与 ImGui 编辑器。
-- 演示视频链接: https://www.bilibili.com/video/BV1DPXhBvEkY/?vd_source=d6d290601d49bee6db647deb5eefbf34#reply297244438128
+- 演示视频链接: https://www.bilibili.com/video/BV1DPXhBvEkY
 
 
 ---
