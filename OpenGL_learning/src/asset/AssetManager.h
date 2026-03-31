@@ -1,6 +1,6 @@
 #pragma once
 
-// AssetManager.h - 集中式资产管理器 (参考 Hazel)
+// AssetManager.h - 集中式资产管理器
 //
 // 设计要点：
 // 1. 统一存储所有 Asset 派生类 (Ref<Asset>)
@@ -36,8 +36,6 @@ public:
     void Initialize(const std::filesystem::path& assetDirectory);
     void Shutdown();
 
-    // === Hazel 风格 API ===
-
     // 获取资产 (模板方法)
     template<typename T>
     Ref<T> GetAsset(AssetHandle handle) {
@@ -69,12 +67,10 @@ public:
         return asset->Handle;
     }
 
-    // === 文件导入 API ===
     AssetHandle ImportTexture(const std::filesystem::path& path,
                               const TextureSpec& spec = TextureSpec());
     AssetHandle ImportMeshSource(const std::filesystem::path& path);
 
-    // === 资产查询 ===
     bool IsAssetHandleValid(AssetHandle handle) const;
     bool IsAssetLoaded(AssetHandle handle) const;
     bool IsMemoryAsset(AssetHandle handle) const;
@@ -90,11 +86,9 @@ public:
     // 确保 handle 对应的资产已加载（根据注册表元数据触发重导入）
     bool EnsureLoaded(AssetHandle handle);
 
-    // === 目录操作 ===
     const std::filesystem::path& GetAssetDirectory() const { return m_AssetDirectory; }
     void ScanDirectory(const std::filesystem::path& directory);
 
-    // === 统计 ===
     size_t GetTotalAssetCount() const { return m_Registry.size(); }
     size_t GetLoadedAssetCount() const { return m_LoadedAssets.size(); }
 

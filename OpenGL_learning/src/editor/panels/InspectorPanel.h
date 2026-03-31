@@ -26,7 +26,7 @@ private:
     void DrawFluidComponent(ECS::FluidComponent& fluid);
     void DrawFluidEmitterComponent(ECS::FluidEmitterComponent& emitter);
 
-    // 材质编辑器 (Hazel 风格)
+    // 材质编辑器
     void DrawMaterialEditor(Ref<MaterialAsset> matAsset);
 
     // 通用组件头部（带删除按钮）

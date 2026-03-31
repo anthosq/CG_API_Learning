@@ -237,8 +237,6 @@ void Renderer2D::Flush() {
     s_Data.Stats.DrawCalls++;
 }
 
-// === 绘制 API ===
-
 void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size,
                           const glm::vec4& color) {
     DrawQuad({ position.x, position.y, 0.0f }, size, color);
@@ -402,8 +400,6 @@ void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& siz
     s_Data.Stats.QuadCount++;
 }
 
-// === Billboard ===
-
 void Renderer2D::DrawBillboard(const glm::vec3& position, float size,
                                const glm::vec4& color) {
     DrawBillboard(position, { size, size }, nullptr, color, -1);
@@ -467,8 +463,6 @@ void Renderer2D::DrawBillboard(const glm::vec3& position, const glm::vec2& size,
     s_Data.QuadIndexCount += 6;
     s_Data.Stats.QuadCount++;
 }
-
-// === 线段绘制 ===
 
 void Renderer2D::DrawLine(const glm::vec3& start, const glm::vec3& end,
                           const glm::vec4& color, float thickness) {
@@ -539,8 +533,6 @@ void Renderer2D::DrawDirectionArrow(const glm::vec3& origin, const glm::vec3& di
     DrawLine(endPoint, arrowBase + right * arrowHeadWidth, color, thickness);
     DrawLine(endPoint, arrowBase - right * arrowHeadWidth, color, thickness);
 }
-
-// === 统计 ===
 
 void Renderer2D::ResetStats() {
     s_Data.Stats.DrawCalls = 0;

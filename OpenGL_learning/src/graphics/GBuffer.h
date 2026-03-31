@@ -2,7 +2,7 @@
 
 // GBuffer - Deferred Shading 几何缓冲区
 //
-// 布局设计（带宽优先，参考 Unreal Engine G-Buffer 设计原则）：
+// 布局设计（带宽优先）：
 //
 //   Attachment 0  RGBA8         BaseColor.rgb + AO.a
 //   Attachment 1  RGBA8         Oct(Normal).rg + Roughness.b + Metallic.a
@@ -53,8 +53,6 @@ public:
 
     // 调整大小（重建所有纹理和 FBO）
     void Resize(uint32_t width, uint32_t height);
-
-    // --- Attachment 纹理访问（供 Deferred Lighting Pass 采样）---
 
     // Attachment 0: RGBA8 — BaseColor.rgb + AO.a
     GLuint GetBaseColorAO()       const { return m_TexBaseColorAO; }

@@ -21,7 +21,7 @@ FluidSimulation::FluidSimulation(const ECS::FluidComponent& params)
     , m_BoundaryMax      (params.BoundaryMax)
     , m_SceneRestitution (params.SceneRestitution)
 {
-    // 粒子质量（参考 Macklin & Müller：MASS = 6.4 * r³ * ρ₀）
+    // 粒子质量 m = 6.4 * r³ * ρ₀
     const float r3 = m_ParticleRadius * m_ParticleRadius * m_ParticleRadius;
     m_Mass        = 6.4f * r3 * m_RestDensity;
     m_MassInverse = 1.0f / m_Mass;
@@ -353,7 +353,7 @@ void FluidSimulation::Step(float dt) {
             m_DeltaPosCS->SetFloat("u_KernelRadius",   m_KernelRadius);
             m_DeltaPosCS->SetFloat("u_RestDensity",    m_RestDensity);
             m_DeltaPosCS->SetFloat("u_Mass",           m_Mass);
-            m_DeltaPosCS->SetFloat("u_ScorrK",         0.0f);   // 参考实现未使用，禁用
+            m_DeltaPosCS->SetFloat("u_ScorrK",         0.0f);
             m_DeltaPosCS->SetFloat("u_ScorrDeltaQ",    0.3f);
             m_DeltaPosCS->SetUint ("u_ParticleCount",  N);
             m_DeltaPosCS->SetUint ("u_MaxNeighbors",   (uint32_t)MAX_NEIGHBORS);
@@ -362,7 +362,7 @@ void FluidSimulation::Step(float dt) {
         }
 
         // ④-c：应用 Δp + 边界限位
-        // 边界 padding = 2.5 * h，确保边界粒子有完整 kernel 支持（参考实现取 0.1）
+        // 边界 padding = 2.5 * h，确保边界粒子有完整 kernel 支持
         {
             m_ApplyDeltaCS->Bind();
             m_ApplyDeltaCS->SetVec3 ("u_BoundaryMin",      m_BoundaryMin);

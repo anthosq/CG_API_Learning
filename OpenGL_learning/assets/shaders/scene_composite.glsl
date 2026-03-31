@@ -40,7 +40,6 @@ uniform float     u_SSRIntensity;
 
 // ACES Filmic Tonemapper
 // 来源: http://www.oscars.org/science-technology/sci-tech-projects/aces
-// 与 Hazel SceneComposite.glsl 完全一致
 vec3 ACESTonemap(vec3 color) {
     mat3 m1 = mat3(
         0.59719, 0.07600, 0.02840,

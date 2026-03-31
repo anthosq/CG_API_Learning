@@ -29,7 +29,7 @@ uniform sampler2D u_Texture;    // HDR 颜色（linear, GL_RGBA16F）
 uniform float     u_Threshold;  // 亮度阈值（默认 1.0）
 uniform float     u_Knee;       // 软过渡宽度（0~1，默认 0.1）
 
-// Quadratic Threshold（来自 Hazel）
+// Quadratic Threshold
 // curve.x = threshold - knee
 // curve.y = 2 * knee
 // curve.z = 0.25 / knee

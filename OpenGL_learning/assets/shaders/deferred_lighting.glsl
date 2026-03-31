@@ -220,7 +220,7 @@ uint SelectCascade(float viewDepth) {
     return uint(u_CascadeCount - 1);
 }
 
-// PCSS 阶段一：Blocker Search（64 采样，固定 searchRadius ~0.05，与 Hazelnut 对齐）
+// PCSS 阶段一：Blocker Search（64 采样，searchRadius ~0.05）
 float FindBlockerDistance(uint cascade, vec2 shadowUV, float depth, float bias) {
     const float lightRadiusUV = 0.05;
     float searchRadius = lightRadiusUV * (depth - 0.0) / depth;

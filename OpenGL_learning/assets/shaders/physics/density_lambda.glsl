@@ -6,7 +6,7 @@
 // Cᵢ = ρᵢ/ρ₀ - 1
 // λᵢ = -Cᵢ / ( Σₖ |∇_pk Cᵢ|² + ε )
 //
-// 密度核：Poly6；梯度核：Spiky（参考 Macklin & Müller 2013）
+// 密度核：Poly6；梯度核：Spiky
 
 layout(local_size_x = 256) in;
 
@@ -18,7 +18,7 @@ layout(std430, binding = 12) buffer Lambda        { float lambda_[]; };
 
 uniform float u_KernelRadius;
 uniform float u_RestDensity;
-uniform float u_RelaxationEps;   // 典型值 1e-6（参考 Macklin & Müller）
+uniform float u_RelaxationEps;   // 典型值 1e-6
 uniform float u_Mass;            // 粒子质量 = 6.4 * r³ * ρ₀
 uniform uint  u_ParticleCount;
 uniform uint  u_MaxNeighbors;

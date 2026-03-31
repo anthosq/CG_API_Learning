@@ -230,7 +230,6 @@ void SceneRenderer::RenderScene(ECS::World& world,
     // 同步 ECS 点光源到环境
     SyncLightsFromECS(world);
 
-    // === 新渲染流程 ===
     // 1. 开始场景 - 清空绘制列表，缓存相机数据
     BeginScene(camera, aspectRatio);
 
@@ -477,8 +476,6 @@ void SceneRenderer::CollectDrawCommandsFromECS(ECS::World& world) {
     // 注：光源和 SpriteComponent 的可视化由 EditorApp 通过 Renderer2D 处理
 }
 
-// === Pass 方法 ===
-
 void SceneRenderer::FlushDrawList() {
     if (!m_TargetFramebuffer) {
         std::cerr << "[SceneRenderer] No target framebuffer set!" << std::endl;
@@ -532,8 +529,6 @@ void SceneRenderer::FlushDrawList() {
                      (m_Environment.IBLEnvironment && m_Environment.IBLEnvironment->EnvMap);
 
     if (m_Settings.UseDeferredShading && m_GBuffer) {
-        // === Tiled Deferred 路径 ===
-
         // 1. G-Buffer Pass：写入几何数据（位置由深度重建，无独立 DepthPrePass）
         GPU_TIMER_BEGIN(m_GPUStats.GBuffer);
         GBufferPass();
@@ -625,8 +620,6 @@ void SceneRenderer::FlushDrawList() {
             WireframeOverlayPass();
         m_HDRFramebuffer->Unbind();
     } else {
-        // === Tiled Forward+ 路径（原有逻辑不变）===
-
         // 1. AO Pass：GTAO 优先（需要 GBuffer 法线；Forward+ 路径先跑 NormalPrePass）
         GPU_TIMER_BEGIN(m_GPUStats.AO);
         if (m_Settings.EnableGTAO && m_GTAOPipeline && m_GTAODenoisePipeline) {
@@ -1235,7 +1228,6 @@ void SceneRenderer::ParticlePass() {
     auto renderShader = m_ShaderLibrary.Get("particle_render");
     if (!renderShader) return;
 
-    // === Compute：Emit → Update → Compact ===
     for (auto& entry : m_ParticleDrawList) {
         if (!entry.System) continue;
         entry.System->Simulate(entry.Params,
@@ -1244,7 +1236,6 @@ void SceneRenderer::ParticlePass() {
             m_ParticleCompactPipeline);
     }
 
-    // === Render：加法混合 Billboard ===
     m_HDRFramebuffer->Bind();
 
     RenderCommand::EnableDepthTest();
@@ -1445,8 +1436,7 @@ void SceneRenderer::CalculateCascades(CascadeData* outCascades) {
             corners[j + 4] = worldCorners[j] + ray * thisFrac;
         }
 
-        // 包围球方法（参考 Hazel）：
-        // 求子视锥 8 个角点的中心，再找最大半径，得到一个不随相机旋转而改变的球。
+        // 包围球方法：求子视锥 8 个角点的中心，再找最大半径，得到一个不随相机旋转而改变的球。
         // 正交投影覆盖 [-radius, radius] x [-radius, radius]，大小固定，
         // texel-snap 可以完全消除平移和旋转引起的阴影抖动。
         glm::vec3 center(0.0f);

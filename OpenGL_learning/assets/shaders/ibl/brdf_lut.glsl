@@ -89,8 +89,6 @@ vec2 IntegrateBRDF(float NdotV, float roughness) {
     return vec2(A, B) / float(NumSamples);
 }
 
-// ----------- 主函数 -----------
-
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 void main() {
     vec2 outputSize = vec2(imageSize(o_BRDFLut));

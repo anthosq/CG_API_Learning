@@ -326,10 +326,10 @@ struct ParticleComponent {
 struct FluidComponent {
     float     ParticleRadius = 0.01f;
     float     RestDensity    = 1000.0f;   // kg/m³，水≈1000
-    float     Viscosity      = 0.005f;    // XSPH 系数，0=无粘性（参考实现默认 0.005）
+    float     Viscosity      = 0.005f;    // XSPH 系数，0=无粘性
     float     VorticityEps   = 0.0f;      // 涡旋约束强度，0=关闭
     int       MaxParticles   = 131072;  // 128k：1m×1m 域平衡水位约 75%（原 65536 仅 38%）
-    int       SolverIters    = 4;         // 密度约束迭代次数（参考：4）
+    int       SolverIters    = 4;         // 密度约束迭代次数
     int       Substeps       = 1;         // 已废弃：步长策略改为固定 dt=0.0016s，此字段保留序列化兼容
     glm::vec3 BoundaryMin    = {-0.5f, 0.0f, -0.5f};  // 由 Transform 自动覆盖
     glm::vec3 BoundaryMax    = { 0.5f, 2.0f,  0.5f};  // 对应 Scale=(1,2,1)

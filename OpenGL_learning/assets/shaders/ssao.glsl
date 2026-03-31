@@ -71,7 +71,7 @@ float LinearizeDepth(float rawDepth) {
 //   viewX = NDC_x * (1/P[0][0]) * linearDepth  (= aspect * tan(fov/2) * depth)
 //   viewY = NDC_y * (1/P[1][1]) * linearDepth  (= tan(fov/2) * depth)
 //   viewZ = -linearDepth  （OpenGL 相机朝 -Z）
-// 编译器会将 1/P[i][i] 提到循环外，等价于 Hazel 的 NDCToViewMul 预计算。
+// 编译器会将 1/P[i][i] 提到循环外，等效于预计算 NDCToViewMul。
 vec3 ReconstructViewPos(vec2 uv, float linearDepth) {
     vec2 ndc = uv * 2.0 - 1.0;
     return vec3(

@@ -9,7 +9,7 @@ namespace GLRenderer {
 
 // IBLProcessor - Image-Based Lighting 预处理器
 //
-// 将 HDR 等距矩形环境图 (.hdr) 转换为 IBL 所需贴图, 流程参考 Hazel:
+// 将 HDR 等距矩形环境图 (.hdr) 转换为 IBL 所需贴图:
 //
 //   HDR (equirect)
 //       ↓  [EquirectToCubemap compute]
@@ -28,12 +28,11 @@ namespace GLRenderer {
 
 class IBLProcessor : public RefCounter {
 public:
-    // 分辨率配置 (对应 Hazel RendererConfig)
     struct Config {
-        uint32_t EnvMapResolution     = 1024;  // RadianceMap 分辨率 (Hazel 默认 1024)
-        uint32_t IrradianceResolution = 32;    // IrradianceMap 分辨率
-        uint32_t PrefilterResolution  = 512;   // RadianceMap prefilter 基础分辨率
-        int      IrradianceSamples    = 512;   // 辐照度采样数 (Hazel 默认 512)
+        uint32_t EnvMapResolution     = 1024;
+        uint32_t IrradianceResolution = 32;
+        uint32_t PrefilterResolution  = 512;
+        int      IrradianceSamples    = 512;
     };
 
     static Ref<IBLProcessor> Create(const Config& config = Config());
@@ -55,7 +54,7 @@ public:
 private:
     explicit IBLProcessor(const Config& config);
 
-    // 处理步骤 (对应 Hazel VulkanRenderer::CreateEnvironmentMap 的三阶段)
+    // 处理步骤
     bool ProcessEquirectToCubemap(const Ref<Texture2D>& hdrTexture);  // → m_EnvUnfiltered
     void ProcessPrefilter();                                            // → m_RadianceMap
     void ProcessIrradiance();                                           // → m_IrradianceMap

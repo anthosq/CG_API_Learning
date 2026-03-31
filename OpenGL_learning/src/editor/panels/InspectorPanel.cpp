@@ -391,7 +391,6 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
         ImGui::PopID();
     };
 
-    // === Albedo ===
     if (ImGui::CollapsingHeader("Albedo", ImGuiTreeNodeFlags_DefaultOpen)) {
         DrawTextureSlot("Albedo Map", matAsset->GetAlbedoMap(),
             [&](AssetHandle h) { matAsset->SetAlbedoMap(h); },
@@ -404,7 +403,6 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
         }
     }
 
-    // === Normal ===
     if (ImGui::CollapsingHeader("Normal", ImGuiTreeNodeFlags_DefaultOpen)) {
         DrawTextureSlot("Normal Map", matAsset->GetNormalMap(),
             [&](AssetHandle h) {
@@ -422,7 +420,6 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
         }
     }
 
-    // === Metallic ===
     if (ImGui::CollapsingHeader("Metallic")) {
         DrawTextureSlot("Metallic Map", matAsset->GetMetallicMap(),
             [&](AssetHandle h) { matAsset->SetMetallicMap(h); },
@@ -434,7 +431,6 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
         }
     }
 
-    // === Roughness ===
     if (ImGui::CollapsingHeader("Roughness")) {
         DrawTextureSlot("Roughness Map", matAsset->GetRoughnessMap(),
             [&](AssetHandle h) { matAsset->SetRoughnessMap(h); },
@@ -446,7 +442,6 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
         }
     }
 
-    // === AO ===
     if (ImGui::CollapsingHeader("Ambient Occlusion")) {
         DrawTextureSlot("AO Map", matAsset->GetAOMap(),
             [&](AssetHandle h) { matAsset->SetAOMap(h); },
@@ -691,7 +686,6 @@ void InspectorPanel::DrawParticleComponent(ECS::ParticleComponent& p) {
     ImGui::Columns(2);
     ImGui::SetColumnWidth(0, 120.0f);
 
-    // --- Emitter ---
     ImGui::Text("Emit Rate");    ImGui::NextColumn();
     ImGui::DragFloat("##EmitRate", &p.EmitRate, 1.0f, 0.0f, 10000.0f, "%.0f/s");
     ImGui::NextColumn();
@@ -706,7 +700,6 @@ void InspectorPanel::DrawParticleComponent(ECS::ParticleComponent& p) {
         p.EmitSpread = glm::radians(spreadDeg);
     ImGui::NextColumn();
 
-    // --- Lifetime ---
     ImGui::Text("Lifetime Min"); ImGui::NextColumn();
     ImGui::DragFloat("##LifeMin", &p.LifetimeMin, 0.05f, 0.01f, p.LifetimeMax);
     ImGui::NextColumn();
@@ -715,7 +708,6 @@ void InspectorPanel::DrawParticleComponent(ECS::ParticleComponent& p) {
     ImGui::DragFloat("##LifeMax", &p.LifetimeMax, 0.05f, p.LifetimeMin, 30.0f);
     ImGui::NextColumn();
 
-    // --- Velocity ---
     ImGui::Text("Speed Min");   ImGui::NextColumn();
     ImGui::DragFloat("##SpeedMin", &p.SpeedMin, 0.05f, 0.0f, p.SpeedMax);
     ImGui::NextColumn();
@@ -728,7 +720,6 @@ void InspectorPanel::DrawParticleComponent(ECS::ParticleComponent& p) {
     ImGui::DragFloat3("##Gravity", &p.Gravity.x, 0.1f);
     ImGui::NextColumn();
 
-    // --- Appearance ---
     ImGui::Text("Color Begin"); ImGui::NextColumn();
     ImGui::ColorEdit4("##ColorBegin", &p.ColorBegin.x);
     ImGui::NextColumn();
@@ -745,7 +736,6 @@ void InspectorPanel::DrawParticleComponent(ECS::ParticleComponent& p) {
     ImGui::DragFloat("##SizeEnd", &p.SizeEnd, 0.01f, 0.0f, 10.0f);
     ImGui::NextColumn();
 
-    // --- Runtime ---
     ImGui::Text("Max Particles"); ImGui::NextColumn();
     int maxP = p.MaxParticles;
     if (ImGui::DragInt("##MaxParticles", &maxP, 64, 64, 1048576)) {

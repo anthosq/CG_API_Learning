@@ -9,12 +9,9 @@ layout(binding = 1) uniform samplerCube u_InputMap;
 
 uniform float u_Roughness;  // 当前 mip 对应的粗糙度 [0, 1]
 
-// ----------- Common -----------
 const float PI     = 3.141592;
 const float TwoPI  = 2.0 * PI;
 const float Epsilon = 0.00001;
-
-// ----------- EnvironmentMapping -----------
 
 vec3 GetCubeMapTexCoord(vec2 imageSize) {
     vec2 st = gl_GlobalInvocationID.xy / imageSize;
@@ -55,7 +52,7 @@ vec2 SampleHammersley(uint i, uint N) {
     return vec2(i * invN, RadicalInverse_VdC(i));
 }
 
-// GGX 重要性采样半向量 (来自 Hazel SampleGGX)
+// GGX 重要性采样半向量
 vec3 SampleGGX(float u1, float u2, float roughness) {
     float alpha = roughness * roughness;
     float cosTheta = sqrt((1.0 - u2) / (1.0 + (alpha * alpha - 1.0) * u2));
@@ -64,15 +61,13 @@ vec3 SampleGGX(float u1, float u2, float roughness) {
     return vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
 }
 
-// GGX 法线分布函数 (来自 Hazel NdfGGX)
+// GGX 法线分布函数
 float NdfGGX(float cosLh, float roughness) {
     float alpha = roughness * roughness;
     float alphaSq = alpha * alpha;
     float denom = (cosLh * cosLh) * (alphaSq - 1.0) + 1.0;
     return alphaSq / (PI * denom * denom);
 }
-
-// ----------- 主函数 -----------
 
 const uint NumSamples = 1024u;
 
@@ -82,7 +77,7 @@ void main() {
     if (gl_GlobalInvocationID.x >= uint(outputSize.x) ||
         gl_GlobalInvocationID.y >= uint(outputSize.y)) return;
 
-    // 假设 V = N (各向同性反射近似, 来自 Hazel)
+    // 假设 V = N (各向同性反射近似)
     vec3 N = GetCubeMapTexCoord(vec2(outputSize));
     vec3 Lo = N;
 

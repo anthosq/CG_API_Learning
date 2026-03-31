@@ -53,7 +53,7 @@ vec3 CookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 radiance,
 
     vec3 specular = (NDF * G * F) /
                     (4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001);
-    specular = min(specular, vec3(10.0));  // 限制高光峰值，防止低粗糙度爆光（来自 Hazel）
+    specular = min(specular, vec3(10.0));  // 限制高光峰值，防止低粗糙度爆光
 
     vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
     return (kD * albedo / PI + specular) * radiance * max(dot(N, L), 0.0);

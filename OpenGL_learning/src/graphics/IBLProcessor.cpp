@@ -50,7 +50,7 @@ bool IBLProcessor::Load(const std::filesystem::path& hdrPath) {
         return false;
     }
 
-    // 加载 HDR 等距矩形图 (Hazel 使用 RGBA32F, 我们用 RGB16F 节省显存)
+    // 加载 HDR 等距矩形图（RGB16F 节省显存）
     TextureSpec hdrSpec;
     hdrSpec.FlipVertically  = false;  // y-flip已在GetCubeMapTexCoord shader中处理 (1.0 - st.y)
     hdrSpec.GenerateMipmaps = false;
@@ -146,7 +146,7 @@ void IBLProcessor::ProcessPrefilter() {
     s_PrefilterPipeline->Bind();
     s_PrefilterPipeline->SetInt("u_InputMap", 1);
 
-    // 每个 mip 对应一个粗糙度, 分别 dispatch (参考 Hazel 逐 mip 循环)
+    // 每个 mip 对应一个粗糙度, 分别 dispatch
     const float deltaRoughness = 1.0f / glm::max(float(mipLevels) - 1.0f, 1.0f);
 
     for (uint32_t mip = 0; mip < mipLevels; mip++) {
@@ -179,7 +179,7 @@ void IBLProcessor::ProcessIrradiance() {
     // IrradianceMap: 低分辨率即可 (32x32), 无需 mip
     m_IrradianceMap = TextureCube::CreateEmpty(res, GL_RGBA16F, 1);
 
-    // 输入: RadianceMap (预滤波后的, 对应 Hazel 传 envFiltered)
+    // 输入: RadianceMap (预滤波后的)
     m_EnvUnfiltered->Bind(1);
 
     s_IrradiancePipeline->Bind();

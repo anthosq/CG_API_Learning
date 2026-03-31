@@ -53,7 +53,6 @@ void main() {
         dv += (velocity[j].xyz - vi) * w;
     }
 
-    // 参考公式：Δv = c * (1/ρ₀) * Σⱼ (vⱼ - vᵢ) W
     float invRho0 = 1.0f / u_RestDensity;
     velocity[i] = vec4(vi + u_Viscosity * invRho0 * dv, 0.0f);
 }

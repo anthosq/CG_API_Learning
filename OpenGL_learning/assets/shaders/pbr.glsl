@@ -207,7 +207,7 @@ vec3 CookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 F0, vec3 albed
     vec3 numerator = NDF * G * F;
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
     vec3 specular = numerator / denominator;
-    specular = min(specular, vec3(10.0));  // 限制高光峰值，防止低粗糙度时的爆光 (来自 Hazel)
+    specular = min(specular, vec3(10.0));  // 限制高光峰值，防止低粗糙度时的爆光
 
     vec3 kS = F;
     vec3 kD = vec3(1.0) - kS;
@@ -382,7 +382,7 @@ uint SelectCascade(float viewDepth) {
     return uint(u_CascadeCount - 1);
 }
 
-// PCSS 阶段一：Blocker Search（64 采样，固定 searchRadius ~0.05，与 Hazelnut 对齐）
+// PCSS 阶段一：Blocker Search（64 采样，searchRadius ~0.05）
 float FindBlockerDistance(uint cascade, vec2 shadowUV, float depth, float bias) {
     const float lightRadiusUV = 0.05;
     float searchRadius = lightRadiusUV * (depth - 0.0) / depth;
@@ -497,11 +497,11 @@ vec3 CalculateIBL(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float ro
     vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * float(mipLevels - 1)).rgb;
 
     // 从 BRDF LUT 读取 Fresnel 积分结果 (x = scale, y = bias)
-    // 使用 F (含视角 Fresnel) 而非 F0, 与 LearnOpenGL/Hazel 保持一致, 掠射角处更亮
+    // 使用 F (含视角 Fresnel) 而非 F0, 掠射角处更亮
     vec2 brdf = texture(u_BrdfLUT, vec2(max(NdotV, 0.0), roughness)).rg;
     vec3 specularIBL = prefilteredColor * (F0 * brdf.x + brdf.y);  // F0, not F (split-sum convention)
 
-    // AO 只影响间接漫反射, 不影响镜面反射 (Hazel 约定)
+    // AO 只影响间接漫反射, 不影响镜面反射
     return (diffuseIBL * ao + specularIBL) * u_EnvironmentIntensity;
 }
 

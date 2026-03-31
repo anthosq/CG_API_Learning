@@ -1,11 +1,7 @@
 // SSAO Blur - 深度感知双边模糊（Depth-Aware Bilateral Blur）
 //
-// === 为什么不用简单的 box blur ===
-//  简单均值模糊会把 AO 的值跨越物体边界传播：
-//   墙角处（AO 很暗） 模糊后污染到相邻物体表面  产生不正确的暗晕
-//
-// === 解决方案：深度感知权重 ===
-//  简化为深度连续性权重：
+//  简单均值模糊会跨越物体边界传播 AO 值，在墙角产生不正确的暗晕。
+//  使用深度连续性权重：
 //   weight = exp(-(|centerDepth - sampleDepth| / centerDepth) * sharpness)
 //   归一化深度差 → sharpness 参数与场景尺度无关，远近物体行为一致
 //   深度差小（同一表面）→ weight ≈ 1  → 正常参与模糊

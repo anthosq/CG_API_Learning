@@ -7,12 +7,9 @@ layout(binding = 1) uniform samplerCube u_RadianceMap;
 
 uniform int u_Samples;  // 采样数 (建议 64~512)
 
-// ----------- Common -----------
 const float PI     = 3.141592;
 const float TwoPI  = 2.0 * PI;
 const float Epsilon = 0.00001;
-
-// ----------- EnvironmentMapping -----------
 
 vec3 GetCubeMapTexCoord(vec2 imageSize) {
     vec2 st = gl_GlobalInvocationID.xy / imageSize;
@@ -28,7 +25,7 @@ vec3 GetCubeMapTexCoord(vec2 imageSize) {
     return normalize(ret);
 }
 
-// 计算 TBN 基向量 (无分支版本, 来自 Hazel)
+// 计算 TBN 基向量 (无分支版本)
 void ComputeBasisVectors(const vec3 N, out vec3 S, out vec3 T) {
     T = cross(N, vec3(0.0, 1.0, 0.0));
     T = mix(cross(N, vec3(1.0, 0.0, 0.0)), T, step(Epsilon, dot(T, T)));
@@ -41,7 +38,7 @@ vec3 TangentToWorld(const vec3 v, const vec3 N, const vec3 S, const vec3 T) {
     return S * v.x + T * v.y + N * v.z;
 }
 
-// Hammersley 低差异序列 (来自 Hazel)
+// Hammersley 低差异序列
 float RadicalInverse_VdC(uint bits) {
     bits = (bits << 16u) | (bits >> 16u);
     bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
@@ -56,14 +53,12 @@ vec2 SampleHammersley(uint i, uint samples) {
     return vec2(i * invSamples, RadicalInverse_VdC(i));
 }
 
-// 均匀半球采样 (来自 Hazel SampleHemisphere)
+// 均匀半球采样
 // u1 → z 轴分量, u2 → 方位角
 vec3 SampleHemisphere(float u1, float u2) {
     const float u1p = sqrt(max(0.0, 1.0 - u1 * u1));
     return vec3(cos(TwoPI * u2) * u1p, sin(TwoPI * u2) * u1p, u1);
 }
-
-// ----------- 主函数 -----------
 
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 void main() {

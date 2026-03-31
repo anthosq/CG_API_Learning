@@ -99,8 +99,7 @@ public:
                 m_PhysicsWorld.CreateEmitterSim(16384);
         }
 
-        // 固定步长驱动（与参考实现一致）
-        // DELTA_TIME = 0.0016s，每帧恰好 1 步，不随帧率变化。
+        // 固定步长驱动：DELTA_TIME = 0.0016s，每帧恰好 1 步，不随帧率变化。
         // 低帧率时物理呈慢动作，但计算量不变 → 无性能雪崩。
         // MAX_CATCH_UP = 2：允许偶发卡顿后最多追 2 步，避免时间累计误差过大。
         constexpr float FIXED_PHYSICS_DT = 0.0016f;

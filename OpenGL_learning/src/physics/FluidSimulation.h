@@ -48,8 +48,7 @@ private:
     void InitParticles();       // dam-break：在边界左下角填充粒子格子
     void LoadShaders();
 
-    // h=0.04m、r=0.01m 球形邻域立方堆积理论最大邻居 ≈ 33，
-    // 64 是安全上界（参考实现 GUI 可调，典型值 64）
+    // 球形邻域立方堆积理论最大邻居 ≈ 33，64 是安全上界
     static constexpr int MAX_NEIGHBORS    = 64;
     static constexpr int WORKGROUP_SIZE   = 256;
 

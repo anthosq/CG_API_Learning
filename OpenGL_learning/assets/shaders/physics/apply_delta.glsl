@@ -5,8 +5,7 @@
 // predicted[i] += deltaPos[i]
 // clamp 到 [BoundaryMin + pad, BoundaryMax - pad]
 //
-// u_BoundaryPadding = 2.5 * h（参考实现取 0.1 = 2.5 * 0.04）
-// 确保边界粒子在 kernel 覆盖范围内有完整的邻居支持，避免密度塌缩
+// u_BoundaryPadding = 2.5 * h，确保边界粒子有完整邻居支持，避免密度塌缩
 
 layout(local_size_x = 256) in;
 

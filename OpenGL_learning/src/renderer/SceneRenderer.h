@@ -85,14 +85,14 @@ struct SceneRenderSettings {
     float FluidNRFThreshold         = 0.02f;   // NRF 深度阈值（NDC，区分前后表面，典型 0.01~0.05）
     int   FluidNRFCleanupRadius     = 3;       // 2D Cleanup pass 核半径（像素，典型 2~5）
     float FluidRefractStrength      = 0.025f;  // 折射 UV 偏移强度（0.025）
-    float FluidRenderRadiusScale        = 2.0f;    // 渲染粒子半径缩放（参考：2.0，使点精灵覆盖粒子间隙）
+    float FluidRenderRadiusScale        = 2.0f;    // 渲染粒子半径缩放（使点精灵覆盖粒子间隙）
     float FluidEmitterRenderRadiusScale = 5.0f;    // Emitter 粒子单独渲染缩放（小 radius 时需更大值才能被 NRF 正确平滑）
     // dz * 2r = dz * 0.02m（米制）。
     float FluidThicknessScale       = 2.5f;   // 厚度缩放（等效 2.5：0.05/0.02m）
     float FluidMinThickness         = 0.04f;  // 厚度下限（原始单位，低于此值的外围像素不渲染，消除透明光晕）
     // 消光系数：按物理水体校准（厚 0.2m 时红光吸收 ~70%，蓝光几乎不变）
     // extinction_ours = extinction_ref × (ref_thickness / our_thickness) = 0.741 × 2.5
-    glm::vec3 FluidWaterColor  = {0.259f, 0.518f, 0.957f};  // 仅用于 UI 显示参考色，shader 已不使用
+    glm::vec3 FluidWaterColor  = {0.259f, 0.518f, 0.957f};  // 仅用于 UI 显示，shader 已不使用
     glm::vec3 FluidExtinction  = {0.741f, 0.482f, 0.043f};  
 
     // SSR 屏幕空间反射（仅 Deferred 路径）
@@ -217,7 +217,6 @@ public:
     void Initialize();
     void Shutdown();
 
-    // === Submit API ===
     void BeginScene(const Camera& camera, float aspectRatio);
     void EndScene();
 
@@ -236,7 +235,6 @@ public:
                           const glm::mat4& transform,
                           int entityID = -1);
 
-    // === 旧 API: 兼容现有代码 ===
     void RenderScene(ECS::World& world,
                      Framebuffer& targetFBO,
                      const Camera& camera,
@@ -370,7 +368,6 @@ private:
     Ref<Texture2D> m_DefaultSpecular;
     Ref<MaterialAsset> m_DefaultMaterial;
 
-    // === 绘制列表 ===
     std::vector<DrawCommand> m_OpaqueDrawList;
     std::vector<DrawCommand> m_TransparentDrawList;
     std::vector<LightEntityInfo> m_LightEntities;
@@ -391,11 +388,9 @@ private:
     // 与 m_OpaqueDrawList 一一对应的世界空间 AABB（用于 BVH 和视锥裁剪）
     std::vector<AABB> m_WorldAABBs;
 
-    // === Pipeline ===
     std::unique_ptr<Pipeline> m_OpaquePipeline;
     std::unique_ptr<Pipeline> m_TransparentPipeline;
 
-    // === 当前帧数据 ===
     Framebuffer* m_TargetFramebuffer = nullptr;
     glm::mat4 m_ViewMatrix;
     glm::mat4 m_ProjectionMatrix;
@@ -403,12 +398,10 @@ private:
     float     m_CameraNear = 0.1f;
     float     m_CameraFar  = 1000.0f;
 
-    // === Uniform Buffer Objects ===
     std::unique_ptr<UniformBuffer> m_CameraUBO;
     std::unique_ptr<UniformBuffer> m_LightingUBO;
     std::unique_ptr<UniformBuffer> m_ShadowUBO;
 
-    // === Tiled Forward+ ===
     Ref<ComputePipeline>  m_TileLightCullPipeline;
     Ref<StorageBuffer>    m_PointLightSSBO;        // PointLightGPU[]
     Ref<StorageBuffer>    m_TileLightCountSSBO;    // int[numTiles]
@@ -419,7 +412,6 @@ private:
     // Deferred 迁移后改为指向 GBuffer 深度附件，TiledLightCullPass 无需感知来源。
     GLuint                m_SceneDepthTexture = 0;
 
-    // === 阴影 ===
     Ref<ShadowMap>             m_ShadowMap;
     std::unique_ptr<Pipeline>  m_ShadowPipeline;
     CascadeData                m_Cascades[4];   // 当前帧计算结果，最多 4 个 cascade
@@ -432,7 +424,6 @@ private:
 
     BVH                        m_SceneBVH;
 
-    // === 后处理 ===
     // 所有几何/天空盒/网格 Pass 均渲染到此 HDR FBO（GL_RGBA16F + EntityID + Depth）
     // CompositePass 从此处读取并写到 m_TargetFramebuffer（GL_RGBA8，ImGui 显示）
     Ref<Framebuffer>           m_HDRFramebuffer;
@@ -451,13 +442,11 @@ private:
     CullingStats               m_CullingStats;
     GPUProfileStats            m_GPUStats;
 
-    // === SSAO ===
     Ref<Framebuffer>           m_GNormalFBO;     // 法线预处理 FBO（RGBA16F normal + depth tex，Forward+ 路径使用）
     Ref<Framebuffer>           m_SSAOFbo;        // 原始 AO（R16F）
     Ref<Framebuffer>           m_SSAOBlurFBO;    // 模糊后 AO（R16F）
     std::vector<glm::vec3>     m_SSAOKernel;     // 半球采样核（切线空间）
 
-    // === GTAO ===
     GLuint m_GTAORawTex      = 0;   // R32UI：raw AO + bent normal（compute image2D 写入）
     GLuint m_GTAOEdgesTex    = 0;   // R8：LRTB 边缘权重图
     GLuint m_GTAODenoisedTex = 0;   // R32UI：降噪后 AO + bent normal
@@ -468,7 +457,6 @@ private:
     Ref<ComputePipeline> m_GTAOPipeline;
     Ref<ComputePipeline> m_GTAODenoisePipeline;
 
-    // === SSR ===
     // Hi-Z 纹理：R32F，完整 mip 链，GL_NEAREST 过滤，MIN 下采样（见 hiz_build.glsl）
     // 使用原始 GLuint 而非 Texture2D，因为需要精确控制 mip 数量与 glTexStorage2D
     GLuint m_HiZTex       = 0;
@@ -498,10 +486,8 @@ private:
 
     int m_FrameIndex = 0;  // 每帧递增，用于 SSR 时间抖动
 
-    // === Deferred Shading ===
     Ref<GBuffer>               m_GBuffer;        // 几何缓冲区（Deferred 路径使用）
 
-    // === 屏幕空间流体渲染（Phase 12）===
     struct FluidDrawEntry {
         GLuint positionSSBO  = 0;
         GLuint velocitySSBO  = 0;

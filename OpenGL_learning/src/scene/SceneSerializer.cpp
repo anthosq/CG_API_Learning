@@ -117,8 +117,7 @@ static json SerializeEntity(ECS::Entity entity,
         }
 
 
-        // 材质：参考 Hazel，把 MaterialAsset 属性内联写入场景（替代 .hmaterial 文件）
-        // 纹理用文件路径存储，嵌入纹理（无路径）保存空字符串
+        // 材质属性内联写入场景，纹理用文件路径存储
         if (c.Materials) {
             auto getTexPath = [&](AssetHandle h) -> std::string {
                 if (!h.IsValid()) return "";
@@ -533,7 +532,7 @@ static void DeserializeComponents(ECS::Entity entity, const json& jc,
             c.MeshHandle = StrToHandle(jm.value("Handle", "0"));
         }
 
-        // 材质：从内联数据重建 MaterialAsset（Hazel 式 .hmaterial 的内联替代）
+        // 从内联数据重建 MaterialAsset
         if (jm.contains("Materials") && !jm["Materials"].empty()) {
             auto importTex = [&](const std::string& path, bool srgb) -> AssetHandle {
                 if (path.empty()) return AssetHandle(0);
