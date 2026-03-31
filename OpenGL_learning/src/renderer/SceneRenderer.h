@@ -267,6 +267,10 @@ public:
         return m_SSAOBlurFBO ? m_SSAOBlurFBO->GetColorAttachment() : 0;
     }
 
+    // 当前渲染分辨率（供 UI 预览贴图时计算正确宽高比）
+    uint32_t GetRenderWidth()  const { return m_HDRFramebuffer ? m_HDRFramebuffer->GetWidth()  : 1; }
+    uint32_t GetRenderHeight() const { return m_HDRFramebuffer ? m_HDRFramebuffer->GetHeight() : 1; }
+
     // 着色器库访问
     ShaderLibrary& GetShaderLibrary() { return m_ShaderLibrary; }
 

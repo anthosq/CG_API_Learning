@@ -258,10 +258,14 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         if (ImGui::Begin("AO Buffer", &m_ShowAODebug)) {
             uint32_t texID = m_SceneRenderer->GetSSAODebugTexture();
             if (texID != 0) {
-                ImVec2 avail = ImGui::GetContentRegionAvail();
-                float  side  = glm::min(avail.x, avail.y);
+                ImVec2 avail  = ImGui::GetContentRegionAvail();
+                float  aspect = (float)m_SceneRenderer->GetRenderWidth()
+                              / (float)m_SceneRenderer->GetRenderHeight();
+                float  w = avail.x;
+                float  h = w / aspect;
+                if (h > avail.y) { h = avail.y; w = h * aspect; }
                 ImGui::Image((ImTextureID)(uintptr_t)texID,
-                             ImVec2(side, side),
+                             ImVec2(w, h),
                              ImVec2(0, 1), ImVec2(1, 0));
             } else {
                 ImGui::TextDisabled("(not available — enable SSAO or GTAO first)");
