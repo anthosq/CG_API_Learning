@@ -144,9 +144,10 @@ layout(std140, binding = 3) uniform ShadowData {
     int   u_CascadeCount;
     float u_CascadeTransitionFade;
 };
-uniform sampler2DArrayShadow u_ShadowMap;
-uniform bool u_SoftShadows;
-uniform bool u_ShowCascades;
+uniform sampler2DArray u_ShadowMap;  // 原始深度（无硬件比较），PCSS 和 PCF 均用此采样器
+uniform bool  u_SoftShadows;
+uniform float u_LightSize;          // PCSS 虚拟光源半径（UV 空间）；0 = 固定核 PCF
+uniform bool  u_ShowCascades;
 
 const float PI = 3.14159265359;
 
@@ -335,8 +336,8 @@ vec3 CalculateSpotLight(vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, floa
     return CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness);
 }
 
-// Poisson disk 16 样本（PCF 软阴影偏移）
-const vec2 g_PoissonDisk[16] = vec2[](
+// Poisson disk 64 样本（PCF / PCSS 软阴影偏移）
+const vec2 g_PoissonDisk[64] = vec2[](
     vec2(-0.94201624, -0.39906216), vec2( 0.94558609, -0.76890725),
     vec2(-0.09418410, -0.92938870), vec2( 0.34495938,  0.29387760),
     vec2(-0.91588581,  0.45771432), vec2(-0.81544232, -0.87912464),
@@ -344,7 +345,31 @@ const vec2 g_PoissonDisk[16] = vec2[](
     vec2( 0.44323325, -0.97511554), vec2( 0.53742981, -0.47373420),
     vec2(-0.26496911, -0.41893023), vec2( 0.79197514,  0.19090188),
     vec2(-0.24188840,  0.99706507), vec2(-0.81409955,  0.91437590),
-    vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790)
+    vec2( 0.19984126,  0.78641367), vec2( 0.14383161, -0.14100790),
+    vec2(-0.41392300, -0.43975700), vec2(-0.97915300, -0.20124500),
+    vec2(-0.86557900, -0.28869500), vec2(-0.24370400, -0.18637800),
+    vec2(-0.29492000, -0.05574800), vec2(-0.60445200, -0.54425100),
+    vec2(-0.41805600, -0.58767900), vec2(-0.54915600, -0.41587700),
+    vec2(-0.23808000, -0.61176100), vec2(-0.26700400, -0.45970200),
+    vec2(-0.10000600, -0.22911600), vec2(-0.10192800, -0.38038200),
+    vec2(-0.68146700, -0.70077300), vec2(-0.76348800, -0.54338600),
+    vec2(-0.54903000, -0.75074900), vec2(-0.80904500, -0.40873800),
+    vec2(-0.38813400, -0.77344800), vec2(-0.42939200, -0.89489200),
+    vec2(-0.13159700,  0.06505800), vec2(-0.27500200,  0.10292200),
+    vec2(-0.10611700, -0.06832700), vec2(-0.29458600, -0.89151500),
+    vec2(-0.62941800,  0.37938700), vec2(-0.40725700,  0.33974800),
+    vec2( 0.07165000, -0.38428400), vec2( 0.02201800, -0.26379300),
+    vec2( 0.00387900, -0.13607300), vec2(-0.13753300, -0.76784400),
+    vec2(-0.05087400, -0.90606800), vec2( 0.11413300, -0.07005300),
+    vec2( 0.16331400, -0.21723100), vec2(-0.10026200, -0.58799200),
+    vec2(-0.00494200,  0.12536800), vec2( 0.03530200, -0.61931000),
+    vec2( 0.19564600, -0.45902200), vec2( 0.30396900, -0.34636200),
+    vec2(-0.67811800,  0.68509900), vec2(-0.62841800,  0.50797800),
+    vec2(-0.50847300,  0.45875300), vec2( 0.03213400, -0.78203000),
+    vec2( 0.12259500,  0.28035300), vec2(-0.04364300,  0.31211900),
+    vec2( 0.13299300,  0.08517000), vec2(-0.19210600,  0.28584800),
+    vec2( 0.18362100, -0.71324200), vec2( 0.26522000, -0.59671600),
+    vec2(-0.00962800, -0.48305800), vec2(-0.01851600,  0.43570300)
 );
 
 // 选择 cascade：用相机空间深度与切分点比较
@@ -357,7 +382,25 @@ uint SelectCascade(float viewDepth) {
     return uint(u_CascadeCount - 1);
 }
 
-// 单个 cascade 采样（PCF 或硬阴影）
+// PCSS 阶段一：Blocker Search（64 采样，固定 searchRadius ~0.05，与 Hazelnut 对齐）
+float FindBlockerDistance(uint cascade, vec2 shadowUV, float depth, float bias) {
+    const float lightRadiusUV = 0.05;
+    float searchRadius = lightRadiusUV * (depth - 0.0) / depth;
+    float sumBlocker  = 0.0;
+    int   numBlockers = 0;
+    float layer = float(cascade);
+    for (int i = 0; i < 64; i++) {
+        vec2  offset = g_PoissonDisk[i] * searchRadius;
+        float z      = textureLod(u_ShadowMap, vec3(shadowUV + offset, layer), 0).r;
+        if (z < depth - bias) {
+            sumBlocker += z;
+            numBlockers++;
+        }
+    }
+    return (numBlockers > 0) ? sumBlocker / float(numBlockers) : -1.0;
+}
+
+// 单个 cascade 采样（硬阴影 / 固定核 PCF / PCSS）
 float SampleShadow(uint cascade, vec3 worldPos, float bias) {
     vec4 lightSpacePos = u_LightSpaceMatrices[cascade] * vec4(worldPos, 1.0);
     vec3 projCoords    = lightSpacePos.xyz / lightSpacePos.w;
@@ -368,16 +411,39 @@ float SampleShadow(uint cascade, vec3 worldPos, float bias) {
         return 1.0;
 
     float layer = float(cascade);
-    if (u_SoftShadows) {
-        float shadow = 0.0;
-        float texelSize = 1.0 / float(textureSize(u_ShadowMap, 0).x);
-        for (int i = 0; i < 16; i++) {
-            vec2 offset = g_PoissonDisk[i] * texelSize * 1.5;
-            shadow += texture(u_ShadowMap, vec4(shadowUV + offset, layer, depth - bias));
+
+    if (!u_SoftShadows) {
+        float z = textureLod(u_ShadowMap, vec3(shadowUV, layer), 0).r;
+        return step(depth - bias, z);
+    }
+
+    if (u_LightSize > 0.0) {
+        // PCSS：两阶段，PCF 内核随 penumbra 动态缩放
+        float avgBlocker = FindBlockerDistance(cascade, shadowUV, depth, bias);
+        if (avgBlocker < 0.0) return 1.0;
+
+        float penumbraWidth = (depth - avgBlocker) / avgBlocker;
+        const float NEAR    = 0.01;
+        float uvRadius      = penumbraWidth * u_LightSize * NEAR / depth;
+        uvRadius            = min(uvRadius, 0.002);
+
+        float sum = 0.0;
+        for (int i = 0; i < 64; i++) {
+            vec2  offset = g_PoissonDisk[i] * uvRadius;
+            float z      = textureLod(u_ShadowMap, vec3(shadowUV + offset, layer), 0).r;
+            sum         += step(depth - bias, z);
         }
-        return shadow / 16.0;
+        return sum / 64.0;
     } else {
-        return texture(u_ShadowMap, vec4(shadowUV, layer, depth - bias));
+        // 固定核 Poisson PCF（LightSize = 0，退化为固定软阴影）
+        float texelSize = 1.0 / float(textureSize(u_ShadowMap, 0).x);
+        float sum = 0.0;
+        for (int i = 0; i < 64; i++) {
+            vec2  offset = g_PoissonDisk[i] * texelSize * 1.5;
+            float z      = textureLod(u_ShadowMap, vec3(shadowUV + offset, layer), 0).r;
+            sum         += step(depth - bias, z);
+        }
+        return sum / 64.0;
     }
 }
 
@@ -442,7 +508,6 @@ vec3 CalculateIBL(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float ro
 void main() {
     // albedo 贴图以 GL_SRGB8 加载，GPU 采样时已自动线性化。
     // u_AlbedoColor 是面板输入的 sRGB 感知颜色，需手动转换到线性空间再相乘。
-    // 参考 Hazel: m_Params.Albedo = albedoTexColor.rgb * ToLinear(AlbedoColor)
     vec3 albedo = texture(u_AlbedoMap, fs_in.TexCoord).rgb
                   * pow(max(u_AlbedoColor, vec3(0.0)), vec3(2.2));
     float metallic = texture(u_MetallicMap, fs_in.TexCoord).r * u_Metallic;

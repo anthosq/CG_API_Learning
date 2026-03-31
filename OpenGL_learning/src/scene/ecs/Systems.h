@@ -150,6 +150,17 @@ public:
                 transform.Dirty = true;
             });
 
+        // 更新 Z 轴振荡器
+        world.Each<TransformComponent, OscillatorComponent>(
+            [deltaTime](Entity entity, TransformComponent& transform, OscillatorComponent& osc) {
+                if (osc._time == 0.0f)
+                    osc._baseZ = transform.Position.z;
+                osc._time += deltaTime;
+                transform.Position.z = osc._baseZ +
+                    osc.Amplitude * std::sin(2.0f * glm::pi<float>() * osc.Frequency * osc._time + osc.Phase);
+                transform.Dirty = true;
+            });
+
         // 更新轨道运动
         world.Each<TransformComponent, OrbiterComponent>(
             [&world, deltaTime](Entity entity, TransformComponent& transform, OrbiterComponent& orbiter) {

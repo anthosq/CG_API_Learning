@@ -1,5 +1,4 @@
 // SSAO - Screen Space Ambient Occlusion
-// 参考 Hazel/XeGTAO 的若干优化技巧
 //
 // 优化点说明：
 //

@@ -35,14 +35,12 @@ float gaussian(float x, float sigma) {
     return exp(-0.5 * (x * x) / (sigma * sigma));
 }
 
-// ──────────────────────────────────────────────
 // 完整 1D NRF（水平或垂直深度平滑）
 //
 // 区分中心像素所属层次（前层 vs 后层），分别用对应层样本平滑：
 //   前表面 / 间隙：只取 d ≤ dMin + threshold（前层）
 //   后表面       ：只取 d >  dMin + threshold（后层，独立平滑）
 // 间隙像素（depth≥0.9999）按前表面处理，由前层流体深度填充。
-// ──────────────────────────────────────────────
 void nrfDepth1D(vec2 dir) {
     float centerDepth = texture(u_InputTex, v_UV).r;
     bool  isGap       = (centerDepth >= 0.9999);
@@ -72,9 +70,7 @@ void nrfDepth1D(vec2 dir) {
     out_Value = (wSum > 1e-6) ? (sum / wSum) : centerDepth;
 }
 
-// ──────────────────────────────────────────────
 // 2D 清理（小核双边，修复分离式 1D NRF 的十字形伪影）
-// ──────────────────────────────────────────────
 void nrfDepth2DCleanup() {
     float centerDepth = texture(u_InputTex, v_UV).r;
     if (centerDepth >= 0.9999) { out_Value = centerDepth; return; }
@@ -93,7 +89,6 @@ void nrfDepth2DCleanup() {
     out_Value = (wSum > 1e-6) ? (sum / wSum) : centerDepth;
 }
 
-// ──────────────────────────────────────────────
 // 厚度图纯空间高斯扩散（水平或垂直）
 //
 // 问题根因：NRF 将间隙像素的深度填充为流体深度，但厚度图中这些像素仍为 0。
@@ -103,7 +98,6 @@ void nrfDepth2DCleanup() {
 //   - 零厚度样本跳过（不往外扩散 0 值），避免稀释有效厚度
 //   - 中心厚度=0 且有邻居贡献 → 填充为邻居加权均值（消除透明光晕）
 //   - 中心厚度=0 且无邻居（真背景）→ 输出 0（ShadePass 不渲染该像素）
-// ──────────────────────────────────────────────
 void thicknessBlur1D(vec2 dir) {
     float sum = 0.0, wSum = 0.0;
     for (int i = -u_KernelRadius; i <= u_KernelRadius; i++) {

@@ -1,6 +1,5 @@
 // Prefiltered Environment Map Compute Shader
 // 使用 GGX NDF 重要性采样 + Mipmap Filtered Importance Sampling (MFIS) 预滤波环境贴图
-// 参考: Hazel EnvironmentMipFilter.glsl + EnvironmentMapping.glslh + PBR.glslh
 // 每个 mip 级别单独 dispatch 一次
 #version 430 core
 

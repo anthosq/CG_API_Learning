@@ -1,7 +1,6 @@
 // BRDF Integration LUT Compute Shader
 // 预计算 PBR Split-Sum 近似所需的 BRDF 积分查找表
 // 输出: RG16F 纹理 (R = scale, G = bias)
-// 参考: Hazel PBR.glslh + Epic Games "Real Shading in Unreal Engine 4"
 #version 430 core
 
 layout(binding = 0, rg16f) restrict writeonly uniform image2D o_BRDFLut;

@@ -6,6 +6,7 @@
 #include "physics/FluidSimulation.h"
 #include "core/Ref.h"
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -89,17 +90,54 @@ public:
             }
         });
 
-        // ③ 固定步长驱动（与参考实现一致）
+        // ③ EmitterFluidSimulation 懒创建（首次出现发射器组件时）
+        if (!m_PhysicsWorld.HasEmitterSim()) {
+            bool hasEmitter = false;
+            world.Each<ECS::FluidEmitterComponent>(
+                [&](ECS::Entity, ECS::FluidEmitterComponent&) { hasEmitter = true; });
+            if (hasEmitter)
+                m_PhysicsWorld.CreateEmitterSim(16384);
+        }
+
+        // ④ 固定步长驱动（与参考实现一致）
         // 参考实现 DELTA_TIME = 0.0016s，每帧恰好 1 步，不随帧率变化。
         // 低帧率时物理呈慢动作，但计算量不变 → 无性能雪崩。
         // MAX_CATCH_UP = 2：允许偶发卡顿后最多追 2 步，避免时间累计误差过大。
-        constexpr float FIXED_PHYSICS_DT = 0.0016f;  // 参考实现固定步长
-        constexpr int   MAX_CATCH_UP     = 2;         // 每帧最多物理步数
+        constexpr float FIXED_PHYSICS_DT = 0.0016f;
+        constexpr int   MAX_CATCH_UP     = 2;
         const int steps = std::min(
             std::max(1, static_cast<int>(std::round(deltaTime / FIXED_PHYSICS_DT))),
             MAX_CATCH_UP);
-        for (int i = 0; i < steps; ++i)
+
+        for (int s = 0; s < steps; ++s) {
+            // ④-a 发射粒子（Step 之前，新粒子本步即参与积分）
+            // GetEmitterSim() 返回 const Ref&，Emit/Recycle 是非 const 方法，
+            // 用值拷贝（Ref 轻量引用计数 +1）获得可变访问
+            if (auto emSim = m_PhysicsWorld.GetEmitterSim()) {
+                world.Each<ECS::TransformComponent, ECS::FluidEmitterComponent>(
+                    [&](ECS::Entity, ECS::TransformComponent& tr, ECS::FluidEmitterComponent& em) {
+                        if (!em.Active) return;
+                        em._accumulator += em.EmitRate * FIXED_PHYSICS_DT;
+                        int toEmit = static_cast<int>(std::floor(em._accumulator));
+                        if (toEmit <= 0) return;
+                        em._accumulator -= static_cast<float>(toEmit);
+                        // em.Direction 是本地空间向量，乘以实体旋转四元数得到世界方向
+                        const glm::vec3 localDir = glm::length(em.Direction) > 1e-4f
+                            ? glm::normalize(em.Direction) : glm::vec3(0, 1, 0);
+                        const glm::vec3 worldDir = glm::normalize(tr.Rotation * localDir);
+                        emSim->Emit(tr.Position, worldDir, toEmit,
+                                    em.InitialSpeed, em.ParticleLifetime,
+                                    glm::radians(em.ConeAngleDeg), em.Color);
+                    });
+            }
+
+            // ④-b 主仿真 + 发射器仿真 Step（PhysicsWorld::Step 内部一起调用）
             m_PhysicsWorld.Step(FIXED_PHYSICS_DT);
+
+            // ④-c 回收到期粒子（Step 之后，避免刚发射的粒子被立即回收）
+            if (auto emSim = m_PhysicsWorld.GetEmitterSim())
+                emSim->Recycle(FIXED_PHYSICS_DT);
+        }
     }
 
     PhysicsWorld& GetPhysicsWorld() { return m_PhysicsWorld; }

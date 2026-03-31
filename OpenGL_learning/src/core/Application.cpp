@@ -32,25 +32,17 @@ Application::~Application() {
 }
 
 void Application::Run() {
-    // 初始化
     OnInit();
     m_Timer.Reset();
 
-    // 主循环
     while (m_Running && !m_Window->ShouldClose()) {
-        // 更新时间
         m_Timer.Update();
         float deltaTime = m_Timer.GetDeltaTime();
 
         // 如果窗口最小化，跳过渲染
         if (!m_Minimized) {
-            // 更新逻辑
             OnUpdate(deltaTime);
-
-            // 渲染
             OnRender();
-
-            // ImGui 渲染
             OnImGuiRender();
         }
 

@@ -38,7 +38,6 @@ public:
     World(const std::string& name = "World");
     ~World();
 
-    // 禁止拷贝
     World(const World&) = delete;
     World& operator=(const World&) = delete;
 

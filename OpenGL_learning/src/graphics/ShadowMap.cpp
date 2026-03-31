@@ -35,17 +35,15 @@ void ShadowMap::Create_() {
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    // 边界钳制：UV 超出 [0,1] 时返回边界颜色
+    // 边界钳制：UV 超出 [0,1] 时返回边界颜色（1.0 = 最大深度 = 无阴影）
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    // 边界外返回 1.0（最大深度 = 无遮挡 = 无阴影）
     float border[] = { 1.0f, 1.0f, 1.0f, 1.0f };
     glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, border);
 
-    // 启用硬件深度比较（使用 sampler2DShadow / sampler2DArrayShadow 时生效）
-    // texture(...) 自动把参考深度与贴图比较，返回 [0,1] 遮蔽因子
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_FUNC, GL_LESS);
+    // 不启用硬件深度比较（sampler2DArray，由 shader 手动 step() 比较）
+    // PCSS Blocker Search 需要读取原始深度值，与硬件比较模式不兼容
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_MODE, GL_NONE);
 
     glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 

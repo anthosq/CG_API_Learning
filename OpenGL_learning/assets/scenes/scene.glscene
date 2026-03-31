@@ -2,14 +2,56 @@
   "Entities": [
     {
       "Components": {
+        "PointLight": {
+          "CastShadows": true,
+          "Color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "Constant": 1.0,
+          "Intensity": 1.0,
+          "Linear": 0.09000000357627869,
+          "Quadratic": 0.03200000151991844,
+          "ShadowFarPlane": 25.0,
+          "ShadowNearPlane": 0.10000000149011612
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Point Light",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            0.6868449449539185,
+            2.1843202114105225,
+            -1.0255272388458252
+          ],
+          "Rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "Scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "UUID": 5032575463843395800
+    },
+    {
+      "Components": {
         "Mesh": {
           "Materials": [
             {
               "AOMap": "",
               "AlbedoColor": [
-                1.0,
                 0.0,
-                0.0
+                0.0,
+                1.0
               ],
               "AlbedoMap": "",
               "Emission": 0.0,
@@ -29,29 +71,29 @@
         },
         "Tag": {
           "Active": true,
-          "Name": "Cube_0",
+          "Name": "Cube_1",
           "Tag": "Untagged"
         },
         "Transform": {
           "Position": [
-            -2.499788761138916,
-            4.3482770919799805,
-            -3.438377618789673
+            2.521641969680786,
+            2.119757890701294,
+            -0.28917327523231506
           ],
           "Rotation": [
-            0.9065616130828857,
-            0.4220735430717468,
+            0.9225871562957764,
             0.0,
-            0.0
+            0.0,
+            0.38578876852989197
           ],
           "Scale": [
-            1.0,
-            0.9999998807907104,
-            0.9999998807907104
+            0.9999998211860657,
+            0.9999998211860657,
+            1.0
           ]
         }
       },
-      "UUID": 8532261110736204568
+      "UUID": 4541669873378408230
     },
     {
       "Components": {
@@ -452,7 +494,7 @@
           "LifetimeMin": 0.46000000834465027,
           "Looping": true,
           "MaxParticles": 4096,
-          "Playing": true,
+          "Playing": false,
           "SizeBegin": 0.15000000596046448,
           "SizeEnd": 0.0,
           "SpeedMax": 1.100000023841858,
@@ -484,6 +526,59 @@
         }
       },
       "UUID": 3235911891451377819
+    },
+    {
+      "Components": {
+        "Mesh": {
+          "Materials": [
+            {
+              "AOMap": "",
+              "AlbedoColor": [
+                0.9789029359817505,
+                0.004130395594984293,
+                0.004130395594984293
+              ],
+              "AlbedoMap": "",
+              "Emission": 0.0,
+              "EmissiveMap": "",
+              "Metallic": 0.0,
+              "MetallicMap": "",
+              "NormalMap": "",
+              "Roughness": 0.5,
+              "RoughnessMap": "",
+              "Slot": 0,
+              "Transparent": false,
+              "UseNormalMap": false
+            }
+          ],
+          "PrimitiveType": "cube",
+          "Visible": true
+        },
+        "Tag": {
+          "Active": true,
+          "Name": "Cube_0",
+          "Tag": "Untagged"
+        },
+        "Transform": {
+          "Position": [
+            1.7631462812423706,
+            1.4009994268417358,
+            -0.013602593913674355
+          ],
+          "Rotation": [
+            0.8965492844581604,
+            0.0,
+            -0.4429439902305603,
+            0.0
+          ],
+          "Scale": [
+            0.9999996423721313,
+            1.0,
+            0.9999996423721313
+          ]
+        }
+      },
+      "UUID": 15755901340230159474
     }
   ],
   "Scene": "EditorWorld",

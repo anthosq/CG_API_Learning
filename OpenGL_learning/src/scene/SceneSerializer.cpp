@@ -263,6 +263,16 @@ static json SerializeEntity(ECS::Entity entity,
         };
     }
 
+    // OscillatorComponent
+    if (entity.HasComponent<ECS::OscillatorComponent>()) {
+        auto& c = entity.GetComponent<ECS::OscillatorComponent>();
+        jc["Oscillator"] = {
+            {"Amplitude",  c.Amplitude},
+            {"Frequency",  c.Frequency},
+            {"Phase",      c.Phase}
+        };
+    }
+
     // ParticleComponent（跳过 RuntimeSystem / EmitAccumulator）
     if (entity.HasComponent<ECS::ParticleComponent>()) {
         auto& c = entity.GetComponent<ECS::ParticleComponent>();
@@ -290,15 +300,30 @@ static json SerializeEntity(ECS::Entity entity,
     if (entity.HasComponent<ECS::FluidComponent>()) {
         auto& c = entity.GetComponent<ECS::FluidComponent>();
         jc["Fluid"] = {
-            {"ParticleRadius", c.ParticleRadius},
-            {"RestDensity",    c.RestDensity},
-            {"Viscosity",      c.Viscosity},
-            {"VorticityEps",   c.VorticityEps},
-            {"MaxParticles",   c.MaxParticles},
-            {"SolverIters",    c.SolverIters},
-            {"Substeps",       c.Substeps},
-            {"BoundaryMin",    ToJson(c.BoundaryMin)},
-            {"BoundaryMax",    ToJson(c.BoundaryMax)}
+            {"ParticleRadius",   c.ParticleRadius},
+            {"RestDensity",      c.RestDensity},
+            {"Viscosity",        c.Viscosity},
+            {"VorticityEps",     c.VorticityEps},
+            {"MaxParticles",     c.MaxParticles},
+            {"SolverIters",      c.SolverIters},
+            {"Substeps",         c.Substeps},
+            {"BoundaryMin",      ToJson(c.BoundaryMin)},
+            {"BoundaryMax",      ToJson(c.BoundaryMax)},
+            {"SceneRestitution", c.SceneRestitution}
+        };
+    }
+
+    // FluidEmitterComponent
+    if (entity.HasComponent<ECS::FluidEmitterComponent>()) {
+        auto& c = entity.GetComponent<ECS::FluidEmitterComponent>();
+        jc["FluidEmitter"] = {
+            {"Direction",        ToJson(c.Direction)},
+            {"Color",            ToJson(c.Color)},
+            {"ConeAngleDeg",     c.ConeAngleDeg},
+            {"EmitRate",         c.EmitRate},
+            {"InitialSpeed",     c.InitialSpeed},
+            {"ParticleLifetime", c.ParticleLifetime},
+            {"Active",           c.Active}
         };
     }
 
@@ -444,10 +469,6 @@ bool SceneSerializer::DeserializeFromString(ECS::World& world, const std::string
     }
     return LoadSceneJson(world, jScene);
 }
-
-// ============================================================
-// 反序列化：单个实体的组件
-// ============================================================
 
 static void DeserializeComponents(ECS::Entity entity, const json& jc,
                                   std::unordered_map<uint64_t, ECS::Entity>& uuidToEntity,
@@ -658,6 +679,15 @@ static void DeserializeComponents(ECS::Entity entity, const json& jc,
         c.CurrentAngle = jo.value("CurrentAngle", 0.0f);
     }
 
+    // OscillatorComponent
+    if (has("Oscillator")) {
+        auto& jo = jc["Oscillator"];
+        auto& c  = entity.AddComponent<ECS::OscillatorComponent>();
+        c.Amplitude = jo.value("Amplitude", 1.0f);
+        c.Frequency = jo.value("Frequency", 1.0f);
+        c.Phase     = jo.value("Phase",     0.0f);
+    }
+
     // ParticleComponent
     if (has("Particle")) {
         auto& jp = jc["Particle"];
@@ -693,7 +723,21 @@ static void DeserializeComponents(ECS::Entity entity, const json& jc,
         c.Substeps       = jf.value("Substeps",       1);
         if (jf.contains("BoundaryMin")) c.BoundaryMin = Vec3(jf["BoundaryMin"]);
         if (jf.contains("BoundaryMax")) c.BoundaryMax = Vec3(jf["BoundaryMax"]);
+        c.SceneRestitution = jf.value("SceneRestitution", 0.1f);
         // Runtime 不反序列化，PhysicsSystem 在首帧 Update 时懒创建
+    }
+
+    // FluidEmitterComponent
+    if (has("FluidEmitter")) {
+        auto& je = jc["FluidEmitter"];
+        auto& c  = entity.AddComponent<ECS::FluidEmitterComponent>();
+        if (je.contains("Direction"))    c.Direction        = Vec3(je["Direction"]);
+        if (je.contains("Color"))        c.Color            = Vec4(je["Color"]);
+        c.ConeAngleDeg     = je.value("ConeAngleDeg",     15.0f);
+        c.EmitRate         = je.value("EmitRate",         300.0f);
+        c.InitialSpeed     = je.value("InitialSpeed",     4.0f);
+        c.ParticleLifetime = je.value("ParticleLifetime", 3.0f);
+        c.Active           = je.value("Active",           true);
     }
 
     // DebugDrawComponent
@@ -706,10 +750,6 @@ static void DeserializeComponents(ECS::Entity entity, const json& jc,
         if (jd.contains("Color")) c.Color = Vec3(jd["Color"]);
     }
 }
-
-// ============================================================
-// Deserialize
-// ============================================================
 
 bool SceneSerializer::Deserialize(ECS::World& world, const std::filesystem::path& path)
 {

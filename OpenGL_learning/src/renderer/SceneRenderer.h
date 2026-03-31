@@ -2,7 +2,7 @@
 
 // SceneRenderer - 场景渲染器
 //
-// 架构设计 (参考 Hazel Engine):
+// 架构设计:
 // 1. Submit 阶段: BeginScene() -> SubmitMesh() -> EndScene()
 // 2. Flush 阶段: FlushDrawList() 执行各个渲染 Pass
 //
@@ -28,11 +28,13 @@
 #include "graphics/PointShadowMapArray.h"
 #include "graphics/GBuffer.h"
 #include "graphics/ComputePipeline.h"
+#include "renderer/GPUProfiler.h"
 #include "graphics/StorageBuffer.h"
 #include "core/Frustum.h"
 #include "scene/BVH.h"
 #include "renderer/ParticleSystem.h"
 #include "physics/FluidSimulation.h"
+#include "physics/EmitterFluidSimulation.h"
 
 #include <memory>
 #include <vector>
@@ -83,7 +85,8 @@ struct SceneRenderSettings {
     float FluidNRFThreshold         = 0.02f;   // NRF 深度阈值（NDC，区分前后表面，典型 0.01~0.05）
     int   FluidNRFCleanupRadius     = 3;       // 2D Cleanup pass 核半径（像素，典型 2~5）
     float FluidRefractStrength      = 0.025f;  // 折射 UV 偏移强度（参考：0.025）
-    float FluidRenderRadiusScale    = 2.0f;    // 渲染粒子半径缩放（参考：2.0，使点精灵覆盖粒子间隙）
+    float FluidRenderRadiusScale        = 2.0f;    // 渲染粒子半径缩放（参考：2.0，使点精灵覆盖粒子间隙）
+    float FluidEmitterRenderRadiusScale = 5.0f;    // Emitter 粒子单独渲染缩放（小 radius 时需更大值才能被 NRF 正确平滑）
     // ThicknessScale 说明：
     //   参考实现片元输出 dz * 0.05（无量纲）；我们输出 dz * 2r = dz * 0.02m（米制）。
     //   等效缩放：0.05 / 0.02 = 2.5，使有效厚度与参考一致。
@@ -110,6 +113,16 @@ struct SceneRenderSettings {
     int   SSAOKernelSize     = 64;     // 采样核数量（≤ 64）
     float SSAOBlurSharpness  = 1.0f;   // 双边模糊的深度敏感度
 
+    // GTAO（开启时替代 SSAO；两者共享 u_SSAOMap 绑定槽）
+    bool  EnableGTAO              = false;
+    float GTAORadius              = 0.5f;    // 世界空间 AO 影响半径（米）
+    float GTAOFalloffRange        = 0.615f;  // 距离衰减区占半径的比例
+    float GTAORadiusMultiplier    = 1.457f;  // 屏幕空间半径补偿系数
+    float GTAOFinalValuePower     = 2.2f;    // AO 输出 gamma（越大越暗）
+    float GTAOSampleDistPower     = 2.0f;    // 采样分布幂：>1 = 近处采样更密
+    float GTAODepthMIPOffset      = 3.3f;    // Hi-Z LOD 偏移：mip = log2(px) - offset
+    float GTAODenoiseBlurBeta     = 1.2f;    // 降噪强度（越大越模糊）
+
     // 方向光阴影设置
     uint32_t ShadowCascadeCount  = 4;
     uint32_t ShadowResolution    = 2048;
@@ -118,6 +131,7 @@ struct SceneRenderSettings {
     float    CascadeSplitLambda  = 0.75f;   // 0=均匀, 1=纯对数
     float    CascadeTransitionFade = 5.0f;  // cascade 间过渡区宽度（世界单位）
     bool     SoftShadows         = true;    // Poisson PCF vs 硬阴影
+    float    ShadowLightSize     = 0.5f;   // PCSS 虚拟光源半径（UV 空间）；0 = 固定核 PCF
     bool     ShowCascades        = false;   // debug 色调可视化
 
     // 点光源阴影设置（Omnidirectional Cubemap Shadow Array）
@@ -146,6 +160,37 @@ struct SceneEnvironment {
     float EnvironmentIntensity = 1.0f;
 };
 
+// GPU pass 耗时统计（每帧更新，单位 ms，延迟一帧读取）
+struct GPUProfileStats {
+    GPUTimer TotalFrame;   // FlushDrawList 全程
+    GPUTimer Shadow;       // CSM + 点光源阴影
+    GPUTimer GBuffer;      // GBufferPass（Deferred）或 DepthPre+Geometry（Forward）
+    GPUTimer AO;           // GTAO（主+降噪）或 SSAO（主+模糊）
+    GPUTimer Lighting;     // DeferredLightingPass（Deferred）；Forward 路径不单独计时
+    GPUTimer SSR;          // BackFaceDepth + HiZ + SSRPass
+    GPUTimer Fluid;        // 全部流体子 pass（深度/模糊/法线/着色）
+    GPUTimer PostProcess;  // Bloom + CompositePass
+
+    void Init() {
+        TotalFrame.Init(); Shadow.Init();  GBuffer.Init(); AO.Init();
+        Lighting.Init();   SSR.Init();     Fluid.Init();   PostProcess.Init();
+    }
+    void Shutdown() {
+        TotalFrame.Shutdown(); Shadow.Shutdown();  GBuffer.Shutdown(); AO.Shutdown();
+        Lighting.Shutdown();   SSR.Shutdown();     Fluid.Shutdown();   PostProcess.Shutdown();
+    }
+    void ResolveAll() {
+        TotalFrame.Resolve(); Shadow.Resolve();  GBuffer.Resolve(); AO.Resolve();
+        Lighting.Resolve();   SSR.Resolve();     Fluid.Resolve();   PostProcess.Resolve();
+    }
+
+    void SetEnabled(bool e) {
+        TotalFrame.enabled = e; Shadow.enabled  = e; GBuffer.enabled = e; AO.enabled = e;
+        Lighting.enabled   = e; SSR.enabled     = e; Fluid.enabled   = e; PostProcess.enabled = e;
+    }
+    bool IsEnabled() const { return TotalFrame.enabled; }
+};
+
 // 视锥裁剪统计（每帧更新）
 struct CullingStats {
     int TotalObjects   = 0;  // 提交的不透明 DrawCommand 总数
@@ -167,7 +212,6 @@ public:
     SceneRenderer();
     ~SceneRenderer();
 
-    // 禁止拷贝
     SceneRenderer(const SceneRenderer&) = delete;
     SceneRenderer& operator=(const SceneRenderer&) = delete;
 
@@ -211,8 +255,15 @@ public:
     // 裁剪统计（上一帧结果）
     const CullingStats& GetCullingStats() const { return m_CullingStats; }
 
-    // SSAO 调试：返回模糊后 AO 纹理的 GL handle（0 = 尚未创建）
+    // GPU pass 耗时（延迟一帧）
+    const GPUProfileStats& GetGPUStats() const { return m_GPUStats; }
+
+    // 启用 / 关闭 GPU 计时（关闭时 Begin/End/Resolve 全部为空操作，零开销）
+    void SetGPUProfilingEnabled(bool e) { m_GPUStats.SetEnabled(e); }
+
+    // AO 调试：GTAO 优先，回退 SSAO（0 = 尚未创建）
     uint32_t GetSSAODebugTexture() const {
+        if (m_Settings.EnableGTAO && m_GTAOFinalTex) return m_GTAOFinalTex;
         return m_SSAOBlurFBO ? m_SSAOBlurFBO->GetColorAttachment() : 0;
     }
 
@@ -234,6 +285,15 @@ public:
 
     // 环境贴图 - 从 HDR 文件加载并执行 IBL 预处理
     bool LoadEnvironment(const std::filesystem::path& hdrPath);
+
+    // 设置发射器仿真（由 EditorApp 在每帧 RenderScene 前调用；传 nullptr 清除）
+    void SetEmitterSim(const Ref<EmitterFluidSimulation>& sim) { m_EmitterSim = sim; }
+
+    // G-Buffer 纹理访问（供 PhysicsSystem 场景碰撞使用，返回上一帧数据）
+    GLuint    GetGBufferDepthTexture()  const { return m_GBuffer ? m_GBuffer->GetDepth() : 0; }
+    GLuint    GetGBufferNormalTexture() const { return m_GBuffer ? m_GBuffer->GetNormalRoughMetal() : 0; }
+    glm::mat4 GetViewProjection()       const { return m_ProjectionMatrix * m_ViewMatrix; }
+    glm::mat4 GetInvViewProjection()    const { return glm::inverse(m_ProjectionMatrix * m_ViewMatrix); }
 
     // 将 HDR FBO 的深度缓冲 blit 到目标 FBO（供 editor overlay 使用，使 billboard 受场景深度遮挡）
     void CopyDepthToTarget(Framebuffer& target);
@@ -387,12 +447,24 @@ private:
     int                        m_SelectedEntityID = -1;
 
     CullingStats               m_CullingStats;
+    GPUProfileStats            m_GPUStats;
 
     // === SSAO ===
     Ref<Framebuffer>           m_GNormalFBO;     // 法线预处理 FBO（RGBA16F normal + depth tex，Forward+ 路径使用）
     Ref<Framebuffer>           m_SSAOFbo;        // 原始 AO（R16F）
     Ref<Framebuffer>           m_SSAOBlurFBO;    // 模糊后 AO（R16F）
     std::vector<glm::vec3>     m_SSAOKernel;     // 半球采样核（切线空间）
+
+    // === GTAO ===
+    GLuint m_GTAORawTex      = 0;   // R32UI：raw AO + bent normal（compute image2D 写入）
+    GLuint m_GTAOEdgesTex    = 0;   // R8：LRTB 边缘权重图
+    GLuint m_GTAODenoisedTex = 0;   // R32UI：降噪后 AO + bent normal
+    GLuint m_GTAOFinalTex    = 0;   // R16F：仅 AO 标量，绑定到 u_SSAOMap 槽
+    GLuint m_HilbertLutTex   = 0;   // R8UI 64×64：Hilbert 曲线索引 LUT（Initialize 时生成）
+    int    m_GTAOTexWidth    = 0;
+    int    m_GTAOTexHeight   = 0;
+    Ref<ComputePipeline> m_GTAOPipeline;
+    Ref<ComputePipeline> m_GTAODenoisePipeline;
 
     // === SSR ===
     // Hi-Z 纹理：R32F，完整 mip 链，GL_NEAREST 过滤，MIN 下采样（见 hiz_build.glsl）
@@ -431,6 +503,7 @@ private:
     struct FluidDrawEntry {
         GLuint positionSSBO  = 0;
         GLuint velocitySSBO  = 0;
+        GLuint lifetimeSSBO  = 0;   // 0 = FluidComponent 粒子（全部活跃）；非 0 = 发射器粒子
         int    particleCount = 0;
         float  particleRadius = 0.05f;
         glm::vec3 boundaryMin = {-0.5f, 0.0f, -0.5f};
@@ -443,7 +516,8 @@ private:
     Ref<Framebuffer>  m_FluidThicknessFBO;       // 经过空间高斯扩散的厚度图（R32F）
     Ref<Framebuffer>  m_FluidNormalFBO;          // 视空间法线
     Ref<Framebuffer>  m_FluidSceneColorFBO;      // 场景颜色快照（ShadePass 前 blit，打破 feedback loop）
-    GLuint            m_FluidEmptyVAO = 0; // 无属性 VAO（point sprite 用）
+    GLuint                      m_FluidEmptyVAO = 0;  // 无属性 VAO（point sprite 用）
+    Ref<EmitterFluidSimulation> m_EmitterSim;         // 发射器仿真（共享所有权，由 EditorApp 注入）
 
     void FluidDepthPass();
     void FluidBlurPass();
@@ -451,6 +525,11 @@ private:
     void FluidShadePass();
     void FluidParticleDebugPass();
     void EnsureFluidResources(uint32_t w, uint32_t h);
+
+    void GTAOPass();
+    void GTAODenoisePass();
+    void EnsureGTAOResources(uint32_t w, uint32_t h);
+    void GenerateHilbertLUT();
 };
 
 } // namespace GLRenderer

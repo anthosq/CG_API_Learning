@@ -188,6 +188,8 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         ImGui::SliderFloat("Fade",         &settings.ShadowFade,          1.0f,  50.0f, "%.1f");
         ImGui::SliderFloat("Split Lambda", &settings.CascadeSplitLambda,  0.0f,   1.0f, "%.2f");
         ImGui::Checkbox("Soft Shadows",    &settings.SoftShadows);
+        if (settings.SoftShadows)
+            ImGui::SliderFloat("Light Size",   &settings.ShadowLightSize, 0.0f,   2.0f, "%.2f");
         ImGui::Checkbox("Show Cascades",   &settings.ShowCascades);
     }
 
@@ -219,12 +221,31 @@ void SettingsPanel::OnDraw(EditorContext& context) {
 
     // SSAO 设置
     if (ImGui::CollapsingHeader("SSAO")) {
-        ImGui::Checkbox("Enable##ssao", &settings.EnableSSAO);
-        if (settings.EnableSSAO) {
-            ImGui::SliderFloat("Radius",        &settings.SSAORadius,        0.1f,  2.0f,  "%.2f");
-            ImGui::SliderFloat("Bias",          &settings.SSAOBias,          0.001f, 0.1f, "%.3f");
-            ImGui::SliderInt  ("Kernel Size",   &settings.SSAOKernelSize,    8,     64);
-            ImGui::SliderFloat("Blur Sharpness",&settings.SSAOBlurSharpness, 0.1f, 10.0f, "%.1f");
+        if (settings.EnableGTAO)
+            ImGui::TextDisabled("(disabled — GTAO is active)");
+        else {
+            ImGui::Checkbox("Enable##ssao", &settings.EnableSSAO);
+            if (settings.EnableSSAO) {
+                ImGui::SliderFloat("Radius",        &settings.SSAORadius,        0.1f,  2.0f,  "%.2f");
+                ImGui::SliderFloat("Bias",          &settings.SSAOBias,          0.001f, 0.1f, "%.3f");
+                ImGui::SliderInt  ("Kernel Size",   &settings.SSAOKernelSize,    8,     64);
+                ImGui::SliderFloat("Blur Sharpness",&settings.SSAOBlurSharpness, 0.1f, 10.0f, "%.1f");
+            }
+        }
+    }
+
+    // GTAO 设置（开启时替代 SSAO）
+    if (ImGui::CollapsingHeader("GTAO")) {
+        ImGui::Checkbox("Enable##gtao", &settings.EnableGTAO);
+        if (settings.EnableGTAO) {
+            ImGui::Spacing();
+            ImGui::SliderFloat("Radius",            &settings.GTAORadius,           0.1f,  2.0f,  "%.2f");
+            ImGui::SliderFloat("Falloff Range",     &settings.GTAOFalloffRange,     0.1f,  1.0f,  "%.3f");
+            ImGui::SliderFloat("Radius Multiplier", &settings.GTAORadiusMultiplier, 0.5f,  3.0f,  "%.3f");
+            ImGui::SliderFloat("Value Power",       &settings.GTAOFinalValuePower,  0.5f,  5.0f,  "%.2f");
+            ImGui::SliderFloat("Sample Dist Power", &settings.GTAOSampleDistPower,  1.0f,  4.0f,  "%.2f");
+            ImGui::SliderFloat("Depth MIP Offset",  &settings.GTAODepthMIPOffset,   0.0f,  6.0f,  "%.1f");
+            ImGui::SliderFloat("Denoise Beta",      &settings.GTAODenoiseBlurBeta,  0.0f,  5.0f,  "%.2f");
 
             ImGui::Spacing();
             ImGui::Checkbox("Show AO Buffer", &m_ShowAODebug);
@@ -243,7 +264,7 @@ void SettingsPanel::OnDraw(EditorContext& context) {
                              ImVec2(side, side),
                              ImVec2(0, 1), ImVec2(1, 0));
             } else {
-                ImGui::TextDisabled("(not available — enable SSAO first)");
+                ImGui::TextDisabled("(not available — enable SSAO or GTAO first)");
             }
         }
         ImGui::End();
@@ -276,7 +297,8 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         if (settings.EnableFluidRendering && !settings.ShowFluidParticles) {
             ImGui::Indent();
             if (ImGui::CollapsingHeader("Depth & NRF##fluid")) {
-                ImGui::SliderFloat("Sprite Scale##fluid",    &settings.FluidRenderRadiusScale, 0.5f, 5.0f,  "%.2f");
+                ImGui::SliderFloat("Sprite Scale##fluid",         &settings.FluidRenderRadiusScale,        0.5f, 5.0f,  "%.2f");
+                ImGui::SliderFloat("Emitter Sprite Scale##fluid", &settings.FluidEmitterRenderRadiusScale, 1.0f, 20.0f, "%.1f");
                 ImGui::SliderInt  ("NRF Radius##fluid",      &settings.FluidBlurRadius,        1,    40);
                 ImGui::SliderFloat("NRF SigmaS##fluid",      &settings.FluidBlurSigmaS,        1.0f, 20.0f, "%.1f");
                 ImGui::SliderFloat("NRF Threshold##fluid",   &settings.FluidNRFThreshold,      0.001f, 0.1f, "%.4f");

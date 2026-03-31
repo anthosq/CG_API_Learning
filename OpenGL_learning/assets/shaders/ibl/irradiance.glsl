@@ -1,6 +1,5 @@
 // Irradiance Map Compute Shader
 // 通过半球面蒙特卡罗积分计算漫反射辐照度图
-// 参考: Hazel EnvironmentIrradiance.glsl + EnvironmentMapping.glslh
 #version 430 core
 
 layout(binding = 0, rgba16f) restrict writeonly uniform imageCube o_IrradianceMap;

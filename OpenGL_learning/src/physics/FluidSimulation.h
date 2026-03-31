@@ -27,6 +27,11 @@ public:
     // frameDt：本帧实际经过的时间（秒），用于计算 impulse = -delta/frameDt。
     void TranslateDomain(glm::vec3 delta, float frameDt);
 
+    // 设置场景 GBuffer（每帧由 EditorApp 调用，传入上一帧 GBuffer 纹理）
+    // depthTex=0 时禁用场景碰撞
+    void SetSceneGBuffer(GLuint depthTex, GLuint normalTex,
+                         const glm::mat4& viewProj, const glm::mat4& invViewProj);
+
     // 渲染侧只读接口（Phase 12 零拷贝渲染用）
     GLuint GetPositionSSBO()  const { return m_Buffers.positionSSBO; }
     GLuint GetVelocitySSBO()  const { return m_Buffers.velocitySSBO; }
@@ -101,6 +106,8 @@ private:
     // 平移辅助
     Ref<ComputePipeline> m_TranslateCS;         // translate.glsl：平移 positions/predicted
 
+    Ref<ComputePipeline> m_SceneCollisionCS;    // Phase 12-G
+
     // ─── Simulation parameters ───────────────────────────────────────────
     int       m_ParticleCount  = 0;
     int       m_MaxParticles   = 0;
@@ -114,6 +121,7 @@ private:
     float     m_Viscosity      = 0.01f;
     float     m_VorticityEps   = 0.0f;
     float     m_Restitution    = 0.05f;     // 边界碰撞弹性系数（0 = 完全阻尼，1 = 完全弹性；0.05 防止弹性堆积同时保留轻微反弹）
+    float     m_SceneRestitution = 0.1f;   // 与场景几何碰撞的弹性系数
     glm::vec3 m_BoundaryMin    = {-0.5f, 0.0f, -0.5f};
     glm::vec3 m_BoundaryMax    = { 0.5f, 2.0f,  0.5f};
 
@@ -121,6 +129,12 @@ private:
     glm::ivec3 m_GridDims   = {1, 1, 1};  // cells per axis
     int        m_CellCount  = 1;           // = Dx*Dy*Dz
     int        m_BlockSize  = 1;           // = ceil(sqrt(CellCount))，前缀和块大小
+
+    // Scene collision GBuffer（来自上一帧，1帧延迟）
+    GLuint    m_GDepthTex    = 0;
+    GLuint    m_GNormalTex   = 0;
+    glm::mat4 m_GViewProj    = glm::mat4(1.0f);
+    glm::mat4 m_GInvViewProj = glm::mat4(1.0f);
 
     bool m_Ready = false;
 };

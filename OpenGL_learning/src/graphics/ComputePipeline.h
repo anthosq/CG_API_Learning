@@ -32,7 +32,6 @@ public:
     explicit ComputePipeline(const std::filesystem::path& filepath);
     ~ComputePipeline();
 
-    // 禁止拷贝
     ComputePipeline(const ComputePipeline&) = delete;
     ComputePipeline& operator=(const ComputePipeline&) = delete;
 
@@ -83,7 +82,6 @@ public:
     // 获取工作组大小 (从 shader 中查询)
     glm::ivec3 GetWorkGroupSize() const;
 
-    // 静态创建方法
     static Ref<ComputePipeline> Create(const std::filesystem::path& filepath);
 
 private:

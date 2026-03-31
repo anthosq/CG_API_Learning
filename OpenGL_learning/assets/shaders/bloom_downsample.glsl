@@ -1,6 +1,5 @@
 // Bloom Downsample Pass
 // 13-tap 降采样滤波（无阈值，纯下采样）
-// 参考: COD Advanced Warfare / Hazel Bloom.glsl
 
 #type vertex
 #version 430 core

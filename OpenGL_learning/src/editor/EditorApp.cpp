@@ -130,6 +130,11 @@ void EditorApp::OnInit() {
     auto primitivesPanel = std::make_unique<PrimitivesPanel>();
     m_Editor->AddPanel(std::move(primitivesPanel));
 
+    // GPU 计时窗口（默认关闭，从 View 菜单开启）
+    auto gpuProfilerPanel = std::make_unique<GPUProfilerPanel>();
+    gpuProfilerPanel->SetSceneRenderer(m_SceneRenderer.get());
+    m_Editor->AddPanel(std::move(gpuProfilerPanel));
+
     std::cout << "[EditorApp] Initialization complete" << std::endl;
 }
 
@@ -218,6 +223,15 @@ void EditorApp::ExitPlayMode()
     m_Editor->GetContext().ClearSelection();
     m_Editor->GetContext().World = m_World.get();
 
+    // 立即清空渲染器对 EmitterSim 的引用，避免 PlayWorld 销毁后仍渲染残留粒子
+    if (m_SceneRenderer)
+        m_SceneRenderer->SetEmitterSim(nullptr);
+    // 重置 PhysicsSystem 状态，下次 EnterPlay 时重建
+    if (m_SystemManager) {
+        if (auto* physics = m_SystemManager->GetSystem<PhysicsSystem>())
+            physics->GetPhysicsWorld().Clear();
+    }
+
     m_PlayWorld.reset();
     m_PlayWorldSnapshot.clear();
 
@@ -247,8 +261,18 @@ void EditorApp::OnUpdate(float deltaTime) {
     if (m_SystemManager) {
         const bool paused = m_Editor->GetContext().IsPaused;
         if (IsPlaying()) {
-            if (!paused)
+            if (!paused) {
+                // 注入上一帧 GBuffer 给流体碰撞（在物理 Step 之前设置）
+                if (auto* physics = m_SystemManager->GetSystem<PhysicsSystem>()) {
+                    physics->GetPhysicsWorld().SetSceneGBuffer(
+                        m_SceneRenderer->GetGBufferDepthTexture(),
+                        m_SceneRenderer->GetGBufferNormalTexture(),
+                        m_SceneRenderer->GetViewProjection(),
+                        m_SceneRenderer->GetInvViewProjection()
+                    );
+                }
                 m_SystemManager->Update(activeWorld, deltaTime);
+            }
         } else {
             if (auto* ts = m_SystemManager->GetSystem<ECS::TransformSystem>())
                 ts->Update(activeWorld, deltaTime);
@@ -379,6 +403,14 @@ void EditorApp::RenderSceneToViewport() {
             selectedID = static_cast<int>(
                 m_Editor->GetContext().SelectedEntity.GetHandle());
         m_SceneRenderer->SetSelectedEntityID(selectedID);
+    }
+
+    // 注入发射器仿真（Play 时有效，Edit 时清空）
+    if (IsPlaying() && m_SystemManager) {
+        if (auto* physics = m_SystemManager->GetSystem<PhysicsSystem>())
+            m_SceneRenderer->SetEmitterSim(physics->GetPhysicsWorld().GetEmitterSim());
+    } else {
+        m_SceneRenderer->SetEmitterSim(nullptr);
     }
 
     // 渲染场景：HDR FBO → CompositePass（同时复制 EntityID）→ viewport FBO

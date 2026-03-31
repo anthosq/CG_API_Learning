@@ -1,5 +1,4 @@
 // Scene Composite - Tone Mapping + Gamma Correction
-// 参考 Hazel Engine SceneComposite.glsl
 // 流程: HDR linear → Exposure → ACES Tonemap → Gamma 2.2
 
 #type vertex

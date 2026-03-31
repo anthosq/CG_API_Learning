@@ -28,6 +28,7 @@
 #include "editor/panels/ViewportPanel.h"
 #include "editor/panels/SettingsPanel.h"
 #include "editor/panels/PrimitivesPanel.h"
+#include "editor/panels/GPUProfilerPanel.h"
 #include "asset/AssetManager.h"
 #include "scene/SceneSerializer.h"
 

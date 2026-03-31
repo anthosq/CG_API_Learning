@@ -246,6 +246,18 @@ struct OrbiterComponent {
         : CenterPoint(center), Radius(radius), Speed(speed) {}
 };
 
+struct OscillatorComponent {
+    float Amplitude = 1.0f;
+    float Frequency = 1.0f;
+    float Phase = 0.0f;
+    float _baseZ = 0.0f;
+    float _time  = 0.0f;
+
+    OscillatorComponent() = default;
+    OscillatorComponent(float amplitude, float frequency)
+        : Amplitude(amplitude), Frequency(frequency) {}
+};
+
 // 相机组件
 
 struct CameraComponent {
@@ -321,9 +333,30 @@ struct FluidComponent {
     int       Substeps       = 1;         // 已废弃：步长策略改为固定 dt=0.0016s，此字段保留序列化兼容
     glm::vec3 BoundaryMin    = {-0.5f, 0.0f, -0.5f};  // 由 Transform 自动覆盖
     glm::vec3 BoundaryMax    = { 0.5f, 2.0f,  0.5f};  // 对应 Scale=(1,2,1)
+    float     SceneRestitution = 0.1f;   // 与场景几何碰撞的弹性系数（0=完全非弹性，1=完全弹性）
 
     // 运行时状态（非序列化）
     Ref<GLRenderer::FluidSimulation> Runtime;
+};
+
+// 流体粒子发射器组件（Phase 12-H）。
+//
+// 挂在任意 Entity 上，不需要同时挂 FluidComponent。
+// 所有发射器共享 PhysicsWorld 中唯一的 EmitterFluidSimulation 实例。
+// TransformComponent.Position 作为发射起点，Direction 为发射方向（世界空间）。
+//
+// 粒子生命周期：lifetime > 0 = 活跃；lifetime = 0 = 死亡/空闲槽位
+struct FluidEmitterComponent {
+    glm::vec3 Direction        = { 0.0f, 1.0f, 0.0f };        // 发射方向（世界空间，自动归一化）
+    glm::vec4 Color            = { 0.2f, 0.5f, 1.0f, 1.0f };  // 粒子颜色（用于 Phase 12-F 颜色混合）
+    float     ConeAngleDeg     = 15.0f;    // 锥形半角（度），0 = 直线射流
+    float     EmitRate         = 300.0f;   // 粒子数/秒
+    float     InitialSpeed     = 4.0f;     // 初速度（m/s）
+    float     ParticleLifetime = 3.0f;     // 粒子存活时间（秒）
+    bool      Active           = true;     // false = 暂停发射
+
+    // 运行时状态（非序列化）
+    float _accumulator = 0.0f;  // 累积的未整数化发射量
 };
 
 // 调试组件

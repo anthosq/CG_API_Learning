@@ -1,7 +1,6 @@
 #pragma once
 
 //
-// 参考 MintEngine 实现的资产管理系统基础设施。
 // 所有需要引用计数的资产类应继承自 RefCounter。
 // 使用 Ref<T> 进行自动生命周期管理。
 //
@@ -20,7 +19,6 @@ public:
     RefCounter() = default;
     virtual ~RefCounter() = default;
 
-    // 禁止拷贝
     RefCounter(const RefCounter&) = delete;
     RefCounter& operator=(const RefCounter&) = delete;
 
@@ -83,24 +81,20 @@ public:
         IncRef();
     }
 
-    // 拷贝构造
     Ref(const Ref<T>& other) : m_Instance(other.m_Instance) {
         IncRef();
     }
 
-    // 类型转换拷贝构造
     template<typename T2>
     Ref(const Ref<T2>& other) {
         m_Instance = static_cast<T*>(other.m_Instance);
         IncRef();
     }
 
-    // 移动构造
     Ref(Ref<T>&& other) noexcept : m_Instance(other.m_Instance) {
         other.m_Instance = nullptr;
     }
 
-    // 类型转换移动构造
     template<typename T2>
     Ref(Ref<T2>&& other) noexcept {
         m_Instance = static_cast<T*>(other.m_Instance);
@@ -111,7 +105,6 @@ public:
         DecRef();
     }
 
-    // 赋值运算符
     Ref& operator=(std::nullptr_t) {
         DecRef();
         m_Instance = nullptr;
@@ -152,21 +145,17 @@ public:
         return *this;
     }
 
-    // 访问运算符
     T* operator->() { return m_Instance; }
     const T* operator->() const { return m_Instance; }
 
     T& operator*() { return *m_Instance; }
     const T& operator*() const { return *m_Instance; }
 
-    // 获取原始指针
     T* Raw() { return m_Instance; }
     const T* Raw() const { return m_Instance; }
 
-    // 布尔转换
     operator bool() const { return m_Instance != nullptr; }
 
-    // 比较运算符
     bool operator==(const Ref<T>& other) const {
         return m_Instance == other.m_Instance;
     }
@@ -183,14 +172,12 @@ public:
         return m_Instance != nullptr;
     }
 
-    // 重置
     void Reset(T* instance = nullptr) {
         DecRef();
         m_Instance = instance;
         IncRef();
     }
 
-    // 类型转换 (使用 dynamic_cast 进行安全转换)
     template<typename T2>
     Ref<T2> As() const {
         if (!m_Instance) return nullptr;
@@ -199,7 +186,6 @@ public:
         return Ref<T2>(casted);
     }
 
-    // 静态创建方法
     template<typename... Args>
     static Ref<T> Create(Args&&... args) {
         return Ref<T>(new T(std::forward<Args>(args)...));

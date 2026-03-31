@@ -1,7 +1,6 @@
 // Bloom Upsample Pass
 // 3×3 Tent Filter 上采样
 // 渲染时开启 GL_ONE + GL_ONE 加法混合，将结果叠加到目标 mip 已有内容上
-// 参考: COD Advanced Warfare / Jimenez "Next Generation Post Processing"
 
 #type vertex
 #version 430 core

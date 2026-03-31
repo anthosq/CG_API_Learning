@@ -79,7 +79,6 @@ void Material::Apply(Shader& shader) const {
         shader.SetInt(name, static_cast<int>(slot));
     }
 
-    // 绑定纹理
     BindTextures();
 }
 

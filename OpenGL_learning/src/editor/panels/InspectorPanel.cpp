@@ -160,6 +160,13 @@ void InspectorPanel::OnDraw(EditorContext& context) {
         }
     }
 
+    // OscillatorComponent
+    if (entity.HasComponent<ECS::OscillatorComponent>()) {
+        if (DrawComponentHeader<ECS::OscillatorComponent>(entity, "Oscillator")) {
+            DrawOscillatorComponent(entity.GetComponent<ECS::OscillatorComponent>());
+        }
+    }
+
     // ParticleComponent
     if (entity.HasComponent<ECS::ParticleComponent>()) {
         if (DrawComponentHeader<ECS::ParticleComponent>(entity, "Particle System")) {
@@ -171,6 +178,13 @@ void InspectorPanel::OnDraw(EditorContext& context) {
     if (entity.HasComponent<ECS::FluidComponent>()) {
         if (DrawComponentHeader<ECS::FluidComponent>(entity, "Fluid Simulation")) {
             DrawFluidComponent(entity.GetComponent<ECS::FluidComponent>());
+        }
+    }
+
+    // FluidEmitterComponent
+    if (entity.HasComponent<ECS::FluidEmitterComponent>()) {
+        if (DrawComponentHeader<ECS::FluidEmitterComponent>(entity, "Fluid Emitter")) {
+            DrawFluidEmitterComponent(entity.GetComponent<ECS::FluidEmitterComponent>());
         }
     }
 
@@ -540,6 +554,27 @@ void InspectorPanel::DrawFloatingComponent(ECS::FloatingComponent& floating) {
     ImGui::Columns(1);
 }
 
+void InspectorPanel::DrawOscillatorComponent(ECS::OscillatorComponent& osc) {
+    ImGui::Columns(2);
+    ImGui::SetColumnWidth(0, 100.0f);
+
+    ImGui::Text("Amplitude");
+    ImGui::NextColumn();
+    ImGui::DragFloat("##OscAmp", &osc.Amplitude, 0.05f, 0.0f, 20.0f);
+    ImGui::NextColumn();
+
+    ImGui::Text("Frequency");
+    ImGui::NextColumn();
+    ImGui::DragFloat("##OscFreq", &osc.Frequency, 0.05f, 0.0f, 20.0f);
+    ImGui::NextColumn();
+
+    ImGui::Text("Phase");
+    ImGui::NextColumn();
+    ImGui::DragFloat("##OscPhase", &osc.Phase, 0.05f, 0.0f, 6.28f);
+
+    ImGui::Columns(1);
+}
+
 template<typename T>
 bool InspectorPanel::DrawComponentHeader(ECS::Entity entity, const char* name) {
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen |
@@ -612,6 +647,13 @@ void InspectorPanel::DrawAddComponentButton(ECS::Entity entity) {
             }
         }
 
+        if (!entity.HasComponent<ECS::OscillatorComponent>()) {
+            if (ImGui::MenuItem("Oscillator")) {
+                entity.AddComponent<ECS::OscillatorComponent>();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
         if (!entity.HasComponent<ECS::ParticleComponent>()) {
             if (ImGui::MenuItem("Particle System")) {
                 entity.AddComponent<ECS::ParticleComponent>();
@@ -630,6 +672,13 @@ void InspectorPanel::DrawAddComponentButton(ECS::Entity entity) {
                     f.BoundaryMin = { tr.Position.x - hw, tr.Position.y,              tr.Position.z - hd };
                     f.BoundaryMax = { tr.Position.x + hw, tr.Position.y + tr.Scale.y, tr.Position.z + hd };
                 }
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        if (!entity.HasComponent<ECS::FluidEmitterComponent>()) {
+            if (ImGui::MenuItem("Fluid Emitter")) {
+                entity.AddComponent<ECS::FluidEmitterComponent>();
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -776,6 +825,11 @@ void InspectorPanel::DrawFluidComponent(ECS::FluidComponent& f) {
     ImGui::DragFloat("##VorticityEps", &f.VorticityEps, 0.01f, 0.0f, 10.0f, "%.2f");
     ImGui::NextColumn();
 
+    ImGui::Text("Scene Restitution"); ImGui::NextColumn();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bounciness against scene geometry (0=stick, 1=elastic)");
+    ImGui::DragFloat("##SceneRestitution", &f.SceneRestitution, 0.01f, 0.0f, 1.0f, "%.2f");
+    ImGui::NextColumn();
+
     ImGui::Columns(1);
 
     // 仿真域（由 TransformComponent 驱动，这里只读显示）
@@ -810,6 +864,57 @@ void InspectorPanel::DrawFluidComponent(ECS::FluidComponent& f) {
         f.Runtime = nullptr;
 }
 
+void InspectorPanel::DrawFluidEmitterComponent(ECS::FluidEmitterComponent& em) {
+    const float colW = 130.0f;
+
+    ImGui::Columns(2);
+    ImGui::SetColumnWidth(0, colW);
+
+    ImGui::SeparatorText("Emitter");
+
+    ImGui::Text("Active");         ImGui::NextColumn();
+    ImGui::Checkbox("##Active", &em.Active);
+    ImGui::NextColumn();
+
+    ImGui::Text("Emit Rate");      ImGui::NextColumn();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Particles emitted per second");
+    ImGui::DragFloat("##EmitRate", &em.EmitRate, 10.0f, 1.0f, 10000.0f, "%.0f /s");
+    ImGui::NextColumn();
+
+    ImGui::Text("Initial Speed");  ImGui::NextColumn();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Launch speed along direction (m/s)");
+    ImGui::DragFloat("##InitSpeed", &em.InitialSpeed, 0.1f, 0.0f, 50.0f, "%.2f m/s");
+    ImGui::NextColumn();
+
+    ImGui::Text("Lifetime");       ImGui::NextColumn();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Particle lifetime in seconds");
+    ImGui::DragFloat("##Lifetime", &em.ParticleLifetime, 0.1f, 0.1f, 30.0f, "%.1f s");
+    ImGui::NextColumn();
+
+    ImGui::Text("Cone Angle");     ImGui::NextColumn();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Half-angle of emission cone (degrees)");
+    ImGui::DragFloat("##ConeAngle", &em.ConeAngleDeg, 0.5f, 0.0f, 90.0f, "%.1f deg");
+    ImGui::NextColumn();
+
+    ImGui::SeparatorText("Direction");
+
+    ImGui::Text("Direction");      ImGui::NextColumn();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Emission direction (world space, will be normalized)");
+    if (ImGui::DragFloat3("##Dir", &em.Direction.x, 0.01f, -1.0f, 1.0f, "%.2f")) {
+        float len = glm::length(em.Direction);
+        if (len > 1e-4f) em.Direction /= len;
+    }
+    ImGui::NextColumn();
+
+    ImGui::SeparatorText("Appearance");
+
+    ImGui::Text("Color");          ImGui::NextColumn();
+    ImGui::ColorEdit4("##Color", &em.Color.x, ImGuiColorEditFlags_Float);
+    ImGui::NextColumn();
+
+    ImGui::Columns(1);
+}
+
 // 显式实例化模板
 template bool InspectorPanel::DrawComponentHeader<ECS::TagComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::TransformComponent>(ECS::Entity, const char*);
@@ -820,5 +925,7 @@ template bool InspectorPanel::DrawComponentHeader<ECS::RotatorComponent>(ECS::En
 template bool InspectorPanel::DrawComponentHeader<ECS::FloatingComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::ParticleComponent>(ECS::Entity, const char*);
 template bool InspectorPanel::DrawComponentHeader<ECS::FluidComponent>(ECS::Entity, const char*);
+template bool InspectorPanel::DrawComponentHeader<ECS::FluidEmitterComponent>(ECS::Entity, const char*);
+template bool InspectorPanel::DrawComponentHeader<ECS::OscillatorComponent>(ECS::Entity, const char*);
 
 } // namespace GLRenderer

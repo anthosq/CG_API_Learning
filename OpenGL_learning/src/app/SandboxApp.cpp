@@ -617,7 +617,6 @@ void SandboxApp::RenderCubes() {
 
     m_LightShader->Bind();
 
-    // 绑定纹理
     m_DiffuseMap->Bind(0);
     m_LightShader->SetInt("material.diffuse", 0);
 
