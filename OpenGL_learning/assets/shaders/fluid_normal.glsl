@@ -1,4 +1,4 @@
-// fluid_normal.glsl — Phase 12-D：参考实现法线重建
+// fluid_normal.glsl — Phase 12-D：法线重建
 //
 // 前提：双边滤波已多次迭代（sigma_d=1.0，iters=5），深度图足够平滑。
 // 策略（与 PositionBasedFluids/computeFluidNormal.comp 对齐）：
@@ -53,7 +53,7 @@ vec3 computeNormal(vec2 uv) {
     vec3 pU = reconstructViewPos(uv + vec2(0.0,  u_TexelSize.y), dU);
     vec3 pD = reconstructViewPos(uv + vec2(0.0, -u_TexelSize.y), dD);
 
-    // 参考实现：按 Z 分量差（深度差）选择切向量，深度差更小的一侧更贴近本粒子表面
+    // 按 Z 分量差（深度差）选择切向量，深度差更小的一侧更贴近本粒子表面
     vec3 px = (abs(pR.z - p.z) < abs(pL.z - p.z)) ? (pR - p) : (p - pL);
     vec3 py = (abs(pU.z - p.z) < abs(pD.z - p.z)) ? (pU - p) : (p - pD);
 

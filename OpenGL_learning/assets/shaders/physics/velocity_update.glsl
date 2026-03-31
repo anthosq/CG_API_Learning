@@ -3,7 +3,7 @@
 // velocity_update.glsl — Phase 11-D：约束迭代结束后更新速度和位置
 //
 // vᵢ = (pᵢ* - xᵢ) / dt
-// 碰墙时法向速度镜像反射（RESTITUTION = 1.0，与参考实现一致）
+// 碰墙时法向速度镜像反射（RESTITUTION = 1.0)
 // xᵢ = pᵢ*
 
 layout(local_size_x = 256) in;
@@ -18,7 +18,7 @@ uniform vec3  u_BoundaryMin;
 uniform vec3  u_BoundaryMax;
 uniform float u_BoundaryPadding;  // = 2.5 * kernelRadius，与 apply_delta 一致
 
-// 参考实现：RESTITUTION=1.0（完全弹性），FRICTION=1.0（切向无摩擦）
+// RESTITUTION=1.0（完全弹性），FRICTION=1.0（切向无摩擦）
 uniform float u_Restitution;   // 法向速度反弹系数，默认 1.0
 
 void main() {

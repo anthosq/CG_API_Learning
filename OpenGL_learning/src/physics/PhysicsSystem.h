@@ -43,7 +43,7 @@ public:
     void Update(ECS::World& world, float deltaTime) override {
         if (!m_Enabled) return;
 
-        // ① Transform → BoundaryMin/Max 同步
+        // Transform → BoundaryMin/Max 同步
         // 有 TransformComponent 的流体实体：用 Position + Scale 驱动仿真域
         world.Each<ECS::TransformComponent, ECS::FluidComponent>(
             [&](ECS::Entity entity, ECS::TransformComponent& tr, ECS::FluidComponent& fluid) {
@@ -82,7 +82,7 @@ public:
             }
         );
 
-        // ② 懒创建：为尚未初始化的 FluidComponent 构建 FluidSimulation
+        // 懒创建：为尚未初始化的 FluidComponent 构建 FluidSimulation
         world.Each<ECS::FluidComponent>([&](ECS::Entity entity, ECS::FluidComponent& fluid) {
             if (!fluid.Runtime) {
                 fluid.Runtime = Ref<FluidSimulation>::Create(fluid);
@@ -90,7 +90,7 @@ public:
             }
         });
 
-        // ③ EmitterFluidSimulation 懒创建（首次出现发射器组件时）
+        // EmitterFluidSimulation 懒创建（首次出现发射器组件时）
         if (!m_PhysicsWorld.HasEmitterSim()) {
             bool hasEmitter = false;
             world.Each<ECS::FluidEmitterComponent>(
@@ -99,8 +99,8 @@ public:
                 m_PhysicsWorld.CreateEmitterSim(16384);
         }
 
-        // ④ 固定步长驱动（与参考实现一致）
-        // 参考实现 DELTA_TIME = 0.0016s，每帧恰好 1 步，不随帧率变化。
+        // 固定步长驱动（与参考实现一致）
+        // DELTA_TIME = 0.0016s，每帧恰好 1 步，不随帧率变化。
         // 低帧率时物理呈慢动作，但计算量不变 → 无性能雪崩。
         // MAX_CATCH_UP = 2：允许偶发卡顿后最多追 2 步，避免时间累计误差过大。
         constexpr float FIXED_PHYSICS_DT = 0.0016f;

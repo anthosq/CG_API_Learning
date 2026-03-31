@@ -2,7 +2,6 @@
 
 // hash_count.glsl — 空间哈希步骤 2/6：统计每格粒子数（atomic）
 //
-// 位置 → 格子索引映射（与参考实现的区别：使用任意 BoundaryMin 而非对称边界）：
 //   localPos = predictedPos - BoundaryMin
 //   cellIdx  = ivec3(floor(localPos / h))
 //   flatIdx  = cellIdx.x * (Dy*Dz) + cellIdx.y * Dz + cellIdx.z

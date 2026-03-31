@@ -2,7 +2,6 @@
 
 // hash_assign.glsl — 空间哈希步骤 6/6：将粒子写入排序后的索引数组
 //
-// 每个粒子原子地"认领"其格子的一个位置：
 //   slot = atomicAdd(cellOffset[cell], 1)
 //   sortedIdx[slot] = 粒子索引
 //

@@ -559,9 +559,11 @@ void SceneRenderer::FlushDrawList() {
         m_HDRFramebuffer->Bind();
         RenderCommand::SetViewport(0, 0, viewportWidth, viewportHeight);
         glClear(GL_COLOR_BUFFER_BIT);  // 只清颜色，深度留给 blit
-        GPU_TIMER_BEGIN(m_GPUStats.Lighting);
-        DeferredLightingPass();
-        GPU_TIMER_END(m_GPUStats.Lighting);
+        if (!m_Settings.Wireframe) {
+            GPU_TIMER_BEGIN(m_GPUStats.Lighting);
+            DeferredLightingPass();
+            GPU_TIMER_END(m_GPUStats.Lighting);
+        }
 
         // 4.5 SSR（Hi-Z 从 GBuffer 深度构建，在 HDR 颜色输出后、深度 blit 前执行）
         GPU_TIMER_BEGIN(m_GPUStats.SSR);

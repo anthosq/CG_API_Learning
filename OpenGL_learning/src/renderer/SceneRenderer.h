@@ -84,18 +84,16 @@ struct SceneRenderSettings {
     float FluidBlurSigmaS           = 8.0f;    // 空间高斯 σ（像素）
     float FluidNRFThreshold         = 0.02f;   // NRF 深度阈值（NDC，区分前后表面，典型 0.01~0.05）
     int   FluidNRFCleanupRadius     = 3;       // 2D Cleanup pass 核半径（像素，典型 2~5）
-    float FluidRefractStrength      = 0.025f;  // 折射 UV 偏移强度（参考：0.025）
+    float FluidRefractStrength      = 0.025f;  // 折射 UV 偏移强度（0.025）
     float FluidRenderRadiusScale        = 2.0f;    // 渲染粒子半径缩放（参考：2.0，使点精灵覆盖粒子间隙）
     float FluidEmitterRenderRadiusScale = 5.0f;    // Emitter 粒子单独渲染缩放（小 radius 时需更大值才能被 NRF 正确平滑）
-    // ThicknessScale 说明：
-    //   参考实现片元输出 dz * 0.05（无量纲）；我们输出 dz * 2r = dz * 0.02m（米制）。
-    //   等效缩放：0.05 / 0.02 = 2.5，使有效厚度与参考一致。
-    float FluidThicknessScale       = 2.5f;   // 厚度缩放（参考等效 2.5：0.05/0.02m）
+    // dz * 2r = dz * 0.02m（米制）。
+    float FluidThicknessScale       = 2.5f;   // 厚度缩放（等效 2.5：0.05/0.02m）
     float FluidMinThickness         = 0.04f;  // 厚度下限（原始单位，低于此值的外围像素不渲染，消除透明光晕）
     // 消光系数：按物理水体校准（厚 0.2m 时红光吸收 ~70%，蓝光几乎不变）
-    // 与参考等效：extinction_ours = extinction_ref × (ref_thickness / our_thickness) = 0.741 × 2.5
+    // extinction_ours = extinction_ref × (ref_thickness / our_thickness) = 0.741 × 2.5
     glm::vec3 FluidWaterColor  = {0.259f, 0.518f, 0.957f};  // 仅用于 UI 显示参考色，shader 已不使用
-    glm::vec3 FluidExtinction  = {0.741f, 0.482f, 0.043f};  // 与参考一致（ThicknessScale 已补偿单位）
+    glm::vec3 FluidExtinction  = {0.741f, 0.482f, 0.043f};  
 
     // SSR 屏幕空间反射（仅 Deferred 路径）
     bool  EnableSSR          = false;

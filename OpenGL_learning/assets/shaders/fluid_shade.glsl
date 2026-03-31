@@ -31,10 +31,10 @@ uniform samplerCube u_EnvCubemap;       // 环境立方体贴图（反射用）
 uniform mat4 u_InvProj;                 // 逆投影矩阵（视空间位置重建）
 uniform mat4 u_InvView;                 // 逆视图矩阵（视→世界，反射用）
 
-uniform vec3  u_WaterColor;             // 基础水色（参考 rgb(66,132,244)）
+uniform vec3  u_WaterColor;             // 基础水色
 uniform vec3  u_Extinction;             // Beer-Lambert 消光系数（= 1 - WaterColor）
-uniform float u_RefractStrength;        // 折射 UV 偏移强度（参考：0.025）
-uniform float u_ThicknessScale;         // 厚度缩放（参考：0.05，防止吸收过强）
+uniform float u_RefractStrength;        // 折射 UV 偏移强度（0.025）
+uniform float u_ThicknessScale;         // 厚度缩放
 uniform float u_MinThickness;           // 厚度下限：低于此值的像素视为流体外围，不渲染（消除透明光晕）
 uniform float u_EnvIntensity;           // 环境贴图亮度缩放
 

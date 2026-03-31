@@ -82,7 +82,11 @@ void main() {
     if (etaLen < 1e-6f) return;
 
     vec3 N = eta / etaLen;                       // η̂
-    vec3 fVort = u_VorticityEps * cross(N, omega);
+
+    // SPH 离散求和缺少体积元 h³（连续积分的 dV），补偿后 omega 量纲为 [1/s]，
+    // ε 在 0~5 范围内具有直观意义，与 XSPH 乘 1/ρ₀ 的归一化思路一致。
+    float h3 = h * h2;
+    vec3 fVort = u_VorticityEps * cross(N, omega * h3);
 
     velocity[i] = vec4(vi + fVort * u_DeltaTime, 0.0f);
 }

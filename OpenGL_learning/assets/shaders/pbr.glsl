@@ -447,7 +447,7 @@ float SampleShadow(uint cascade, vec3 worldPos, float bias) {
     }
 }
 
-// 阴影计算：带 cascade 间平滑过渡（参考 Hazel HazelPBR_Static.glsl）
+// 阴影计算：带 cascade 间平滑过渡
 float ShadowCalculation(vec3 worldPos, float viewDepth, vec3 normal, vec3 lightDir) {
     float distFade = clamp(1.0 - (viewDepth - (u_MaxShadowDistance - u_ShadowFade))
                                  / u_ShadowFade, 0.0, 1.0);
@@ -461,7 +461,7 @@ float ShadowCalculation(vec3 worldPos, float viewDepth, vec3 normal, vec3 lightD
 
     float half_fade = u_CascadeTransitionFade * 0.5;
 
-    // 在每条 cascade 分界线附近用 smoothstep 计算混合权重（参考 Hazel）
+    // 在每条 cascade 分界线附近用 smoothstep 计算混合权重
     // c=1 → 完全在当前 cascade，c=0 → 完全在下一个 cascade
     float c0 = smoothstep(u_CascadeSplits[0] + half_fade, u_CascadeSplits[0] - half_fade, viewDepth);
     float c1 = smoothstep(u_CascadeSplits[1] + half_fade, u_CascadeSplits[1] - half_fade, viewDepth);
@@ -480,7 +480,7 @@ float ShadowCalculation(vec3 worldPos, float viewDepth, vec3 normal, vec3 lightD
     return mix(1.0, shadow, distFade);
 }
 
-// IBL - Split-Sum 近似 (参考 Hazel IBL 函数)
+// IBL - Split-Sum 近似 
 vec3 CalculateIBL(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness, float ao) {
     vec3 R = reflect(-V, N);
     float NdotV = max(dot(N, V), 0.0);

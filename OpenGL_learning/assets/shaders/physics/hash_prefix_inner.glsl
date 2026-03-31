@@ -7,8 +7,6 @@
 //   cubeOffset[start+i]   = cubeOffset[start+i-1] + cellCount[start+i-1]
 //   blockSum[blockId]     = 本块所有格子的粒子总数
 //
-// 注：此实现与参考实现一致——以 sqrt(CellCount) 为块大小，
-// 每线程串行扫描。对典型流体规模（< 50K cells）性能足够。
 
 layout(local_size_x = 256) in;
 

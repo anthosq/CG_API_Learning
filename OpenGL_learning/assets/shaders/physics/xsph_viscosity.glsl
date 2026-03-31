@@ -16,7 +16,7 @@ layout(std430, binding = 7) buffer NeighborCount{ uint neighborCount[]; };
 layout(std430, binding = 8) buffer NeighborIdx  { uint neighborIdx[]; };
 
 uniform float u_KernelRadius;
-uniform float u_Viscosity;        // c，典型值 0.01（与参考一致，已含 1/ρ₀ 归一化）
+uniform float u_Viscosity;        // c，典型值 0.01（已含 1/ρ₀ 归一化）
 uniform float u_RestDensity;      // ρ₀，用于 XSPH 归一化
 uniform uint  u_ParticleCount;
 uniform uint  u_MaxNeighbors;

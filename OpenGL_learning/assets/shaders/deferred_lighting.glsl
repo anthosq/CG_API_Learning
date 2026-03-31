@@ -472,5 +472,14 @@ void main() {
     else
         ambient = u_AmbientColor.rgb * u_AmbientColor.w * albedo * ao * (1.0 - metallic);
 
-    o_Color = vec4(ambient + Lo + emissive, 1.0);
+    vec3 finalColor = ambient + Lo + emissive;
+    if (u_ShowCascades) {
+        const vec3 cascadeColors[4] = vec3[](
+            vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0),
+            vec3(0.0, 0.0, 1.0), vec3(1.0, 1.0, 0.0)
+        );
+        uint c = SelectCascade(viewDepth);
+        finalColor = mix(finalColor, cascadeColors[c], 0.4);
+    }
+    o_Color = vec4(finalColor, 1.0);
 }

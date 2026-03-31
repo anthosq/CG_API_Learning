@@ -1,6 +1,6 @@
 // Bloom Prefilter Pass
 // 从 HDR 颜色提取亮度超过阈值的像素，输出到半分辨率纹理
-// 使用 Quadratic Threshold（Knee Curve），参考 Hazel Bloom.glsl
+// 使用 Quadratic Threshold（Knee Curve）
 //
 // threshold: 亮度低于此值的像素完全黑化
 // knee:      过渡区宽度，0 = 硬阈值，1 = 完全软过渡
