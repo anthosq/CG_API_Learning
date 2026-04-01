@@ -15,17 +15,37 @@ layout(std430, binding = 14) buffer LifetimeBuffer { float lifetime[];  };  // e
 uniform mat4      u_ViewProj;
 uniform mat4      u_InvViewProj;
 uniform sampler2D u_GDepth;         // texture unit 0：场景深度 [0,1]
-uniform sampler2D u_GNormal;        // texture unit 1：GBuffer NormalRoughMetal（Oct in .rg）
+uniform sampler2D u_GNormal;        // texture unit 1：GBuffer NormalRoughMetal（Oct in .rg），Deferred 路径专用
 uniform float     u_ParticleRadius;
 uniform uint      u_ParticleCount;
 uniform float     u_Restitution;
 uniform int       u_HasLifetime;    // 1 = emitter 粒子，lifetime==0 的跳过
+uniform int       u_HasNormalTex;   // 1 = Deferred（GBuffer Oct 法线）；0 = Forward（从深度重建）
 
 vec3 decodeOct(vec2 f) {
     f = f * 2.0 - 1.0;
     vec3 n = vec3(f, 1.0 - abs(f.x) - abs(f.y));
     if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * sign(n.xy);
     return normalize(n);
+}
+
+// 从深度纹理重建世界坐标（Forward 路径无 GBuffer 法线时使用）
+vec3 worldFromUVD(vec2 uv, float depth) {
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 w = u_InvViewProj * clip;
+    return w.xyz / w.w;
+}
+
+// 3-tap 深度导数法线重建，选较近邻避免跨面伪影
+vec3 reconstructNormal(vec2 uv) {
+    vec2 ts = 1.0 / vec2(textureSize(u_GDepth, 0));
+    float d0 = texture(u_GDepth, uv).r;
+    float dR = texture(u_GDepth, uv + vec2(ts.x, 0.0)).r;
+    float dU = texture(u_GDepth, uv + vec2(0.0, ts.y)).r;
+    vec3 p0 = worldFromUVD(uv,                       d0);
+    vec3 pR = worldFromUVD(uv + vec2(ts.x, 0.0),     dR);
+    vec3 pU = worldFromUVD(uv + vec2(0.0,  ts.y),    dU);
+    return normalize(cross(pR - p0, pU - p0));
 }
 
 void main() {
@@ -62,8 +82,10 @@ void main() {
     vec4 surfWorld = u_InvViewProj * surfClip;
     vec3 surfPos   = surfWorld.xyz / surfWorld.w;
 
-    // 解码 GBuffer 法线（世界空间 Octahedral）
-    vec3 N = decodeOct(texture(u_GNormal, uv).rg);
+    // 法线：Deferred 路径解码 GBuffer Oct 法线；Forward 路径从深度重建
+    vec3 N = (u_HasNormalTex == 1)
+        ? decodeOct(texture(u_GNormal, uv).rg)
+        : reconstructNormal(uv);
 
     // 确保法线朝向摄像机（剔除背面法线）
     vec3 camPos = (u_InvViewProj * vec4(0.0, 0.0, -1.0, 1.0)).xyz;

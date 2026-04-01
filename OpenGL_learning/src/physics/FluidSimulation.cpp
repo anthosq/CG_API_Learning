@@ -260,6 +260,7 @@ void FluidSimulation::Step(float dt) {
         m_SceneCollisionCS->SetMat4 ("u_InvViewProj",    m_GInvViewProj);
         m_SceneCollisionCS->SetInt  ("u_GDepth",         0);
         m_SceneCollisionCS->SetInt  ("u_GNormal",        1);
+        m_SceneCollisionCS->SetInt  ("u_HasNormalTex",   m_GNormalTex != 0 ? 1 : 0);
         m_SceneCollisionCS->SetFloat("u_ParticleRadius", m_ParticleRadius);
         m_SceneCollisionCS->SetUint ("u_ParticleCount",  N);
         m_SceneCollisionCS->SetFloat("u_Restitution",    m_SceneRestitution);

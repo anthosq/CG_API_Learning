@@ -290,8 +290,15 @@ public:
     void SetEmitterSim(const Ref<EmitterFluidSimulation>& sim) { m_EmitterSim = sim; }
 
     // G-Buffer 纹理访问（供 PhysicsSystem 场景碰撞使用，返回上一帧数据）
-    GLuint    GetGBufferDepthTexture()  const { return m_GBuffer ? m_GBuffer->GetDepth() : 0; }
-    GLuint    GetGBufferNormalTexture() const { return m_GBuffer ? m_GBuffer->GetNormalRoughMetal() : 0; }
+    // Deferred 路径：直接返回 GBuffer 附件
+    // Forward 路径：返回 HDR FBO 深度（DepthPrePass 填充）；法线由 scene_collision 从深度重建，返回 0
+    GLuint GetGBufferDepthTexture() const {
+        if (m_GBuffer) return m_GBuffer->GetDepth();
+        return m_HDRFramebuffer ? m_HDRFramebuffer->GetDepthAttachment() : 0;
+    }
+    GLuint GetGBufferNormalTexture() const {
+        return m_GBuffer ? m_GBuffer->GetNormalRoughMetal() : 0;
+    }
     glm::mat4 GetViewProjection()       const { return m_ProjectionMatrix * m_ViewMatrix; }
     glm::mat4 GetInvViewProjection()    const { return glm::inverse(m_ProjectionMatrix * m_ViewMatrix); }
 

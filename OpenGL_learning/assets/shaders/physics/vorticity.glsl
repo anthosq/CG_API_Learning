@@ -47,7 +47,7 @@ void main() {
     vec3  vi = velocity[i].xyz;
     uint  nc = neighborCount[i];
 
-    // ① 计算局部涡度 ωᵢ = Σⱼ (vⱼ - vᵢ) × ∇W(pᵢ - pⱼ)
+    // 计算局部涡度 ωᵢ = Σⱼ (vⱼ - vᵢ) × ∇W(pᵢ - pⱼ)
     vec3 omega = vec3(0.0f);
     for (uint k = 0u; k < nc; k++) {
         uint  j   = neighborIdx[i * u_MaxNeighbors + k];
@@ -63,7 +63,7 @@ void main() {
         return;  // 无涡度，跳过
     }
 
-    // ② 计算 η = ∇|ω|（用邻居的 |ω| 梯度近似）
+    // 计算 η = ∇|ω|（用邻居的 |ω| 梯度近似）
     // 由于 |ω| 需要单独缓冲区，这里用邻居速度叉积估算
     // 简化实现：η = Σⱼ |ωⱼ_approx| * ∇W(rᵢⱼ)，ωⱼ ≈ (vⱼ-vᵢ)×∇W
     vec3 eta = vec3(0.0f);
@@ -77,16 +77,15 @@ void main() {
         eta += length(omgJ) * gw;
     }
 
-    // ③ 涡旋力 f = ε · (η̂ × ω)
+    // 涡旋力 f = ε · (η̂ × ω)
     float etaLen = length(eta);
     if (etaLen < 1e-6f) return;
 
     vec3 N = eta / etaLen;                       // η̂
 
-    // SPH 离散求和缺少体积元 h³（连续积分的 dV），补偿后 omega 量纲为 [1/s]，
-    // ε 在 0~5 范围内具有直观意义，与 XSPH 乘 1/ρ₀ 的归一化思路一致。
     float h3 = h * h2;
     vec3 fVort = u_VorticityEps * cross(N, omega * h3);
+    // vec3 fVort = u_VorticityEps * cross(N, omega);
 
     velocity[i] = vec4(vi + fVort * u_DeltaTime, 0.0f);
 }
