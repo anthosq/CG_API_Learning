@@ -23,7 +23,7 @@
 
 | GPU 流体仿真 (PBF) | 屏幕空间流体渲染 (SSFR) |
 |:-----------------:|:----------------------:|
-| ![fluid](showcase/PBF.png) | ![ssfr](showcase/SSFR.png) |
+| ![fluid](showcase/PBF.gif) | ![ssfr](showcase/SSFR.png) |
 
 | 粒子发射器 | G-Buffer 碰撞 |
 |:---------:|:------:|
@@ -84,7 +84,10 @@
 
 ### 流体粒子发射器组件
 
-1. 所有粒子共享
+1.作为EmitterFluidSimulation独立仿真实例, 所有FluidEmitterComponent共享实例, 池大小独立配置
+2. 使用free-list动态管理粒子的生命周期, 运行自己的PBF, 每step末尾回收到期粒子
+3. 发射器之间粒子互相可见, 后续颜色混合按密度加权混合, 实现混色
+
 
 ### 编辑器
 
