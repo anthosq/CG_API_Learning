@@ -11,23 +11,23 @@
 
 | 基础的编辑器与场景系统| PBR + IBL |
 |:---------:|:------------------------:|
-| ![editor](showcase/editor.png) | ![pbr](showcase/PBR+IBL.png) |
+| ![editor](OpenGL_learning/showcase/editor.png) | ![pbr](OpenGL_learning/showcase/PBR+IBL.png) |
 
 |  Compute Shader驱动的粒子系统 | 级联阴影贴图 (CSM + PCSS) |
 |:---------:|:------------------------:|
-| ![particle](showcase/particle_system.png) | ![csm](showcase/CSM+PCSS.png) |
+| ![particle](OpenGL_learning/showcase/particle_system.png) | ![csm](OpenGL_learning/showcase/CSM+PCSS.png) |
 
 | 屏幕空间反射 (SSR) | SSAO |
 |:-----------------:|:-----------:|
-| ![ssr](showcase/SSR.png) | ![ao](showcase/SSAO.png) |
+| ![ssr](OpenGL_learning/showcase/SSR.png) | ![ao](OpenGL_learning/showcase/SSAO.png) |
 
 | GPU 流体仿真 (PBF) | 屏幕空间流体渲染 (SSFR) |
 |:-----------------:|:----------------------:|
-| ![fluid](showcase/PBF.gif) | ![ssfr](showcase/SSFR.png) |
+| ![fluid](OpenGL_learning/showcase/PBF.gif) | ![ssfr](OpenGL_learning/showcase/SSFR.png) |
 
 | 粒子发射器 | G-Buffer 碰撞 |
 |:---------:|:------:|
-| ![emitter](showcase/fluid_emitter_collision.gif) | ![g-buffer](showcase/fluid_emitter_g-buffer.gif) |
+| ![emitter](OpenGL_learning/showcase/fluid_emitter_collision.gif) | ![g-buffer](OpenGL_learning/showcase/fluid_emitter_g-buffer.gif) |
 
 ---
 
