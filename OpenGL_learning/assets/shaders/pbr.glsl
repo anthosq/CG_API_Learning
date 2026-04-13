@@ -128,6 +128,13 @@ uniform samplerCube u_PrefilterMap;
 uniform sampler2D u_BrdfLUT;
 uniform float u_EnvironmentIntensity;
 
+// SSS（次表面散射，slot 12）
+uniform int       u_ShadingModelID;
+uniform sampler2D u_SkinLUT;
+uniform float     u_SSSCurvatureScale;
+uniform vec3      u_SubsurfaceColor  = vec3(1.0, 0.4, 0.3);
+uniform float     u_SubsurfaceRadius = 1.0;
+
 // SSAO（slot 10，禁用时绑白色纹理，采样结果为 1.0，对 ao 无影响）
 uniform sampler2D u_SSAOMap;
 
@@ -216,6 +223,18 @@ vec3 CookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 F0, vec3 albed
     float NdotL = max(dot(N, L), 0.0);
 
     return (kD * albedo / PI + specular) * radiance * NdotL;
+}
+
+vec3 CalculateSSSDiffuse(vec3 N, vec3 L, vec3 albedo, vec3 subsurfaceColor, float radius) {
+    vec3  ndx       = dFdx(N);
+    vec3  ndy       = dFdy(N);
+    float curvature = clamp(sqrt(dot(ndx, ndx) + dot(ndy, ndy)) * radius * u_SSSCurvatureScale, 0.0, 1.0);
+    float NdotL     = dot(N, L);
+    vec2  lutUV     = vec2(NdotL * 0.5 + 0.5, curvature);
+    vec2  lutVal    = texture(u_SkinLUT, lutUV).rg;
+    vec3  scatter   = vec3(lutVal.r, lutVal.g, lutVal.g * 0.7);
+    const float PI  = 3.14159265359;
+    return albedo * subsurfaceColor * scatter / PI;
 }
 
 vec3 CalculateDirectionalLight(vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
@@ -536,9 +555,16 @@ void main() {
 
     // 方向光 + 阴影
     if (u_DirLightDirection.w > 0.0) {
-        vec3 L = normalize(-u_DirLightDirection.xyz);
+        vec3  L      = normalize(-u_DirLightDirection.xyz);
         float shadow = ShadowCalculation(fs_in.FragPos, viewDepth, N, L);
-        Lo += CalculateDirectionalLight(N, V, F0, albedo, metallic, roughness) * shadow;
+        if (u_ShadingModelID == 1) {
+            vec3 radiance = u_DirLightColor.rgb * u_DirLightDirection.w;
+            vec3 sssD     = CalculateSSSDiffuse(N, L, albedo, u_SubsurfaceColor, u_SubsurfaceRadius);
+            vec3 spec     = CookTorranceBRDF(N, V, L, radiance, F0, vec3(0.0), metallic, roughness);
+            Lo += (sssD * radiance + spec) * shadow;
+        } else {
+            Lo += CalculateDirectionalLight(N, V, F0, albedo, metallic, roughness) * shadow;
+        }
     }
 
     // Tiled Forward+ 点光源：只迭代本 tile 可见的光源

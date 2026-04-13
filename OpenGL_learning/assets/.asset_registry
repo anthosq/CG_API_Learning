@@ -11,12 +11,12 @@
       "type": "Texture"
     },
     {
-      "handle": "ee03657953b57dd0",
+      "handle": "b4c38ad1c2625f36",
       "path": "__prim:cube",
       "type": "MeshSource"
     },
     {
-      "handle": "801476e11ac085f2",
+      "handle": "fa9e568f31677c80",
       "path": "__prim:sphere",
       "type": "MeshSource"
     },
@@ -41,7 +41,7 @@
       "type": "Texture"
     },
     {
-      "handle": "4080305ba8d45f6b",
+      "handle": "d383e7ce5875b392",
       "path": "__prim:cylinder",
       "type": "MeshSource"
     },
@@ -54,6 +54,16 @@
       "handle": "c477f7ef307971e3",
       "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_N.tga",
       "type": "Texture"
+    },
+    {
+      "handle": "523ddadaa9010e83",
+      "path": "assets\\model\\cerberusffvii-gun-model-by-andrew-maximov\\source\\Cerberus_LP.FBX.fbx",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "d7228d5d2d3d5a0e",
+      "path": "assets\\model\\xyzrgb_dragon.obj",
+      "type": "MeshSource"
     }
   ]
 }

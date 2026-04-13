@@ -82,6 +82,10 @@ uniform sampler2D u_MetallicMap;
 uniform sampler2D u_RoughnessMap;
 uniform sampler2D u_AOMap;
 uniform sampler2D u_EmissiveMap;
+uniform int   u_ShadingModelID   = 0;
+// SSS 材质专用（DefaultLit 时不使用）
+uniform vec3  u_SubsurfaceColor  = vec3(1.0, 0.4, 0.3);
+uniform float u_SubsurfaceRadius = 1.0;  // 散射宽度 [0,5]
 
 // 将单位法线编码为正八面体展开的 [0,1]² 正方形
 // 等面积映射，全球面无奇点，2×8bit 精度约 0.45°
@@ -105,8 +109,19 @@ void main() {
 
     vec3 emissive = texture(u_EmissiveMap, fs_in.TexCoord).rgb * u_EmissiveColor * u_EmissiveIntensity;
 
-    o_BaseColorAO      = vec4(albedo, ao);
-    o_NormalRoughMetal = vec4(OctEncode(worldNormal), roughness, metallic);
-    o_EmissiveShadingID = vec4(emissive, 0.0);  // ShadingModelID = 0 (Default Lit)
-    o_EntityID         = fs_in.EntityID;
+    // Att2.rgb 按 ShadingModel 复用：
+    //   DefaultLit / Unlit → Emissive.rgb
+    //   Subsurface         → SubsurfaceColor.rgb（SSS 材质一般无自发光）
+    vec3 att2rgb = (u_ShadingModelID == 1) ? u_SubsurfaceColor : emissive;
+
+    // Att2.a 打包: [1:0]=ShadingModelID(2bit)  [7:2]=QuantRadius(6bit, radius∈[0,5])
+    int quantRadius = (u_ShadingModelID == 1)
+                      ? int(clamp(u_SubsurfaceRadius / 5.0, 0.0, 1.0) * 63.0 + 0.5)
+                      : 0;
+    int packedA = (u_ShadingModelID & 0x3) | (quantRadius << 2);
+
+    o_BaseColorAO       = vec4(albedo, ao);
+    o_NormalRoughMetal  = vec4(OctEncode(worldNormal), roughness, metallic);
+    o_EmissiveShadingID = vec4(att2rgb, float(packedA) / 255.0);
+    o_EntityID          = fs_in.EntityID;
 }

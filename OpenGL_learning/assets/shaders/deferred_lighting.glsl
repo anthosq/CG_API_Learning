@@ -81,6 +81,10 @@ uniform samplerCube u_PrefilterMap;
 uniform sampler2D   u_BrdfLUT;
 uniform float       u_EnvironmentIntensity;
 
+// SSS
+uniform sampler2D u_SkinLUT;
+uniform float     u_SSSCurvatureScale = 1.0;  // 全局曲率缩放，由 SettingsPanel 控制
+
 // SSAO
 uniform sampler2D u_SSAOMap;
 
@@ -310,6 +314,25 @@ float ShadowCalculation(vec3 worldPos, float viewDepth, vec3 normal, vec3 lightD
     return mix(1.0, shadow, distFade);
 }
 
+// 次表面散射（PISR 预积分皮肤散射）
+// 用预积分 LUT 替换 Lambert 漫射项，高光仍沿用 GGX
+// 输入: subsurfaceColor 来自材质 u_SubsurfaceColor uniform（已在 Material::Apply 写入）
+// radius: per-material 散射宽度（从 GBuffer 解包），与全局 CurvatureScale 共同驱动 LUT V 轴
+vec3 CalculateSSSDiffuse(vec3 N, vec3 L, vec3 albedo, vec3 subsurfaceColor, float radius) {
+    vec3  ndx       = dFdx(N);
+    vec3  ndy       = dFdy(N);
+    float curvature = clamp(sqrt(dot(ndx, ndx) + dot(ndy, ndy)) * radius * u_SSSCurvatureScale, 0.0, 1.0);
+
+    float NdotL  = dot(N, L);
+    vec2  lutUV  = vec2(NdotL * 0.5 + 0.5, curvature);
+    vec2  lutVal = texture(u_SkinLUT, lutUV).rg;
+
+    // R/G 通道对应红色/绿色散射积分，蓝色近似为绿色衰减（皮肤蓝色散射极少）
+    vec3 scatter = vec3(lutVal.r, lutVal.g, lutVal.g * 0.7);
+
+    return albedo * subsurfaceColor * scatter / PI;
+}
+
 // 点光源（含 PCF 软阴影，与 pbr.glsl 完全一致）
 vec3 CalculatePointLight(int index, vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
     vec3  lightPos       = u_PointLights[index].PosRadius.xyz;
@@ -425,7 +448,14 @@ void main() {
     vec3  N         = OctDecode(gbuf1.rg);
     float roughness = gbuf1.b;
     float metallic  = gbuf1.a;
-    vec3  emissive  = gbuf2.rgb;
+    // Att2.a 解包: [1:0]=ShadingModelID  [7:2]=QuantRadius (见 gbuffer.glsl 打包逻辑)
+    int   packedA        = int(gbuf2.a * 255.0 + 0.5);
+    int   shadingModelID = packedA & 0x3;
+    float subsurfaceRadius = float((packedA >> 2) & 63) / 63.0 * 5.0;  // 还原到 [0,5]
+
+    // Att2.rgb 含义按 ShadingModel 区分
+    vec3 emissive       = (shadingModelID == 1) ? vec3(0.0) : gbuf2.rgb;
+    vec3 subsurfaceColor = gbuf2.rgb;  // SSS 时为 SubsurfaceColor，其余时不使用
 
     // WorldPosition 从 Depth 重建
     vec4 clipPos  = vec4(v_TexCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
@@ -441,14 +471,28 @@ void main() {
     // 相机空间深度，用于 cascade 选择和阴影距离淡出
     float viewDepth = -(u_View * vec4(fragPos, 1.0)).z;
 
+    // Unlit：只输出自发光，跳过全部光照
+    if (shadingModelID == 2) {
+        o_Color = vec4(emissive + albedo, 1.0);
+        return;
+    }
+
     vec3 Lo = vec3(0.0);
 
     // 方向光 + CSM 阴影
     if (u_DirLightDirection.w > 0.0) {
-        vec3  L      = normalize(-u_DirLightDirection.xyz);
-        float shadow = ShadowCalculation(fragPos, viewDepth, N, L);
+        vec3  L        = normalize(-u_DirLightDirection.xyz);
+        float shadow   = ShadowCalculation(fragPos, viewDepth, N, L);
         vec3  radiance = u_DirLightColor.rgb * u_DirLightDirection.w;
-        Lo += CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness) * shadow;
+
+        if (shadingModelID == 1) {
+            // Subsurface：LUT 散射漫反射 + GGX 高光
+            vec3 sssD  = CalculateSSSDiffuse(N, L, albedo, subsurfaceColor, subsurfaceRadius);
+            vec3 spec  = CookTorranceBRDF(N, V, L, radiance, F0, vec3(0.0), metallic, roughness);
+            Lo += (sssD * radiance + spec) * shadow;
+        } else {
+            Lo += CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness) * shadow;
+        }
     }
 
     // Tiled Forward+ 点光源（读 tile 光源列表，与 pbr.glsl 完全一致）

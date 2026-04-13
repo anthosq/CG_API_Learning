@@ -294,6 +294,15 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         }
     }
 
+    // SSS 设置
+    if (ImGui::CollapsingHeader("Subsurface Scattering")) {
+        ImGui::SliderFloat("Curvature Scale", &settings.SSSCurvatureScale, 0.1f, 10.0f, "%.2f");
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Global curvature scale multiplied with per-material Radius.\nSubsurface Color is set per-material in the Inspector.");
+    }
+
     // 流体渲染设置
     if (ImGui::CollapsingHeader("Fluid")) {
         ImGui::Checkbox("Enable SSFR##fluid",        &settings.EnableFluidRendering);

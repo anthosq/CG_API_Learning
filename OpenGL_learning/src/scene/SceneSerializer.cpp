@@ -132,12 +132,15 @@ static json SerializeEntity(ECS::Entity entity,
 
                 json jmat;
                 jmat["Slot"]        = slot;
-                jmat["AlbedoColor"] = ToJson(mat->GetAlbedoColor());
-                jmat["Metallic"]    = mat->GetMetallic();
-                jmat["Roughness"]   = mat->GetRoughness();
-                jmat["Emission"]    = mat->GetEmission();
-                jmat["UseNormalMap"]= mat->IsUsingNormalMap();
-                jmat["Transparent"] = mat->IsTransparent();
+                jmat["AlbedoColor"]       = ToJson(mat->GetAlbedoColor());
+                jmat["Metallic"]          = mat->GetMetallic();
+                jmat["Roughness"]         = mat->GetRoughness();
+                jmat["Emission"]          = mat->GetEmission();
+                jmat["UseNormalMap"]      = mat->IsUsingNormalMap();
+                jmat["Transparent"]       = mat->IsTransparent();
+                jmat["ShadingModel"]      = static_cast<int>(mat->GetShadingModel());
+                jmat["SubsurfaceColor"]   = ToJson(mat->GetSubsurfaceColor());
+                jmat["SubsurfaceRadius"]  = mat->GetSubsurfaceRadius();
                 jmat["AlbedoMap"]   = getTexPath(mat->GetAlbedoMap());
                 jmat["NormalMap"]   = getTexPath(mat->GetNormalMap());
                 jmat["MetallicMap"] = getTexPath(mat->GetMetallicMap());
@@ -553,6 +556,9 @@ static void DeserializeComponents(ECS::Entity entity, const json& jc,
                 mat->SetRoughness(jmat.value("Roughness", 0.5f));
                 mat->SetEmission (jmat.value("Emission",  0.0f));
                 mat->SetUseNormalMap(jmat.value("UseNormalMap", false));
+                mat->SetShadingModel(static_cast<ShadingModel>(jmat.value("ShadingModel", 0)));
+                if (jmat.contains("SubsurfaceColor")) mat->SetSubsurfaceColor(Vec3(jmat["SubsurfaceColor"]));
+                mat->SetSubsurfaceRadius(jmat.value("SubsurfaceRadius", 1.0f));
 
                 // 纹理：用路径重新导入，sRGB 约定：Albedo/Emissive 用 sRGB，其余线性
                 AssetHandle albedo = importTex(jmat.value("AlbedoMap",    ""), true);

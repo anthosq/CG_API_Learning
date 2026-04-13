@@ -110,6 +110,7 @@ void SceneRenderer::Shutdown() {
     if (m_GTAODenoisedTex) { glDeleteTextures(1, &m_GTAODenoisedTex); m_GTAODenoisedTex = 0; }
     if (m_GTAOFinalTex)    { glDeleteTextures(1, &m_GTAOFinalTex);    m_GTAOFinalTex    = 0; }
     if (m_HilbertLutTex)   { glDeleteTextures(1, &m_HilbertLutTex);   m_HilbertLutTex   = 0; }
+    if (m_SkinLUT)         { glDeleteTextures(1, &m_SkinLUT);         m_SkinLUT         = 0; }
     m_GTAOPipeline.Reset();
     m_GTAODenoisePipeline.Reset();
 
@@ -892,6 +893,14 @@ void SceneRenderer::GeometryPass() {
         pbrShader->SetInt("u_BrdfLUT", static_cast<int>(TextureSlot::BrdfLUT));
     }
 
+    // SkinLUT（slot 12，Forward SSS）
+    pbrShader->SetFloat("u_SSSCurvatureScale", m_Settings.SSSCurvatureScale);
+    if (m_SkinLUT) {
+        glActiveTexture(GL_TEXTURE0 + TextureSlot::SkinLUT);
+        glBindTexture(GL_TEXTURE_2D, m_SkinLUT);
+        pbrShader->SetInt("u_SkinLUT", static_cast<int>(TextureSlot::SkinLUT));
+    }
+
     // 阴影贴图绑定（slot 9，sampler2DArrayShadow）
     if (m_ShadowMap && m_ShadowMap->IsValid()) {
         m_ShadowMap->BindForReading(SHADOW_MAP_SLOT);
@@ -943,6 +952,7 @@ void SceneRenderer::GeometryPass() {
         // 获取并绑定材质
         auto material = GetMaterialForDrawCommand(cmd);
         BindPBRMaterial(*pbrShader, material);
+        pbrShader->SetInt("u_ShadingModelID", static_cast<int>(material->GetShadingModel()));
 
         // 设置变换
         pbrShader->SetMat4("u_Model", cmd.Transform);
@@ -1017,6 +1027,7 @@ void SceneRenderer::GBufferPass() {
 
         auto material = GetMaterialForDrawCommand(cmd);
         BindPBRMaterial(*gbufferShader, material);
+        gbufferShader->SetInt("u_ShadingModelID", static_cast<int>(material->GetShadingModel()));
 
         gbufferShader->SetMat4("u_Model", cmd.Transform);
         gbufferShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
@@ -1085,6 +1096,14 @@ void SceneRenderer::DeferredLightingPass() {
     if (brdfLut) {
         brdfLut->Bind(TextureSlot::BrdfLUT);
         shader->SetInt("u_BrdfLUT", static_cast<int>(TextureSlot::BrdfLUT));
+    }
+
+    // SkinLUT（slot 12，避免与 SHADOW_MAP_SLOT=9 冲突）
+    shader->SetFloat("u_SSSCurvatureScale", m_Settings.SSSCurvatureScale);
+    if (m_SkinLUT) {
+        glActiveTexture(GL_TEXTURE0 + TextureSlot::SkinLUT);
+        glBindTexture(GL_TEXTURE_2D, m_SkinLUT);
+        shader->SetInt("u_SkinLUT", static_cast<int>(TextureSlot::SkinLUT));
     }
 
     // 阴影贴图（slot 9）
@@ -1622,7 +1641,6 @@ void SceneRenderer::BindPBRMaterial(Shader& shader, const Ref<MaterialAsset>& ma
     auto mat = material->GetMaterial();
     if (!mat) return;
 
-    // Material::Apply 上传 uniform 并绑定纹理
     mat->Apply(shader);
 }
 
@@ -1656,6 +1674,33 @@ void SceneRenderer::CreateDefaultResources() {
     m_DefaultMaterial->SetAlbedoColor(glm::vec3(0.8f));
     m_DefaultMaterial->SetMetallic(0.0f);
     m_DefaultMaterial->SetRoughness(0.5f);
+
+    PrecomputeSkinLUT();
+}
+
+void SceneRenderer::PrecomputeSkinLUT() {
+    const int LUT_SIZE = 512;
+
+    glGenTextures(1, &m_SkinLUT);
+    glBindTexture(GL_TEXTURE_2D, m_SkinLUT);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RG16F, LUT_SIZE, LUT_SIZE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    auto pipeline = ComputePipeline::Create("assets/shaders/sss/skin_lut.glsl");
+    if (!pipeline) {
+        std::cerr << "[SceneRenderer] skin_lut.glsl 加载失败" << std::endl;
+        return;
+    }
+
+    pipeline->Bind();
+    glBindImageTexture(0, m_SkinLUT, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RG16F);
+    pipeline->DispatchAndWait(LUT_SIZE / 32, LUT_SIZE / 32, 1);
+
+    std::cout << "[SceneRenderer] Skin LUT 预计算完成 (" << LUT_SIZE << "x" << LUT_SIZE << ")" << std::endl;
 }
 
 void SceneRenderer::SyncLightsFromECS(ECS::World& world) {

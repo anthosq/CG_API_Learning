@@ -7,6 +7,12 @@
 
 namespace GLRenderer {
 
+enum class ShadingModel : uint8_t {
+    DefaultLit  = 0,
+    Subsurface  = 1,
+    Unlit       = 2,
+};
+
 class MaterialAsset : public Asset {
 public:
     MaterialAsset() = default;
@@ -53,6 +59,15 @@ public:
     bool IsTransparent() const { return m_Transparent; }
     void SetTransparent(bool value) { m_Transparent = value; }
 
+    ShadingModel GetShadingModel() const { return m_ShadingModel; }
+    void SetShadingModel(ShadingModel model) { m_ShadingModel = model; }
+
+    glm::vec3 GetSubsurfaceColor() const;
+    void SetSubsurfaceColor(const glm::vec3& color);
+
+    float GetSubsurfaceRadius() const;
+    void SetSubsurfaceRadius(float radius);
+
     static AssetType GetStaticType() { return AssetType::Material; }
     AssetType GetAssetType() const override { return GetStaticType(); }
 
@@ -63,6 +78,7 @@ private:
     Ref<Material> m_Material;
     bool m_Transparent = false;
     bool m_UseNormalMap = false;
+    ShadingModel m_ShadingModel = ShadingModel::DefaultLit;
 
     AssetHandle m_AlbedoMap = 0;
     AssetHandle m_NormalMap = 0;

@@ -20,6 +20,7 @@ namespace TextureSlot {
     constexpr uint32_t Irradiance  = 6;
     constexpr uint32_t Prefilter   = 7;
     constexpr uint32_t BrdfLUT     = 8;
+    constexpr uint32_t SkinLUT     = 12; // slots 9/10/11 reserved by SHADOW_MAP_SLOT/SSAO/POINT_SHADOW
     constexpr uint32_t Diffuse     = 0;
     constexpr uint32_t Specular    = 2;
 }

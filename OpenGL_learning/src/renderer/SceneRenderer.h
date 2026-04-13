@@ -104,6 +104,9 @@ struct SceneRenderSettings {
     float SSRFacingFade      = 0.2f;    // 掠射角容差
     float SSRIntensity       = 1.0f;    // 整体强度（0=关闭，不需要单独 bool）
 
+    // SSS（次表面散射）
+    float SSSCurvatureScale = 1.0f;  // 全局曲率缩放，与 per-material SubsurfaceRadius 共同驱动 LUT V 轴
+
     // SSAO
     bool  EnableSSAO         = true;
     float SSAORadius         = 0.5f;   // 采样半径（视图空间，单位：米）
@@ -338,6 +341,7 @@ private:
     void CollectDrawCommandsFromECS(ECS::World& world);
     void SortTransparentDrawList();
     void CreateDefaultResources();
+    void PrecomputeSkinLUT();
     void UpdateLightingUBO();
     void UploadPointLightSSBO();                              // 上传点光源数据到 SSBO
     void EnsureTiledLightBuffers(int numTilesX, int numTilesY); // 按需扩容 SSBO
@@ -459,6 +463,7 @@ private:
     GLuint m_GTAODenoisedTex = 0;   // R32UI：降噪后 AO + bent normal
     GLuint m_GTAOFinalTex    = 0;   // R16F：仅 AO 标量，绑定到 u_SSAOMap 槽
     GLuint m_HilbertLutTex   = 0;   // R8UI 64×64：Hilbert 曲线索引 LUT（Initialize 时生成）
+    GLuint m_SkinLUT         = 0;   // RG16F 512×512：PISR 皮肤预积分散射 LUT（Initialize 时生成）
     int    m_GTAOTexWidth    = 0;
     int    m_GTAOTexHeight   = 0;
     Ref<ComputePipeline> m_GTAOPipeline;
