@@ -296,11 +296,14 @@ void SettingsPanel::OnDraw(EditorContext& context) {
 
     // SSS 设置
     if (ImGui::CollapsingHeader("Subsurface Scattering")) {
-        ImGui::SliderFloat("Curvature Scale", &settings.SSSCurvatureScale, 0.1f, 10.0f, "%.2f");
+        ImGui::Checkbox("Enable SSSS Blur", &settings.EnableSSS);
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Global curvature scale multiplied with per-material Radius.\nSubsurface Color is set per-material in the Inspector.");
+            ImGui::SetTooltip("Screen-Space Subsurface Scattering.\nDisabled: PISR LUT only (sharp terminator).\nEnabled: SSS diffuse blurred via Compute Shader.");
+        if (settings.EnableSSS)
+            ImGui::SliderFloat("Blur Scale", &settings.SSSBlurScale, 1.0f, 32.0f, "%.1f px/unit");
+        ImGui::SliderFloat("Curvature Scale", &settings.SSSCurvatureScale, 0.1f, 10.0f, "%.2f");
     }
 
     // 流体渲染设置

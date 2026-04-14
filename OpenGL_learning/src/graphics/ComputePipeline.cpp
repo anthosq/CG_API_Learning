@@ -80,6 +80,10 @@ GLint ComputePipeline::GetUniformLocation(const std::string& name) const {
     return location;
 }
 
+void ComputePipeline::SetBool(const std::string& name, bool value) const {
+    glUniform1i(GetUniformLocation(name), value ? 1 : 0);
+}
+
 void ComputePipeline::SetInt(const std::string& name, int value) const {
     glUniform1i(GetUniformLocation(name), value);
 }

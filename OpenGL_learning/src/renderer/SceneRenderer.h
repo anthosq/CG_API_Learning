@@ -105,7 +105,12 @@ struct SceneRenderSettings {
     float SSRIntensity       = 1.0f;    // 整体强度（0=关闭，不需要单独 bool）
 
     // SSS（次表面散射）
-    float SSSCurvatureScale = 1.0f;  // 全局曲率缩放，与 per-material SubsurfaceRadius 共同驱动 LUT V 轴
+    float     SSSCurvatureScale  = 1.0f;              // 全局曲率缩放，与 per-material SubsurfaceRadius 共同驱动 LUT V 轴
+    bool      EnableSSS          = false;             // true → SSS diffuse 写入独立 RT，经 Blur 后 Composite 合回场景
+    float     SSSBlurScale       = 8.0f;              // SubsurfaceRadius → 屏幕像素 sigma 的缩放系数
+    glm::vec3 SSSScatterRGB      = {1.0f, 0.5f, 0.3f}; // RGB 各通道散射半径倍率（皮肤：红>绿>蓝）
+    float     SSSTranslucency    = 0.3f;              // 透光强度（0=关闭）
+    float     SSSTranslucencyDistortion = 0.1f;       // 透光法线扭曲系数
 
     // SSAO
     bool  EnableSSAO         = true;
@@ -355,7 +360,11 @@ private:
     void EnsureHDRFramebuffer(uint32_t width, uint32_t height);
     void EnsureBloomTextures(uint32_t width, uint32_t height);
     void EnsureSSRResources(uint32_t width, uint32_t height);
+    void EnsureSSSResources(uint32_t width, uint32_t height);
     void EnsureBackFaceDepthTex(int w, int h);
+
+    void SSSBlurPass();
+    void SSSCompositePass();
 
     // PBR 渲染
     void BindPBRMaterial(Shader& shader, const Ref<MaterialAsset>& material);
@@ -464,6 +473,15 @@ private:
     GLuint m_GTAOFinalTex    = 0;   // R16F：仅 AO 标量，绑定到 u_SSAOMap 槽
     GLuint m_HilbertLutTex   = 0;   // R8UI 64×64：Hilbert 曲线索引 LUT（Initialize 时生成）
     GLuint m_SkinLUT         = 0;   // RG16F 512×512：PISR 皮肤预积分散射 LUT（Initialize 时生成）
+
+    // SSSS（屏幕空间次表面散射）
+    GLuint m_SSSColorTex    = 0;   // RGBA16F：SSS diffuse RT（Deferred Lighting 第二输出，Blur 目标）
+    GLuint m_SSSBlurTempTex = 0;   // RGBA16F：Separable Blur 中间 RT（H-pass 输出，V-pass 输入）
+    GLuint m_SSSLightingFBO = 0;   // FBO：attachment0=HDR color，attachment1=SSSColorTex
+    GLuint m_SSSCompositeFBO = 0;  // FBO：写回 HDR color（Composite Pass 目标）
+    int    m_SSSTexWidth    = 0;
+    int    m_SSSTexHeight   = 0;
+    Ref<ComputePipeline> m_SSSBlurPipeline;
     int    m_GTAOTexWidth    = 0;
     int    m_GTAOTexHeight   = 0;
     Ref<ComputePipeline> m_GTAOPipeline;

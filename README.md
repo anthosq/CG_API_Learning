@@ -5,29 +5,36 @@
 
 
 ---
+## 4月14日更新
+- 简单的屏幕空间次表面散射效果实现
+- 后续计划向Burley Normalized SSS实现靠拢, 做rgb三个通道的
+- 透光部分参考UE5用shadowmap去获取数据, 但好像有点问题, 在完成rgb三通道的blur后再实现
+![SSS](OpenGL_learning/showcase/SSSS.gif)
 
+
+---
 ## 效果展示
 
 
 | 基础的编辑器与场景系统| PBR + IBL |
 |:---------:|:------------------------:|
-| ![editor](showcase/editor.png) | ![pbr](showcase/PBR+IBL.png) |
+| ![editor](OpenGL_learning/showcase/editor.png) | ![pbr](OpenGL_learning/showcase/PBR+IBL.png) |
 
 |  Compute Shader驱动的粒子系统 | 级联阴影贴图 (CSM + PCSS) |
 |:---------:|:------------------------:|
-| ![particle](showcase/particle_system.png) | ![csm](showcase/CSM+PCSS.png) |
+| ![particle](OpenGL_learning/showcase/particle_system.png) | ![csm](OpenGL_learning/showcase/CSM+PCSS.png) |
 
 | 屏幕空间反射 (SSR) | SSAO |
 |:-----------------:|:-----------:|
-| ![ssr](showcase/SSR.png) | ![ao](showcase/SSAO.png) |
+| ![ssr](OpenGL_learning/showcase/SSR.png) | ![ao](OpenGL_learning/showcase/SSAO.png) |
 
 | GPU 流体仿真 (PBF) | 屏幕空间流体渲染 (SSFR) |
 |:-----------------:|:----------------------:|
-| ![fluid](showcase/PBF.gif) | ![ssfr](showcase/SSFR.png) |
+| ![fluid](OpenGL_learning/showcase/PBF.gif) | ![ssfr](OpenGL_learning/showcase/SSFR.png) |
 
 | 粒子发射器 | G-Buffer 碰撞 |
 |:---------:|:------:|
-| ![emitter](showcase/fluid_emitter_collision.gif) | ![g-buffer](showcase/fluid_emitter_g-buffer.gif) |
+| ![emitter](OpenGL_learning/showcase/fluid_emitter_collision.gif) | ![g-buffer](OpenGL_learning/showcase/fluid_emitter_g-buffer.gif) |
 
 ---
 

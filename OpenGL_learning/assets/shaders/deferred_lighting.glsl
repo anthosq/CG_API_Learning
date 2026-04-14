@@ -25,6 +25,7 @@ void main() {
 #version 430 core
 
 layout (location = 0) out vec4 o_Color;
+layout (location = 1) out vec4 o_SSSColor;  // SSS diffuse（仅 shadingModelID==1 且 u_EnableSSS 时写入）
 
 in vec2 v_TexCoord;
 
@@ -83,7 +84,9 @@ uniform float       u_EnvironmentIntensity;
 
 // SSS
 uniform sampler2D u_SkinLUT;
-uniform float     u_SSSCurvatureScale = 1.0;  // 全局曲率缩放，由 SettingsPanel 控制
+uniform float     u_SSSCurvatureScale         = 1.0;   // 全局曲率缩放，由 SettingsPanel 控制
+uniform float     u_SSSTranslucency           = 0.0;   // 透光强度（0=关闭）
+uniform float     u_SSSTranslucencyDistortion = 0.1;   // 透光法线扭曲：让光路偏向法线方向，使过渡更柔和
 
 // SSAO
 uniform sampler2D u_SSAOMap;
@@ -314,11 +317,11 @@ float ShadowCalculation(vec3 worldPos, float viewDepth, vec3 normal, vec3 lightD
     return mix(1.0, shadow, distFade);
 }
 
-// 次表面散射（PISR 预积分皮肤散射）
+// 次表面散射（PISR 预积分皮肤散射）— 返回纯 irradiance（不含 albedo/subsurfaceColor）
 // 用预积分 LUT 替换 Lambert 漫射项，高光仍沿用 GGX
-// 输入: subsurfaceColor 来自材质 u_SubsurfaceColor uniform（已在 Material::Apply 写入）
+// albedo * subsurfaceColor 在 ssss_composite 模糊之后再乘，保证模糊的是 irradiance 而非颜色调制后的结果
 // radius: per-material 散射宽度（从 GBuffer 解包），与全局 CurvatureScale 共同驱动 LUT V 轴
-vec3 CalculateSSSDiffuse(vec3 N, vec3 L, vec3 albedo, vec3 subsurfaceColor, float radius) {
+vec3 CalculateSSSDiffuse(vec3 N, vec3 L, float radius) {
     vec3  ndx       = dFdx(N);
     vec3  ndy       = dFdy(N);
     float curvature = clamp(sqrt(dot(ndx, ndx) + dot(ndy, ndy)) * radius * u_SSSCurvatureScale, 0.0, 1.0);
@@ -330,20 +333,21 @@ vec3 CalculateSSSDiffuse(vec3 N, vec3 L, vec3 albedo, vec3 subsurfaceColor, floa
     // R/G 通道对应红色/绿色散射积分，蓝色近似为绿色衰减（皮肤蓝色散射极少）
     vec3 scatter = vec3(lutVal.r, lutVal.g, lutVal.g * 0.7);
 
-    return albedo * subsurfaceColor * scatter / PI;
+    return scatter / PI;
 }
 
-// 点光源（含 PCF 软阴影，与 pbr.glsl 完全一致）
-vec3 CalculatePointLight(int index, vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
+// 点光源衰减 + 阴影，输出 L（归一化方向）和 radiance（已含 attenuation * shadow）
+void GetPointLightRadiance(int index, vec3 fragPos, vec3 N,
+                           out vec3 L, out vec3 radiance) {
     vec3  lightPos       = u_PointLights[index].PosRadius.xyz;
     float radius         = u_PointLights[index].PosRadius.w;
     vec3  lightColor     = u_PointLights[index].ColorIntensity.rgb;
     float lightIntensity = u_PointLights[index].ColorIntensity.w;
     float falloff        = u_PointLights[index].Params.x;
 
-    vec3  L = lightPos - fragPos;
-    float distance = length(L);
-    L = normalize(L);
+    vec3  toLight  = lightPos - fragPos;
+    float distance = length(toLight);
+    L = normalize(toLight);
 
     float attenuation;
     if (radius > 0.0) {
@@ -373,11 +377,9 @@ vec3 CalculatePointLight(int index, vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 
                 vec3( 0, 1, 1), vec3( 0,-1, 1), vec3( 0,-1,-1), vec3( 0, 1,-1)
             );
             float diskRadius = (1.0 + dist / farPlane) / 50.0;
-
             float angle = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))
                           * 6.28318530718;
             float c = cos(angle), s = sin(angle);
-
             float sum = 0.0;
             for (int i = 0; i < 20; i++) {
                 vec3 o = offsets[i];
@@ -393,11 +395,17 @@ vec3 CalculatePointLight(int index, vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 
         }
     }
 
-    vec3 radiance = lightColor * lightIntensity * attenuation * shadow;
+    radiance = lightColor * lightIntensity * attenuation * shadow;
+}
+
+vec3 CalculatePointLight(int index, vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
+    vec3 L, radiance;
+    GetPointLightRadiance(index, fragPos, N, L, radiance);
     return CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness);
 }
 
-vec3 CalculateSpotLight(vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
+// 聚光灯衰减，输出 L 和 radiance
+void GetSpotLightRadiance(vec3 fragPos, out vec3 L, out vec3 radiance) {
     vec3  lightPos       = u_SpotLightPosRange.xyz;
     float range          = u_SpotLightPosRange.w;
     vec3  spotDir        = normalize(u_SpotLightDirAngle.xyz);
@@ -407,11 +415,11 @@ vec3 CalculateSpotLight(vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, floa
     float falloff        = u_SpotLightParams.x;
     float angleAttenuation = u_SpotLightParams.y;
 
-    vec3  L = lightPos - fragPos;
-    float distance = length(L);
-    L = normalize(L);
+    vec3  toLight  = lightPos - fragPos;
+    float distance = length(toLight);
+    L = normalize(toLight);
 
-    float theta      = dot(L, -spotDir);
+    float theta       = dot(L, -spotDir);
     float outerCutoff = cos(cutoffAngle);
     float innerCutoff = cos(cutoffAngle * 0.8);
     float epsilon     = innerCutoff - outerCutoff;
@@ -426,7 +434,12 @@ vec3 CalculateSpotLight(vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, floa
         distanceAttenuation = 1.0 / (1.0 + falloff * distance * distance);
     }
 
-    vec3 radiance = lightColor * lightIntensity * spotEffect * distanceAttenuation;
+    radiance = lightColor * lightIntensity * spotEffect * distanceAttenuation;
+}
+
+vec3 CalculateSpotLight(vec3 fragPos, vec3 N, vec3 V, vec3 F0, vec3 albedo, float metallic, float roughness) {
+    vec3 L, radiance;
+    GetSpotLightRadiance(fragPos, L, radiance);
     return CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness);
 }
 
@@ -439,7 +452,8 @@ void main() {
 
     // 跳过天空盒像素（深度 = 1.0 说明没有几何体写入）
     if (depth >= 1.0) {
-        o_Color = vec4(0.0, 0.0, 0.0, 1.0);
+        o_Color    = vec4(0.0, 0.0, 0.0, 1.0);
+        o_SSSColor = vec4(0.0);
         return;
     }
 
@@ -473,11 +487,13 @@ void main() {
 
     // Unlit：只输出自发光，跳过全部光照
     if (shadingModelID == 2) {
-        o_Color = vec4(emissive + albedo, 1.0);
+        o_Color    = vec4(emissive + albedo, 1.0);
+        o_SSSColor = vec4(0.0);
         return;
     }
 
-    vec3 Lo = vec3(0.0);
+    vec3 Lo    = vec3(0.0);
+    vec3 sssLo = vec3(0.0);  // SSS diffuse 专用累积（写入 o_SSSColor，后续 blur）
 
     // 方向光 + CSM 阴影
     if (u_DirLightDirection.w > 0.0) {
@@ -486,10 +502,11 @@ void main() {
         vec3  radiance = u_DirLightColor.rgb * u_DirLightDirection.w;
 
         if (shadingModelID == 1) {
-            // Subsurface：LUT 散射漫反射 + GGX 高光
-            vec3 sssD  = CalculateSSSDiffuse(N, L, albedo, subsurfaceColor, subsurfaceRadius);
-            vec3 spec  = CookTorranceBRDF(N, V, L, radiance, F0, vec3(0.0), metallic, roughness);
-            Lo += (sssD * radiance + spec) * shadow;
+            // Subsurface：LUT 散射漫反射 → o_SSSColor，GGX 高光 → o_Color
+            vec3 sssD = CalculateSSSDiffuse(N, L, subsurfaceRadius);
+            vec3 spec = CookTorranceBRDF(N, V, L, radiance, F0, vec3(0.0), metallic, roughness);
+            sssLo += sssD * radiance * shadow;
+            Lo    += spec * shadow;
         } else {
             Lo += CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness) * shadow;
         }
@@ -502,19 +519,55 @@ void main() {
     int   tileBase  = tileIndex * MAX_LIGHTS_PER_TILE;
     for (int i = 0; i < tileCount; i++) {
         int lightIdx = u_TileLightIndices[tileBase + i];
-        Lo += CalculatePointLight(lightIdx, fragPos, N, V, F0, albedo, metallic, roughness);
+        if (shadingModelID == 1) {
+            vec3 ptL, ptRadiance;
+            GetPointLightRadiance(lightIdx, fragPos, N, ptL, ptRadiance);
+            sssLo += CalculateSSSDiffuse(N, ptL, subsurfaceRadius) * ptRadiance;
+            Lo    += CookTorranceBRDF(N, V, ptL, ptRadiance, F0, vec3(0.0), metallic, roughness);
+        } else {
+            Lo += CalculatePointLight(lightIdx, fragPos, N, V, F0, albedo, metallic, roughness);
+        }
     }
 
     // 聚光灯
-    if (u_LightCounts.y > 0)
-        Lo += CalculateSpotLight(fragPos, N, V, F0, albedo, metallic, roughness);
+    if (u_LightCounts.y > 0) {
+        if (shadingModelID == 1) {
+            vec3 spL, spRadiance;
+            GetSpotLightRadiance(fragPos, spL, spRadiance);
+            sssLo += CalculateSSSDiffuse(N, spL, subsurfaceRadius) * spRadiance;
+            Lo    += CookTorranceBRDF(N, V, spL, spRadiance, F0, vec3(0.0), metallic, roughness);
+        } else {
+            Lo += CalculateSpotLight(fragPos, N, V, F0, albedo, metallic, roughness);
+        }
+    }
 
     // IBL / 环境光
+    // SSS 材质：IBL diffuse irradiance 加入 sssLo（经 blur 后乘 subsurfaceColor 出射）
+    //            IBL specular 不 blur，直接写入 o_Color
+    // DefaultLit：全量 IBL 写入 o_Color（原有路径）
     vec3 ambient;
-    if (u_EnvironmentIntensity > 0.0)
-        ambient = CalculateIBL(N, V, F0, albedo, metallic, roughness, ao);
-    else
+    if (u_EnvironmentIntensity > 0.0) {
+        if (shadingModelID == 1) {
+            float NdotV = max(dot(N, V), 0.0);
+            vec3  kS    = FresnelSchlickRoughness(NdotV, F0, roughness);
+            vec3  kD    = (1.0 - kS) * (1.0 - metallic);
+
+            // IBL diffuse irradiance（不含 albedo）→ sssLo，走 blur → composite × subsurfaceColor
+            vec3 iblIrradiance = texture(u_IrradianceMap, N).rgb * u_EnvironmentIntensity * ao;
+            sssLo += kD * iblIrradiance;
+
+            // IBL specular → o_Color（保持清晰，不参与模糊）
+            vec3 R                = reflect(-V, N);
+            int  mipLevels        = textureQueryLevels(u_PrefilterMap);
+            vec3 prefilteredColor = textureLod(u_PrefilterMap, R, roughness * float(mipLevels - 1)).rgb;
+            vec2 brdf             = texture(u_BrdfLUT, vec2(NdotV, roughness)).rg;
+            ambient = prefilteredColor * (F0 * brdf.x + brdf.y) * u_EnvironmentIntensity;
+        } else {
+            ambient = CalculateIBL(N, V, F0, albedo, metallic, roughness, ao);
+        }
+    } else {
         ambient = u_AmbientColor.rgb * u_AmbientColor.w * albedo * ao * (1.0 - metallic);
+    }
 
     vec3 finalColor = ambient + Lo + emissive;
     if (u_ShowCascades) {
@@ -525,5 +578,6 @@ void main() {
         uint c = SelectCascade(viewDepth);
         finalColor = mix(finalColor, cascadeColors[c], 0.4);
     }
-    o_Color = vec4(finalColor, 1.0);
+    o_Color    = vec4(finalColor, 1.0);
+    o_SSSColor = vec4(sssLo, 1.0);
 }

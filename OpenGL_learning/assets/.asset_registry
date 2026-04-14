@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "handle": "977817ac3e3df892",
+      "path": "__prim:sphere",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "8f2a20f99bb77987",
+      "path": "__prim:cube",
+      "type": "MeshSource"
+    },
+    {
       "handle": "eec599c9615e9497",
       "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_R.tga",
       "type": "Texture"
@@ -11,13 +21,8 @@
       "type": "Texture"
     },
     {
-      "handle": "b4c38ad1c2625f36",
-      "path": "__prim:cube",
-      "type": "MeshSource"
-    },
-    {
-      "handle": "fa9e568f31677c80",
-      "path": "__prim:sphere",
+      "handle": "38111cbfebc65341",
+      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Cerberus_LP.FBX",
       "type": "MeshSource"
     },
     {
@@ -26,19 +31,14 @@
       "type": "Texture"
     },
     {
-      "handle": "38111cbfebc65341",
-      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Cerberus_LP.FBX",
-      "type": "MeshSource"
+      "handle": "66b7df2c5a58cc8d",
+      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_A.tga:srgb",
+      "type": "Texture"
     },
     {
       "handle": "726626db930d8f2e",
       "path": "__prim:plane",
       "type": "MeshSource"
-    },
-    {
-      "handle": "66b7df2c5a58cc8d",
-      "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_A.tga:srgb",
-      "type": "Texture"
     },
     {
       "handle": "d383e7ce5875b392",
@@ -63,6 +63,11 @@
     {
       "handle": "d7228d5d2d3d5a0e",
       "path": "assets\\model\\xyzrgb_dragon.obj",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "871aea6a0b0115f6",
+      "path": "assets\\model\\stanford-bunny.obj",
       "type": "MeshSource"
     }
   ]
