@@ -87,6 +87,8 @@ constexpr uint32_t SHADOW_MAP_SLOT          = 9;
 constexpr uint32_t SSAO_TEXTURE_SLOT        = 10;
 // 点光源阴影数组槽（samplerCubeArray，MAX_SHADOW_POINT_LIGHTS 个 cubemap）
 constexpr uint32_t POINT_SHADOW_MAP_SLOT    = 11;
+// 背面深度（SSS 屏幕空间厚度计算 + SSR 厚度测试）
+constexpr uint32_t BACK_FACE_DEPTH_SLOT     = 13;
 // 最多支持投影的点光源数量
 constexpr int      MAX_SHADOW_POINT_LIGHTS  = 4;
 

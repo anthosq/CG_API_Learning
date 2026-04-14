@@ -310,6 +310,9 @@ void SettingsPanel::OnDraw(EditorContext& context) {
             ImGui::SliderFloat("Trans Distort",  &settings.SSSTranslucencyDistortion, 0.0f, 0.5f, "%.3f");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Normal distortion for back-light transmission");
+            ImGui::SliderFloat("Extinction",     &settings.SSSTranslucencyExtinction, 1.0f, 50.0f, "%.1f 1/m");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Beer-Lambert extinction coefficient.\nHigher = thicker material absorbs more (less transmission).\nRequires BackFaceDepth pass.");
         }
         ImGui::SliderFloat("Curvature Scale", &settings.SSSCurvatureScale, 0.1f, 10.0f, "%.2f");
     }
