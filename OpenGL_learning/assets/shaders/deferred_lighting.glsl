@@ -84,9 +84,12 @@ uniform float       u_EnvironmentIntensity;
 
 // SSS
 uniform sampler2D u_SkinLUT;
-uniform float     u_SSSCurvatureScale         = 1.0;   // 全局曲率缩放，由 SettingsPanel 控制
-uniform float     u_SSSTranslucency           = 0.0;   // 透光强度（0=关闭）
-uniform float     u_SSSTranslucencyDistortion = 0.1;   // 透光法线扭曲：让光路偏向法线方向，使过渡更柔和
+uniform sampler2D u_BackFaceDepth;                        // 背面深度（frontface cull 渲染，slot 13）
+uniform bool      u_HasBackFaceDepth          = false;    // BackFaceDepthPass 是否已运行
+uniform float     u_SSSCurvatureScale         = 1.0;     // 全局曲率缩放，由 SettingsPanel 控制
+uniform float     u_SSSTranslucency           = 0.0;     // 透光强度（0=关闭）
+uniform float     u_SSSTranslucencyDistortion = 0.1;     // 透光法线扭曲：让光路偏向法线方向，使过渡更柔和
+uniform float     u_SSSTranslucencyExtinction = 10.0;    // Beer-Lambert 消光系数（1/场景单位）
 
 // SSAO
 uniform sampler2D u_SSAOMap;
@@ -337,16 +340,16 @@ vec3 CalculateSSSDiffuse(vec3 N, vec3 L, float radius) {
 }
 
 // 透光（薄处背面透射）
-// 原理：光从背面以 L 方向入射，穿透薄介质后从正面出射
-//   thickFactor = clamp(1 - radius/5, 0, 1)：radius 越大越厚越不透光
-//   pow(VdotL, 4)：视角对齐光源方向时透光最强（前向散射）
-//   distortion：将光方向向法线偏转，使过渡边界更柔和
-float CalculateTransmission(vec3 N, vec3 L, vec3 V, float radius) {
-    vec3  Ld         = normalize(L + N * u_SSSTranslucencyDistortion);
-    float VdotL      = max(dot(-V, Ld), 0.0);
-    float backNdotL  = max(-dot(N, L), 0.0);
-    float thickFactor = clamp(1.0 - radius / 5.0, 0.0, 1.0);
-    return pow(VdotL, 4.0) * backNdotL * thickFactor * u_SSSTranslucency;
+// thickAttenuation：[0,1] 衰减系数（1=完全透明，0=完全不透光）
+//   当 u_HasBackFaceDepth=true：由 main() 用屏幕空间背面深度计算 Beer-Lambert 衰减
+//   当 u_HasBackFaceDepth=false：退化为旧方案 (1 - radius/5)，radius 越大越厚
+//   pow(VdotL, 4)：视线对齐光源时透光最强（前向散射峰值）
+//   distortion：偏转光方向向法线，使背光过渡边界更柔和
+float CalculateTransmission(vec3 N, vec3 L, vec3 V, float thickAttenuation) {
+    vec3  Ld        = normalize(L + N * u_SSSTranslucencyDistortion);
+    float VdotL     = max(dot(-V, Ld), 0.0);
+    float backNdotL = max(-dot(N, L), 0.0);
+    return pow(VdotL, 4.0) * backNdotL * thickAttenuation * u_SSSTranslucency;
 }
 
 // 点光源衰减 + 阴影，输出 L（归一化方向）和 radiance（已含 attenuation * shadow）
@@ -508,6 +511,22 @@ void main() {
     vec3 Lo    = vec3(0.0);
     vec3 sssLo = vec3(0.0);  // SSS diffuse 专用累积（写入 o_SSSColor，后续 blur）
 
+    // 屏幕空间厚度衰减（Beer-Lambert；仅 SSS 像素有效，其他像素为 0 不影响）
+    float ssssThickAttenuation = 0.0;
+    if (shadingModelID == 1) {
+        if (u_HasBackFaceDepth) {
+            float pn  = u_Projection[3][2] / (u_Projection[2][2] - 1.0);
+            float pf  = u_Projection[3][2] / (u_Projection[2][2] + 1.0);
+            float fL  = pn * pf / (pf - depth  * (pf - pn));
+            float bd  = texture(u_BackFaceDepth, v_TexCoord).r;
+            float bL  = pn * pf / (pf - bd     * (pf - pn));
+            float thickness = max(0.0, bL - fL);
+            ssssThickAttenuation = exp(-thickness * u_SSSTranslucencyExtinction);
+        } else {
+            ssssThickAttenuation = clamp(1.0 - subsurfaceRadius / 5.0, 0.0, 1.0);
+        }
+    }
+
     // 方向光 + CSM 阴影
     if (u_DirLightDirection.w > 0.0) {
         vec3  L        = normalize(-u_DirLightDirection.xyz);
@@ -519,7 +538,7 @@ void main() {
             vec3 sssD = CalculateSSSDiffuse(N, L, subsurfaceRadius);
             vec3 spec = CookTorranceBRDF(N, V, L, radiance, F0, vec3(0.0), metallic, roughness);
             sssLo += sssD * radiance * shadow;
-            sssLo += vec3(CalculateTransmission(N, L, V, subsurfaceRadius)) * radiance;
+            sssLo += vec3(CalculateTransmission(N, L, V, ssssThickAttenuation)) * radiance;
             Lo    += spec * shadow;
         } else {
             Lo += CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness) * shadow;
@@ -537,7 +556,7 @@ void main() {
             vec3 ptL, ptRadiance;
             GetPointLightRadiance(lightIdx, fragPos, N, ptL, ptRadiance);
             sssLo += CalculateSSSDiffuse(N, ptL, subsurfaceRadius) * ptRadiance;
-            sssLo += vec3(CalculateTransmission(N, ptL, V, subsurfaceRadius)) * ptRadiance;
+            sssLo += vec3(CalculateTransmission(N, ptL, V, ssssThickAttenuation)) * ptRadiance;
             Lo    += CookTorranceBRDF(N, V, ptL, ptRadiance, F0, vec3(0.0), metallic, roughness);
         } else {
             Lo += CalculatePointLight(lightIdx, fragPos, N, V, F0, albedo, metallic, roughness);
@@ -550,7 +569,7 @@ void main() {
             vec3 spL, spRadiance;
             GetSpotLightRadiance(fragPos, spL, spRadiance);
             sssLo += CalculateSSSDiffuse(N, spL, subsurfaceRadius) * spRadiance;
-            sssLo += vec3(CalculateTransmission(N, spL, V, subsurfaceRadius)) * spRadiance;
+            sssLo += vec3(CalculateTransmission(N, spL, V, ssssThickAttenuation)) * spRadiance;
             Lo    += CookTorranceBRDF(N, V, spL, spRadiance, F0, vec3(0.0), metallic, roughness);
         } else {
             Lo += CalculateSpotLight(fragPos, N, V, F0, albedo, metallic, roughness);

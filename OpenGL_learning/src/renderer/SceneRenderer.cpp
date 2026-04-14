@@ -575,6 +575,12 @@ void SceneRenderer::FlushDrawList() {
         if (m_Settings.EnableTiledLighting)
             TiledLightCullPass();
 
+        // 3.5 BackFaceDepth（SSS 屏幕空间厚度 + SSR 厚度测试共用；在 Deferred Lighting 之前跑一次）
+        bool needBackFaceDepth = (m_Settings.SSSTranslucency > 0.0f)
+                              || (m_Settings.EnableSSR && m_HiZPipeline && m_SSRPipeline);
+        if (needBackFaceDepth)
+            BackFaceDepthPass();
+
         // 4. Deferred Lighting Pass → 输出 HDR 颜色
         m_HDRFramebuffer->Bind();
         RenderCommand::SetViewport(0, 0, viewportWidth, viewportHeight);
@@ -595,7 +601,6 @@ void SceneRenderer::FlushDrawList() {
         // 4.6 SSR（Hi-Z 从 GBuffer 深度构建，在 HDR 颜色输出后、深度 blit 前执行）
         GPU_TIMER_BEGIN(m_GPUStats.SSR);
         if (m_Settings.EnableSSR && m_HiZPipeline && m_SSRPipeline) {
-            BackFaceDepthPass();
             HiZBuildPass();
             SSRPass();
         }
@@ -1146,6 +1151,17 @@ void SceneRenderer::DeferredLightingPass() {
     shader->SetFloat("u_SSSCurvatureScale",         m_Settings.SSSCurvatureScale);
     shader->SetFloat("u_SSSTranslucency",           m_Settings.SSSTranslucency);
     shader->SetFloat("u_SSSTranslucencyDistortion", m_Settings.SSSTranslucencyDistortion);
+    shader->SetFloat("u_SSSTranslucencyExtinction", m_Settings.SSSTranslucencyExtinction);
+
+    // BackFaceDepth（slot 13，SSS 屏幕空间厚度）
+    bool hasBackFace = m_BackFaceDepthTex != 0 && m_Settings.SSSTranslucency > 0.0f;
+    shader->SetBool("u_HasBackFaceDepth", hasBackFace);
+    if (hasBackFace) {
+        glActiveTexture(GL_TEXTURE0 + BACK_FACE_DEPTH_SLOT);
+        glBindTexture(GL_TEXTURE_2D, m_BackFaceDepthTex);
+        shader->SetInt("u_BackFaceDepth", static_cast<int>(BACK_FACE_DEPTH_SLOT));
+    }
+
     if (m_SkinLUT) {
         glActiveTexture(GL_TEXTURE0 + TextureSlot::SkinLUT);
         glBindTexture(GL_TEXTURE_2D, m_SkinLUT);

@@ -109,8 +109,9 @@ struct SceneRenderSettings {
     bool      EnableSSS          = false;             // true → SSS diffuse 写入独立 RT，经 Blur 后 Composite 合回场景
     float     SSSBlurScale       = 8.0f;              // SubsurfaceRadius → 屏幕像素 sigma 的缩放系数
     glm::vec3 SSSScatterRGB      = {1.0f, 0.5f, 0.3f}; // RGB 各通道散射半径倍率（皮肤：红>绿>蓝）
-    float     SSSTranslucency    = 0.3f;              // 透光强度（0=关闭）
-    float     SSSTranslucencyDistortion = 0.1f;       // 透光法线扭曲系数
+    float     SSSTranslucency           = 0.3f;   // 透光强度（0=关闭）
+    float     SSSTranslucencyDistortion = 0.1f;   // 透光法线扭曲系数
+    float     SSSTranslucencyExtinction = 10.0f;  // Beer-Lambert 消光系数（1/场景单位）；BackFaceDepth 可用时生效
 
     // SSAO
     bool  EnableSSAO         = true;
