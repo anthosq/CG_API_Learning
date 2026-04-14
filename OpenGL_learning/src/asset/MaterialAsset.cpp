@@ -133,6 +133,28 @@ void MaterialAsset::SetAOMap(AssetHandle handle) {
         texture ? texture : Renderer::GetWhiteTexture());
 }
 
+glm::vec3 MaterialAsset::GetSubsurfaceColor() const {
+    if (m_Material)
+        return m_Material->Get<glm::vec3>("u_SubsurfaceColor", glm::vec3(1.0f, 0.4f, 0.3f));
+    return glm::vec3(1.0f, 0.4f, 0.3f);
+}
+
+void MaterialAsset::SetSubsurfaceColor(const glm::vec3& color) {
+    if (m_Material)
+        m_Material->Set<glm::vec3>("u_SubsurfaceColor", color);
+}
+
+float MaterialAsset::GetSubsurfaceRadius() const {
+    if (m_Material)
+        return m_Material->Get<float>("u_SubsurfaceRadius", 1.0f);
+    return 1.0f;
+}
+
+void MaterialAsset::SetSubsurfaceRadius(float radius) {
+    if (m_Material)
+        m_Material->Set<float>("u_SubsurfaceRadius", radius);
+}
+
 void MaterialAsset::SetEmissiveMap(AssetHandle handle) {
     m_EmissiveMap = handle;
     if (!m_Material) return;

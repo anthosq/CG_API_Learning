@@ -63,6 +63,7 @@ public:
                               GLenum access, GLenum format) const;
 
     // Uniform 设置方法
+    void SetBool(const std::string& name, bool value) const;
     void SetInt(const std::string& name, int value) const;
     void SetUint(const std::string& name, uint32_t value) const;
     void SetIVec2(const std::string& name, const glm::ivec2& value) const;

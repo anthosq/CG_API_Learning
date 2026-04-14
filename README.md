@@ -5,7 +5,14 @@
 
 
 ---
+## 4月14日更新
+- 简单的屏幕空间次表面散射效果实现
+- 后续计划向Burley Normalized SSS实现靠拢, 做rgb三个通道的
+- 透光部分参考UE5用shadowmap去获取数据, 但好像有点问题, 在完成rgb三通道的blur后再实现
+![SSS](OpenGL_learning/showcase/SSSS.gif)
 
+
+---
 ## 效果展示
 
 

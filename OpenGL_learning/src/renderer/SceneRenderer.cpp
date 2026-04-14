@@ -110,6 +110,7 @@ void SceneRenderer::Shutdown() {
     if (m_GTAODenoisedTex) { glDeleteTextures(1, &m_GTAODenoisedTex); m_GTAODenoisedTex = 0; }
     if (m_GTAOFinalTex)    { glDeleteTextures(1, &m_GTAOFinalTex);    m_GTAOFinalTex    = 0; }
     if (m_HilbertLutTex)   { glDeleteTextures(1, &m_HilbertLutTex);   m_HilbertLutTex   = 0; }
+    if (m_SkinLUT)         { glDeleteTextures(1, &m_SkinLUT);         m_SkinLUT         = 0; }
     m_GTAOPipeline.Reset();
     m_GTAODenoisePipeline.Reset();
 
@@ -210,6 +211,30 @@ void SceneRenderer::LoadShaders(const std::filesystem::path& shaderDir) {
             std::cerr << "[SceneRenderer] Failed to load gtao_denoise.glsl\n";
         else
             std::cout << "[SceneRenderer] GTAO denoise compute shader loaded\n";
+    }
+
+    // SSSS Blur Compute Shader（在 sss/ 子目录）
+    auto ssssBlurPath = shaderDir / "sss" / "ssss_blur.glsl";
+    if (std::filesystem::exists(ssssBlurPath)) {
+        m_SSSBlurPipeline = ComputePipeline::Create(ssssBlurPath);
+        if (!m_SSSBlurPipeline || !m_SSSBlurPipeline->IsValid())
+            std::cerr << "[SceneRenderer] Failed to load ssss_blur.glsl\n";
+        else
+            std::cout << "[SceneRenderer] SSSS blur compute shader loaded\n";
+    }
+
+    // ssss_composite.glsl 通过普通 ShaderLibrary 扫描 sss/ 子目录加载
+    auto sssDir = shaderDir / "sss";
+    if (std::filesystem::exists(sssDir)) {
+        for (const auto& entry : std::filesystem::directory_iterator(sssDir)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".glsl") {
+                auto name = entry.path().stem().string();
+                // skin_lut 是 compute-only，由 PrecomputeSkinLUT 单独管理；ssss_blur 也是 compute
+                // 只加载包含 vertex/fragment 段的 shader（ssss_composite）
+                if (name != "skin_lut" && name != "ssss_blur")
+                    m_ShaderLibrary.Load(entry.path());
+            }
+        }
     }
 }
 
@@ -560,7 +585,14 @@ void SceneRenderer::FlushDrawList() {
             GPU_TIMER_END(m_GPUStats.Lighting);
         }
 
-        // 4.5 SSR（Hi-Z 从 GBuffer 深度构建，在 HDR 颜色输出后、深度 blit 前执行）
+        // 4.5 SSSS Blur + Composite（Lighting 之后、SSR 之前；SSS diffuse 已在 SSSColorRT 中）
+        if (m_SSSColorTex) {
+            if (m_Settings.EnableSSS)
+                SSSBlurPass();
+            SSSCompositePass();  // 始终运行（未模糊时退化为 PISR）
+        }
+
+        // 4.6 SSR（Hi-Z 从 GBuffer 深度构建，在 HDR 颜色输出后、深度 blit 前执行）
         GPU_TIMER_BEGIN(m_GPUStats.SSR);
         if (m_Settings.EnableSSR && m_HiZPipeline && m_SSRPipeline) {
             BackFaceDepthPass();
@@ -892,6 +924,14 @@ void SceneRenderer::GeometryPass() {
         pbrShader->SetInt("u_BrdfLUT", static_cast<int>(TextureSlot::BrdfLUT));
     }
 
+    // SkinLUT（slot 12，Forward SSS）
+    pbrShader->SetFloat("u_SSSCurvatureScale", m_Settings.SSSCurvatureScale);
+    if (m_SkinLUT) {
+        glActiveTexture(GL_TEXTURE0 + TextureSlot::SkinLUT);
+        glBindTexture(GL_TEXTURE_2D, m_SkinLUT);
+        pbrShader->SetInt("u_SkinLUT", static_cast<int>(TextureSlot::SkinLUT));
+    }
+
     // 阴影贴图绑定（slot 9，sampler2DArrayShadow）
     if (m_ShadowMap && m_ShadowMap->IsValid()) {
         m_ShadowMap->BindForReading(SHADOW_MAP_SLOT);
@@ -943,6 +983,7 @@ void SceneRenderer::GeometryPass() {
         // 获取并绑定材质
         auto material = GetMaterialForDrawCommand(cmd);
         BindPBRMaterial(*pbrShader, material);
+        pbrShader->SetInt("u_ShadingModelID", static_cast<int>(material->GetShadingModel()));
 
         // 设置变换
         pbrShader->SetMat4("u_Model", cmd.Transform);
@@ -1017,6 +1058,7 @@ void SceneRenderer::GBufferPass() {
 
         auto material = GetMaterialForDrawCommand(cmd);
         BindPBRMaterial(*gbufferShader, material);
+        gbufferShader->SetInt("u_ShadingModelID", static_cast<int>(material->GetShadingModel()));
 
         gbufferShader->SetMat4("u_Model", cmd.Transform);
         gbufferShader->SetMat3("u_NormalMatrix", cmd.NormalMatrix);
@@ -1049,6 +1091,19 @@ void SceneRenderer::DeferredLightingPass() {
     }
 
     RenderCommand::DisableDepthTest();
+
+    // 切换到 SSS lighting FBO（attachment0=HDR color，attachment1=SSSColorTex）
+    // 若未就绪则退回 m_HDRFramebuffer（单输出）
+    if (m_SSSLightingFBO) {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_SSSLightingFBO);
+        // 先单独清 SSSColorRT（attachment1），避免残留上一帧数据
+        GLenum sssBuf = GL_COLOR_ATTACHMENT1;
+        glDrawBuffers(1, &sssBuf);
+        float zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        glClearBufferfv(GL_COLOR, 0, zero);
+        GLenum bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+        glDrawBuffers(2, bufs);
+    }
 
     shader->Bind();
 
@@ -1087,6 +1142,16 @@ void SceneRenderer::DeferredLightingPass() {
         shader->SetInt("u_BrdfLUT", static_cast<int>(TextureSlot::BrdfLUT));
     }
 
+    // SkinLUT（slot 12，避免与 SHADOW_MAP_SLOT=9 冲突）
+    shader->SetFloat("u_SSSCurvatureScale",         m_Settings.SSSCurvatureScale);
+    shader->SetFloat("u_SSSTranslucency",           m_Settings.SSSTranslucency);
+    shader->SetFloat("u_SSSTranslucencyDistortion", m_Settings.SSSTranslucencyDistortion);
+    if (m_SkinLUT) {
+        glActiveTexture(GL_TEXTURE0 + TextureSlot::SkinLUT);
+        glBindTexture(GL_TEXTURE_2D, m_SkinLUT);
+        shader->SetInt("u_SkinLUT", static_cast<int>(TextureSlot::SkinLUT));
+    }
+
     // 阴影贴图（slot 9）
     if (m_ShadowMap && m_ShadowMap->IsValid()) {
         m_ShadowMap->BindForReading(SHADOW_MAP_SLOT);
@@ -1123,6 +1188,13 @@ void SceneRenderer::DeferredLightingPass() {
     Renderer::DrawFullscreenQuad();
 
     shader->Unbind();
+
+    // 恢复 HDR FBO（后续 SSR / SkyboxPass 等仍依赖它）
+    if (m_SSSLightingFBO) {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_HDRFramebuffer->GetID());
+        GLenum hdrBuf = GL_COLOR_ATTACHMENT0;
+        glDrawBuffers(1, &hdrBuf);
+    }
 
     RenderCommand::EnableDepthTest();
 }
@@ -1622,7 +1694,6 @@ void SceneRenderer::BindPBRMaterial(Shader& shader, const Ref<MaterialAsset>& ma
     auto mat = material->GetMaterial();
     if (!mat) return;
 
-    // Material::Apply 上传 uniform 并绑定纹理
     mat->Apply(shader);
 }
 
@@ -1656,6 +1727,33 @@ void SceneRenderer::CreateDefaultResources() {
     m_DefaultMaterial->SetAlbedoColor(glm::vec3(0.8f));
     m_DefaultMaterial->SetMetallic(0.0f);
     m_DefaultMaterial->SetRoughness(0.5f);
+
+    PrecomputeSkinLUT();
+}
+
+void SceneRenderer::PrecomputeSkinLUT() {
+    const int LUT_SIZE = 512;
+
+    glGenTextures(1, &m_SkinLUT);
+    glBindTexture(GL_TEXTURE_2D, m_SkinLUT);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RG16F, LUT_SIZE, LUT_SIZE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    auto pipeline = ComputePipeline::Create("assets/shaders/sss/skin_lut.glsl");
+    if (!pipeline) {
+        std::cerr << "[SceneRenderer] skin_lut.glsl 加载失败" << std::endl;
+        return;
+    }
+
+    pipeline->Bind();
+    glBindImageTexture(0, m_SkinLUT, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RG16F);
+    pipeline->DispatchAndWait(LUT_SIZE / 32, LUT_SIZE / 32, 1);
+
+    std::cout << "[SceneRenderer] Skin LUT 预计算完成 (" << LUT_SIZE << "x" << LUT_SIZE << ")" << std::endl;
 }
 
 void SceneRenderer::SyncLightsFromECS(ECS::World& world) {
@@ -1753,8 +1851,9 @@ void SceneRenderer::EnsureHDRFramebuffer(uint32_t width, uint32_t height) {
     if (!m_GBuffer || m_GBuffer->GetWidth() != width || m_GBuffer->GetHeight() != height)
         m_GBuffer = GBuffer::Create({ width, height });
 
-    // SSR 资源与 HDR FBO 同尺寸一起维护
+    // SSR / SSS 资源与 HDR FBO 同尺寸一起维护
     EnsureSSRResources(width, height);
+    EnsureSSSResources(width, height);
 }
 
 void SceneRenderer::EnsureSSRResources(uint32_t width, uint32_t height) {
@@ -1831,6 +1930,40 @@ void SceneRenderer::EnsureSSRResources(uint32_t width, uint32_t height) {
         m_SSRColorPyramidHeight = h;
         m_SSRColorPyramidMips   = pyrMips;
     }
+}
+
+void SceneRenderer::EnsureSSSResources(uint32_t width, uint32_t height) {
+    if (m_SSSColorTex && m_SSSTexWidth == static_cast<int>(width) && m_SSSTexHeight == static_cast<int>(height))
+        return;
+
+    if (m_SSSColorTex)    { glDeleteTextures(1, &m_SSSColorTex);       m_SSSColorTex    = 0; }
+    if (m_SSSBlurTempTex) { glDeleteTextures(1, &m_SSSBlurTempTex);    m_SSSBlurTempTex = 0; }
+    if (m_SSSLightingFBO) { glDeleteFramebuffers(1, &m_SSSLightingFBO); m_SSSLightingFBO = 0; }
+
+    auto makeRT = [](GLuint& tex, uint32_t w, uint32_t h) {
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA16F, w, h);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    };
+    makeRT(m_SSSColorTex,    width, height);
+    makeRT(m_SSSBlurTempTex, width, height);
+
+    // Deferred Lighting 专用 FBO：attachment0 = HDR 颜色，attachment1 = SSS diffuse
+    // 复用 HDR FBO 的颜色纹理，避免额外拷贝
+    glGenFramebuffers(1, &m_SSSLightingFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_SSSLightingFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_HDRFramebuffer->GetColorAttachment(), 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, m_SSSColorTex, 0);
+    GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, drawBufs);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    m_SSSTexWidth  = static_cast<int>(width);
+    m_SSSTexHeight = static_cast<int>(height);
 }
 
 void SceneRenderer::EnsureBackFaceDepthTex(int w, int h)
@@ -1954,6 +2087,82 @@ void SceneRenderer::HiZBuildPass() {
 
     glBindTexture(GL_TEXTURE_2D, 0);
     m_HiZPipeline->Unbind();
+}
+
+void SceneRenderer::SSSBlurPass() {
+    if (!m_SSSBlurPipeline || !m_SSSBlurPipeline->IsValid()) return;
+    if (!m_SSSColorTex || !m_SSSBlurTempTex) return;
+
+    const uint32_t W = static_cast<uint32_t>(m_SSSTexWidth);
+    const uint32_t H = static_cast<uint32_t>(m_SSSTexHeight);
+
+    m_SSSBlurPipeline->Bind();
+    auto& cs = *m_SSSBlurPipeline;
+
+    // G-Buffer 绑定（深度 + ShadingModelID 用于边界保护）
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetDepth());
+    cs.SetInt("u_GBufDepth", 4);
+
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetEmissiveShadingID());
+    cs.SetInt("u_GBufEmissiveShadingID", 5);
+
+    cs.SetFloat ("u_BlurScale",  m_Settings.SSSBlurScale);
+    cs.SetVec3  ("u_ScatterRGB", m_Settings.SSSScatterRGB);
+    cs.SetFloat ("u_Near",       m_CameraNear);
+    cs.SetFloat ("u_Far",        m_CameraFar);
+
+    // H pass：SSSColorTex → SSSBlurTempTex
+    glBindImageTexture(0, m_SSSColorTex,    0, GL_FALSE, 0, GL_READ_ONLY,  GL_RGBA16F);
+    glBindImageTexture(1, m_SSSBlurTempTex, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+    cs.SetBool("u_Horizontal", true);
+    glDispatchCompute((W + 255) / 256, H, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    // V pass：SSSBlurTempTex → SSSColorTex
+    glBindImageTexture(0, m_SSSBlurTempTex, 0, GL_FALSE, 0, GL_READ_ONLY,  GL_RGBA16F);
+    glBindImageTexture(1, m_SSSColorTex,    0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+    cs.SetBool("u_Horizontal", false);
+    glDispatchCompute((H + 255) / 256, W, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+
+    m_SSSBlurPipeline->Unbind();
+}
+
+void SceneRenderer::SSSCompositePass() {
+    auto shader = m_ShaderLibrary.Get("ssss_composite");
+    if (!shader || !m_SSSColorTex) return;
+
+    // 从 ssss_composite 读取 HDR 场景颜色（已在 m_HDRFramebuffer 中）
+    // 将 SSSColor 加进去，写回同一个 HDR FBO
+    // 先把 HDR 颜色 blit 到一张临时纹理，避免 read-write 同一 attachment 的 feedback loop
+    // 简化方案：直接 bind HDR FBO，用 blending Add 把 SSSColor 叠加
+    // （GL_ONE + GL_ONE additive blend，不需要读 HDR color）
+
+    m_HDRFramebuffer->Bind();
+    RenderCommand::SetViewport(0, 0, m_SSSTexWidth, m_SSSTexHeight);
+    RenderCommand::DisableDepthTest();
+
+    // Additive blend：dst = dst + src（SSSColor 直接叠加到 HDR 场景颜色上）
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+
+    shader->Bind();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_SSSColorTex);
+    shader->SetInt("u_SSSColor", 0);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_GBuffer->GetEmissiveShadingID());
+    shader->SetInt("u_GBufEmissiveShadingID", 1);
+
+    Renderer::DrawFullscreenQuad();
+
+    shader->Unbind();
+    glDisable(GL_BLEND);
+    RenderCommand::EnableDepthTest();
+    m_HDRFramebuffer->Unbind();
 }
 
 void SceneRenderer::SSRPass() {

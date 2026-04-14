@@ -11,12 +11,12 @@
       "type": "Texture"
     },
     {
-      "handle": "ee03657953b57dd0",
+      "handle": "e01afd7c05692e8a",
       "path": "__prim:cube",
       "type": "MeshSource"
     },
     {
-      "handle": "801476e11ac085f2",
+      "handle": "977817ac3e3df892",
       "path": "__prim:sphere",
       "type": "MeshSource"
     },
@@ -41,7 +41,7 @@
       "type": "Texture"
     },
     {
-      "handle": "4080305ba8d45f6b",
+      "handle": "d383e7ce5875b392",
       "path": "__prim:cylinder",
       "type": "MeshSource"
     },
@@ -54,6 +54,21 @@
       "handle": "c477f7ef307971e3",
       "path": "assets\\model\\Cerberus_by_Andrew_Maximov\\Textures\\Cerberus_N.tga",
       "type": "Texture"
+    },
+    {
+      "handle": "523ddadaa9010e83",
+      "path": "assets\\model\\cerberusffvii-gun-model-by-andrew-maximov\\source\\Cerberus_LP.FBX.fbx",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "d7228d5d2d3d5a0e",
+      "path": "assets\\model\\xyzrgb_dragon.obj",
+      "type": "MeshSource"
+    },
+    {
+      "handle": "871aea6a0b0115f6",
+      "path": "assets\\model\\stanford-bunny.obj",
+      "type": "MeshSource"
     }
   ]
 }

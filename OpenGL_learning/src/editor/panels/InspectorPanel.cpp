@@ -391,6 +391,15 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
         ImGui::PopID();
     };
 
+    // Shading Model
+    {
+        const char* shadingModelItems[] = { "Default Lit", "Subsurface", "Unlit" };
+        int currentModel = static_cast<int>(matAsset->GetShadingModel());
+        if (ImGui::Combo("Shading Model", &currentModel, shadingModelItems, 3))
+            matAsset->SetShadingModel(static_cast<ShadingModel>(currentModel));
+    }
+    ImGui::Separator();
+
     if (ImGui::CollapsingHeader("Albedo", ImGuiTreeNodeFlags_DefaultOpen)) {
         DrawTextureSlot("Albedo Map", matAsset->GetAlbedoMap(),
             [&](AssetHandle h) { matAsset->SetAlbedoMap(h); },
@@ -446,6 +455,35 @@ void InspectorPanel::DrawMaterialEditor(Ref<MaterialAsset> matAsset) {
         DrawTextureSlot("AO Map", matAsset->GetAOMap(),
             [&](AssetHandle h) { matAsset->SetAOMap(h); },
             [&]() { matAsset->SetAOMap(AssetHandle(0)); });
+    }
+
+    if (matAsset->GetShadingModel() == ShadingModel::Subsurface) {
+        if (ImGui::CollapsingHeader("Subsurface Scattering", ImGuiTreeNodeFlags_DefaultOpen)) {
+            glm::vec3 sssColor = matAsset->GetSubsurfaceColor();
+            if (ImGui::ColorEdit3("Scatter Color", &sssColor[0]))
+                matAsset->SetSubsurfaceColor(sssColor);
+
+            float radius = matAsset->GetSubsurfaceRadius();
+            if (ImGui::SliderFloat("Scatter Radius", &radius, 0.0f, 5.0f))
+                matAsset->SetSubsurfaceRadius(radius);
+
+            ImGui::Text("Presets:");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Skin")) {
+                matAsset->SetSubsurfaceColor(glm::vec3(1.0f, 0.4f, 0.3f));
+                matAsset->SetSubsurfaceRadius(1.0f);
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Jade")) {
+                matAsset->SetSubsurfaceColor(glm::vec3(0.3f, 0.8f, 0.4f));
+                matAsset->SetSubsurfaceRadius(2.5f);
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Wax")) {
+                matAsset->SetSubsurfaceColor(glm::vec3(0.9f, 0.8f, 0.6f));
+                matAsset->SetSubsurfaceRadius(0.8f);
+            }
+        }
     }
 }
 
