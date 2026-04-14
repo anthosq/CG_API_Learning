@@ -336,6 +336,19 @@ vec3 CalculateSSSDiffuse(vec3 N, vec3 L, float radius) {
     return scatter / PI;
 }
 
+// 透光（薄处背面透射）
+// 原理：光从背面以 L 方向入射，穿透薄介质后从正面出射
+//   thickFactor = clamp(1 - radius/5, 0, 1)：radius 越大越厚越不透光
+//   pow(VdotL, 4)：视角对齐光源方向时透光最强（前向散射）
+//   distortion：将光方向向法线偏转，使过渡边界更柔和
+float CalculateTransmission(vec3 N, vec3 L, vec3 V, float radius) {
+    vec3  Ld         = normalize(L + N * u_SSSTranslucencyDistortion);
+    float VdotL      = max(dot(-V, Ld), 0.0);
+    float backNdotL  = max(-dot(N, L), 0.0);
+    float thickFactor = clamp(1.0 - radius / 5.0, 0.0, 1.0);
+    return pow(VdotL, 4.0) * backNdotL * thickFactor * u_SSSTranslucency;
+}
+
 // 点光源衰减 + 阴影，输出 L（归一化方向）和 radiance（已含 attenuation * shadow）
 void GetPointLightRadiance(int index, vec3 fragPos, vec3 N,
                            out vec3 L, out vec3 radiance) {
@@ -502,10 +515,11 @@ void main() {
         vec3  radiance = u_DirLightColor.rgb * u_DirLightDirection.w;
 
         if (shadingModelID == 1) {
-            // Subsurface：LUT 散射漫反射 → o_SSSColor，GGX 高光 → o_Color
+            // Subsurface：LUT 散射漫反射 + 透光 → o_SSSColor，GGX 高光 → o_Color
             vec3 sssD = CalculateSSSDiffuse(N, L, subsurfaceRadius);
             vec3 spec = CookTorranceBRDF(N, V, L, radiance, F0, vec3(0.0), metallic, roughness);
             sssLo += sssD * radiance * shadow;
+            sssLo += vec3(CalculateTransmission(N, L, V, subsurfaceRadius)) * radiance;
             Lo    += spec * shadow;
         } else {
             Lo += CookTorranceBRDF(N, V, L, radiance, F0, albedo, metallic, roughness) * shadow;
@@ -523,6 +537,7 @@ void main() {
             vec3 ptL, ptRadiance;
             GetPointLightRadiance(lightIdx, fragPos, N, ptL, ptRadiance);
             sssLo += CalculateSSSDiffuse(N, ptL, subsurfaceRadius) * ptRadiance;
+            sssLo += vec3(CalculateTransmission(N, ptL, V, subsurfaceRadius)) * ptRadiance;
             Lo    += CookTorranceBRDF(N, V, ptL, ptRadiance, F0, vec3(0.0), metallic, roughness);
         } else {
             Lo += CalculatePointLight(lightIdx, fragPos, N, V, F0, albedo, metallic, roughness);
@@ -535,6 +550,7 @@ void main() {
             vec3 spL, spRadiance;
             GetSpotLightRadiance(fragPos, spL, spRadiance);
             sssLo += CalculateSSSDiffuse(N, spL, subsurfaceRadius) * spRadiance;
+            sssLo += vec3(CalculateTransmission(N, spL, V, subsurfaceRadius)) * spRadiance;
             Lo    += CookTorranceBRDF(N, V, spL, spRadiance, F0, vec3(0.0), metallic, roughness);
         } else {
             Lo += CalculateSpotLight(fragPos, N, V, F0, albedo, metallic, roughness);

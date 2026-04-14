@@ -301,8 +301,16 @@ void SettingsPanel::OnDraw(EditorContext& context) {
         ImGui::TextDisabled("(?)");
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Screen-Space Subsurface Scattering.\nDisabled: PISR LUT only (sharp terminator).\nEnabled: SSS diffuse blurred via Compute Shader.");
-        if (settings.EnableSSS)
-            ImGui::SliderFloat("Blur Scale", &settings.SSSBlurScale, 1.0f, 32.0f, "%.1f px/unit");
+        if (settings.EnableSSS) {
+            ImGui::SliderFloat("Blur Scale",   &settings.SSSBlurScale, 1.0f, 32.0f, "%.1f px/unit");
+            ImGui::SliderFloat3("Scatter RGB", &settings.SSSScatterRGB.x, 0.1f, 2.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Per-channel sigma multiplier (R>G>B for skin)");
+            ImGui::SliderFloat("Translucency",   &settings.SSSTranslucency,           0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Trans Distort",  &settings.SSSTranslucencyDistortion, 0.0f, 0.5f, "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Normal distortion for back-light transmission");
+        }
         ImGui::SliderFloat("Curvature Scale", &settings.SSSCurvatureScale, 0.1f, 10.0f, "%.2f");
     }
 
